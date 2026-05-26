@@ -142,7 +142,11 @@ vite.config.ts.timestamp-*
 
 
 # Claude
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/scripts/
+!.claude/scripts/**
+.claude/state/
 CLAUDE.md
 .DS_Store
 
@@ -158,6 +162,7 @@ opencode.json
 .codex/
 
 .humanlayer/
+spok/changes/
 
 # Bob
 .bob/

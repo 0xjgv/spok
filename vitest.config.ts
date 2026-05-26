@@ -30,7 +30,7 @@ export default defineConfig({
     maxWorkers: resolveMaxWorkers(),
     include: ['test/**/*.test.ts'],
     coverage: {
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'html', 'lcov'],
       exclude: [
         'node_modules/',
         'dist/',
