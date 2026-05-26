@@ -12,6 +12,7 @@ describe('welcome-screen', () => {
       expect(text).toContain('/spok-archive');
       expect(text).not.toContain('/opsx:');
       expect(text).not.toContain('/opsx-');
+      expect(text).not.toContain('/spok:');
     });
 
     it('mentions vendored helper skills', () => {

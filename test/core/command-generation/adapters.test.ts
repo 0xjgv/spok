@@ -212,13 +212,13 @@ describe('command-generation/adapters', () => {
     it('should transform colon command references to hyphen format', () => {
       const contentWithRefs: CommandContent = {
         ...sampleContent,
-        body: 'Run /opsx:apply to implement. Then use /opsx:verify.',
+        body: 'Run /spok:apply to implement. Then use /spok:verify.',
       };
       const output = bobAdapter.formatFile(contentWithRefs);
-      expect(output).toContain('/opsx-apply');
-      expect(output).toContain('/opsx-verify');
-      expect(output).not.toContain('/opsx:apply');
-      expect(output).not.toContain('/opsx:verify');
+      expect(output).toContain('/spok-apply');
+      expect(output).toContain('/spok-verify');
+      expect(output).not.toContain('/spok:apply');
+      expect(output).not.toContain('/spok:verify');
     });
 
     it('should escape YAML special characters in description', () => {
@@ -524,28 +524,28 @@ describe('command-generation/adapters', () => {
     it('should transform colon-based command references to hyphen-based', () => {
       const contentWithCommands: CommandContent = {
         ...sampleContent,
-        body: 'Use /opsx:new to start, then /opsx:apply to implement.',
+        body: 'Use /spok:new to start, then /spok:apply to implement.',
       };
       const output = opencodeAdapter.formatFile(contentWithCommands);
-      expect(output).toContain('/opsx-new');
-      expect(output).toContain('/opsx-apply');
-      expect(output).not.toContain('/opsx:new');
-      expect(output).not.toContain('/opsx:apply');
+      expect(output).toContain('/spok-new');
+      expect(output).toContain('/spok-apply');
+      expect(output).not.toContain('/spok:new');
+      expect(output).not.toContain('/spok:apply');
     });
 
     it('should handle multiple command references in body', () => {
       const contentWithMultipleCommands: CommandContent = {
         ...sampleContent,
-        body: `/opsx:explore for ideas
-/opsx:new to create
-/opsx:continue to proceed
-/opsx:apply to implement`,
+        body: `/spok:explore for ideas
+/spok:new to create
+/spok:continue to proceed
+/spok:apply to implement`,
       };
       const output = opencodeAdapter.formatFile(contentWithMultipleCommands);
-      expect(output).toContain('/opsx-explore');
-      expect(output).toContain('/opsx-new');
-      expect(output).toContain('/opsx-continue');
-      expect(output).toContain('/opsx-apply');
+      expect(output).toContain('/spok-explore');
+      expect(output).toContain('/spok-new');
+      expect(output).toContain('/spok-continue');
+      expect(output).toContain('/spok-apply');
     });
   });
 
@@ -616,19 +616,19 @@ describe('command-generation/adapters', () => {
     it('should transform command references from colon to hyphen format', () => {
       const contentWithRefs: CommandContent = {
         ...sampleContent,
-        body: 'Run /opsx:apply to implement. Then /opsx:archive when done.',
+        body: 'Run /spok:apply to implement. Then /spok:archive when done.',
       };
 
       const output = piAdapter.formatFile(contentWithRefs);
-      expect(output).toContain('/opsx-apply');
-      expect(output).toContain('/opsx-archive');
-      expect(output).not.toContain('/opsx:apply');
+      expect(output).toContain('/spok-apply');
+      expect(output).toContain('/spok-archive');
+      expect(output).not.toContain('/spok:apply');
     });
 
     it('should inject template arguments into the input section', () => {
       const contentWithInput: CommandContent = {
         ...sampleContent,
-        body: '**Input**: The argument after `/opsx:explore` is the topic.\n\n**Steps**\n1. Think.',
+        body: '**Input**: The argument after `/spok:explore` is the topic.\n\n**Steps**\n1. Think.',
       };
 
       const output = piAdapter.formatFile(contentWithInput);
