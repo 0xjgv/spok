@@ -30,33 +30,59 @@ export const LEGACY_CONFIG_FILES = [
  * Some tools used a directory structure, others used individual files.
  */
 export const LEGACY_SLASH_COMMAND_PATHS: Record<string, LegacySlashCommandPattern> = {
-  // Directory-based: .tooldir/commands/spok/ or .tooldir/commands/spok/*.md
-  'claude': { type: 'directory', path: '.claude/commands/spok' },
-  'codebuddy': { type: 'directory', path: '.codebuddy/commands/spok' },
-  'qoder': { type: 'directory', path: '.qoder/commands/spok' },
-  'lingma': { type: 'directory', path: '.lingma/commands/spok' },
-  'crush': { type: 'directory', path: '.crush/commands/spok' },
-  'gemini': { type: 'directory', path: '.gemini/commands/spok' },
+  // Directory-based: retired spok/ and opsx/ command folders
+  'claude': {
+    type: 'directory',
+    path: ['.claude/commands/spok', '.claude/commands/opsx'],
+    pattern: ['.claude/commands/spok-*.md', '.claude/commands/opsx-*.md'],
+  },
+  'codebuddy': {
+    type: 'directory',
+    path: ['.codebuddy/commands/spok', '.codebuddy/commands/opsx'],
+    pattern: ['.codebuddy/commands/spok-*.md', '.codebuddy/commands/opsx-*.md'],
+  },
+  'qoder': {
+    type: 'directory',
+    path: ['.qoder/commands/spok', '.qoder/commands/opsx'],
+    pattern: ['.qoder/commands/spok-*.md', '.qoder/commands/opsx-*.md'],
+  },
+  'lingma': {
+    type: 'directory',
+    path: ['.lingma/commands/spok', '.lingma/commands/opsx'],
+    pattern: ['.lingma/commands/spok-*.md', '.lingma/commands/opsx-*.md'],
+  },
+  'crush': {
+    type: 'directory',
+    path: ['.crush/commands/spok', '.crush/commands/opsx'],
+    pattern: ['.crush/commands/spok-*.md', '.crush/commands/opsx-*.md'],
+  },
+  'gemini': {
+    type: 'directory',
+    path: ['.gemini/commands/spok', '.gemini/commands/opsx'],
+    pattern: ['.gemini/commands/spok-*.toml', '.gemini/commands/opsx-*.toml'],
+  },
   'costrict': { type: 'directory', path: '.cospec/spok/commands' },
 
-  // File-based: individual spok-*.md files in a commands/workflows/prompts folder
-  'cursor': { type: 'files', pattern: '.cursor/commands/spok-*.md' },
-  'windsurf': { type: 'files', pattern: '.windsurf/workflows/spok-*.md' },
-  'kilocode': { type: 'files', pattern: '.kilocode/workflows/spok-*.md' },
-  'kiro': { type: 'files', pattern: '.kiro/prompts/spok-*.prompt.md' },
-  'github-copilot': { type: 'files', pattern: '.github/prompts/spok-*.prompt.md' },
-  'amazon-q': { type: 'files', pattern: '.amazonq/prompts/spok-*.md' },
-  'cline': { type: 'files', pattern: '.clinerules/workflows/spok-*.md' },
-  'roocode': { type: 'files', pattern: '.roo/commands/spok-*.md' },
-  'auggie': { type: 'files', pattern: '.augment/commands/spok-*.md' },
-  'factory': { type: 'files', pattern: '.factory/commands/spok-*.md' },
+  // File-based: retired spok-* and opsx-* slash command files
+  'cursor': { type: 'files', pattern: ['.cursor/commands/spok-*.md', '.cursor/commands/opsx-*.md'] },
+  'windsurf': { type: 'files', pattern: ['.windsurf/workflows/spok-*.md', '.windsurf/workflows/opsx-*.md'] },
+  'kilocode': { type: 'files', pattern: ['.kilocode/workflows/spok-*.md', '.kilocode/workflows/opsx-*.md'] },
+  'kiro': { type: 'files', pattern: ['.kiro/prompts/spok-*.prompt.md', '.kiro/prompts/opsx-*.prompt.md'] },
+  'github-copilot': { type: 'files', pattern: ['.github/prompts/spok-*.prompt.md', '.github/prompts/opsx-*.prompt.md'] },
+  'amazon-q': { type: 'files', pattern: ['.amazonq/prompts/spok-*.md', '.amazonq/prompts/opsx-*.md'] },
+  'cline': { type: 'files', pattern: ['.clinerules/workflows/spok-*.md', '.clinerules/workflows/opsx-*.md'] },
+  'roocode': { type: 'files', pattern: ['.roo/commands/spok-*.md', '.roo/commands/opsx-*.md'] },
+  'auggie': { type: 'files', pattern: ['.augment/commands/spok-*.md', '.augment/commands/opsx-*.md'] },
+  'factory': { type: 'files', pattern: ['.factory/commands/spok-*.md', '.factory/commands/opsx-*.md'] },
   'opencode': { type: 'files', pattern: ['.opencode/command/opsx-*.md', '.opencode/command/spok-*.md'] },
-  'continue': { type: 'files', pattern: '.continue/prompts/spok-*.prompt' },
-  'antigravity': { type: 'files', pattern: '.agent/workflows/spok-*.md' },
-  'iflow': { type: 'files', pattern: '.iflow/commands/spok-*.md' },
+  'continue': { type: 'files', pattern: ['.continue/prompts/spok-*.prompt', '.continue/prompts/opsx-*.prompt'] },
+  'antigravity': { type: 'files', pattern: ['.agent/workflows/spok-*.md', '.agent/workflows/opsx-*.md'] },
+  'iflow': { type: 'files', pattern: ['.iflow/commands/spok-*.md', '.iflow/commands/opsx-*.md'] },
   'junie': { type: 'files', pattern: ['.junie/commands/opsx-*.md', '.junie/commands/spok-*.md'] },
-  'qwen': { type: 'files', pattern: '.qwen/commands/spok-*.toml' },
-  'codex': { type: 'files', pattern: '.codex/prompts/spok-*.md' },
+  'qwen': { type: 'files', pattern: ['.qwen/commands/spok-*.toml', '.qwen/commands/opsx-*.toml'] },
+  'codex': { type: 'files', pattern: ['.codex/prompts/spok-*.md', '.codex/prompts/opsx-*.md'] },
+  'bob': { type: 'files', pattern: ['.bob/commands/spok-*.md', '.bob/commands/opsx-*.md'] },
+  'pi': { type: 'files', pattern: ['.pi/prompts/spok-*.md', '.pi/prompts/opsx-*.md'] },
 };
 
 /**
@@ -86,7 +112,7 @@ export type RetiredSkillDir = (typeof RETIRED_SKILL_DIRS)[number];
  */
 export interface LegacySlashCommandPattern {
   type: 'directory' | 'files';
-  path?: string; // For directory type
+  path?: string | string[]; // For directory type
   pattern?: string | string[]; // For files type (glob pattern or array of patterns)
 }
 
@@ -240,12 +266,16 @@ export async function detectLegacySlashCommands(
   const files: string[] = [];
 
   for (const [toolId, pattern] of Object.entries(LEGACY_SLASH_COMMAND_PATHS)) {
-    if (pattern.type === 'directory' && pattern.path) {
-      const dirPath = FileSystemUtils.joinPath(projectPath, pattern.path);
-      if (await FileSystemUtils.directoryExists(dirPath)) {
-        directories.push(pattern.path);
+    if (pattern.path) {
+      const paths = Array.isArray(pattern.path) ? pattern.path : [pattern.path];
+      for (const relPath of paths) {
+        const dirPath = FileSystemUtils.joinPath(projectPath, relPath);
+        if (await FileSystemUtils.directoryExists(dirPath)) {
+          directories.push(relPath);
+        }
       }
-    } else if (pattern.type === 'files' && pattern.pattern) {
+    }
+    if (pattern.pattern) {
       // For file-based patterns, check for individual files
       const patterns = Array.isArray(pattern.pattern) ? pattern.pattern : [pattern.pattern];
       for (const p of patterns) {
@@ -511,7 +541,7 @@ export function formatCleanupSummary(result: CleanupResult): string {
     }
 
     for (const dir of result.deletedDirs) {
-      lines.push(`  ✓ Removed ${dir}/ (replaced by /opsx:*)`);
+      lines.push(`  ✓ Removed ${dir}/ (replaced by Spok skills)`);
     }
 
     for (const file of result.modifiedFiles) {
@@ -663,9 +693,12 @@ export function getToolsFromLegacyArtifacts(detection: LegacyDetectionResult): s
   // Match directories to tool IDs
   for (const dir of detection.slashCommandDirs) {
     for (const [toolId, pattern] of Object.entries(LEGACY_SLASH_COMMAND_PATHS)) {
-      if (pattern.type === 'directory' && pattern.path === dir) {
-        tools.add(toolId);
-        break;
+      if (pattern.path) {
+        const paths = Array.isArray(pattern.path) ? pattern.path : [pattern.path];
+        if (paths.includes(dir)) {
+          tools.add(toolId);
+          break;
+        }
       }
     }
   }
@@ -675,7 +708,7 @@ export function getToolsFromLegacyArtifacts(detection: LegacyDetectionResult): s
     // Normalize file path to use forward slashes for consistent matching (Windows compatibility)
     const normalizedFile = file.replace(/\\/g, '/');
     for (const [toolId, pattern] of Object.entries(LEGACY_SLASH_COMMAND_PATHS)) {
-      if (pattern.type === 'files' && pattern.pattern) {
+      if (pattern.pattern) {
         // Convert glob pattern to regex for matching
         // e.g., '.cursor/commands/spok-*.md' -> /^\.cursor\/commands\/spok-.*\.md$/
         const patterns = Array.isArray(pattern.pattern) ? pattern.pattern : [pattern.pattern];

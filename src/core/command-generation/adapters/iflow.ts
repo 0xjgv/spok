@@ -6,23 +6,24 @@
 
 import path from 'path';
 import type { CommandContent, ToolCommandAdapter } from '../types.js';
+import { spokCommandBasename } from '../spok-command-basename.js';
 
 /**
  * iFlow adapter for command generation.
- * File path: .iflow/commands/opsx-<id>.md
+ * File path: .iflow/commands/spok-<id>.md
  * Frontmatter: name, id, category, description
  */
 export const iflowAdapter: ToolCommandAdapter = {
   toolId: 'iflow',
 
   getFilePath(commandId: string): string {
-    return path.join('.iflow', 'commands', `opsx-${commandId}.md`);
+    return path.join('.iflow', 'commands', `${spokCommandBasename(commandId)}.md`);
   },
 
   formatFile(content: CommandContent): string {
     return `---
-name: /opsx-${content.id}
-id: opsx-${content.id}
+name: /${spokCommandBasename(content.id)}
+id: ${spokCommandBasename(content.id)}
 category: ${content.category}
 description: ${content.description}
 ---

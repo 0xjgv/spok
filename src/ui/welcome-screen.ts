@@ -1,5 +1,5 @@
 /**
- * Animated welcome screen for the experimental artifact workflow setup.
+ * Interactive init welcome screen.
  * Shows side-by-side layout with animated ASCII art on left and welcome text on right.
  */
 
@@ -15,19 +15,19 @@ const ART_COLUMN_WIDTH = 24;
 /**
  * Welcome text content (right column)
  */
-function getWelcomeText(): string[] {
+export function getWelcomeText(): string[] {
   return [
     chalk.white.bold('Welcome to Spok'),
     chalk.dim('A lightweight spec-driven framework'),
     '',
     chalk.white('This setup will configure:'),
     chalk.dim('  • Agent Skills for AI tools'),
-    chalk.dim('  • /opsx:* slash commands'),
+    chalk.dim('  • Vendored helper skills (spok-flow, spok-create-scoped-chunks, …)'),
     '',
     chalk.white('Quick start after setup:'),
-    `  ${chalk.yellow('/opsx:new')}      ${chalk.dim('Create a change')}`,
-    `  ${chalk.yellow('/opsx:continue')} ${chalk.dim('Next artifact')}`,
-    `  ${chalk.yellow('/opsx:apply')}    ${chalk.dim('Implement tasks')}`,
+    `  ${chalk.yellow('/spok-propose')}  ${chalk.dim('Start a new change')}`,
+    `  ${chalk.yellow('/spok-apply')}    ${chalk.dim('Ship the next chunk')}`,
+    `  ${chalk.yellow('/spok-archive')}  ${chalk.dim('Finalize the change')}`,
     '',
     chalk.cyan('Press Enter to select tools...'),
   ];

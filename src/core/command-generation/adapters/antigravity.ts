@@ -6,17 +6,18 @@
 
 import path from 'path';
 import type { CommandContent, ToolCommandAdapter } from '../types.js';
+import { spokCommandBasename } from '../spok-command-basename.js';
 
 /**
  * Antigravity adapter for command generation.
- * File path: .agent/workflows/opsx-<id>.md
+ * File path: .agent/workflows/spok-<id>.md
  * Frontmatter: description
  */
 export const antigravityAdapter: ToolCommandAdapter = {
   toolId: 'antigravity',
 
   getFilePath(commandId: string): string {
-    return path.join('.agent', 'workflows', `opsx-${commandId}.md`);
+    return path.join('.agent', 'workflows', `${spokCommandBasename(commandId)}.md`);
   },
 
   formatFile(content: CommandContent): string {

@@ -1,7 +1,7 @@
 /**
  * Init Command
  *
- * Sets up Spok with Agent Skills and /opsx:* slash commands.
+ * Sets up Spok with 3-verb agent skills and optional tool-specific command files.
  * This is the unified setup command that replaces both the old init and experimental commands.
  */
 
@@ -684,9 +684,9 @@ export class InitCommand {
 
     console.log();
     console.log(chalk.bold('Getting started:'));
-    console.log('  /spok-propose "your idea"');
-    console.log('  /spok-apply');
-    console.log('  /spok-archive');
+    console.log('  /spok-propose  Start a new change');
+    console.log('  /spok-apply    Ship the next chunk');
+    console.log('  /spok-archive  Finalize the change');
 
     // Links
     console.log();
@@ -696,7 +696,7 @@ export class InitCommand {
     // Restart instruction if any tools were configured
     if (results.createdTools.length > 0 || results.refreshedTools.length > 0) {
       console.log();
-      console.log(chalk.white('Restart your IDE for slash commands to take effect.'));
+      console.log(chalk.white('Restart your IDE for skills to take effect.'));
     }
 
     console.log();

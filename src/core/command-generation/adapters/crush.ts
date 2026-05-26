@@ -6,17 +6,18 @@
 
 import path from 'path';
 import type { CommandContent, ToolCommandAdapter } from '../types.js';
+import { spokCommandBasename } from '../spok-command-basename.js';
 
 /**
  * Crush adapter for command generation.
- * File path: .crush/commands/opsx/<id>.md
+ * File path: .crush/commands/spok-<id>.md
  * Frontmatter: name, description, category, tags
  */
 export const crushAdapter: ToolCommandAdapter = {
   toolId: 'crush',
 
   getFilePath(commandId: string): string {
-    return path.join('.crush', 'commands', 'opsx', `${commandId}.md`);
+    return path.join('.crush', 'commands', `${spokCommandBasename(commandId)}.md`);
   },
 
   formatFile(content: CommandContent): string {

@@ -270,6 +270,15 @@ ${SPOK_MARKERS.end}`);
       expect(result.directories).toContain('.claude/commands/spok');
     });
 
+    it('should detect retired commands/opsx directory', async () => {
+      const dirPath = path.join(testDir, '.claude', 'commands', 'opsx');
+      await fs.mkdir(dirPath, { recursive: true });
+      await fs.writeFile(path.join(dirPath, 'propose.md'), 'content');
+
+      const result = await detectLegacySlashCommands(testDir);
+      expect(result.directories).toContain('.claude/commands/opsx');
+    });
+
     it('should detect legacy Cursor slash command files', async () => {
       const dirPath = path.join(testDir, '.cursor', 'commands');
       await fs.mkdir(dirPath, { recursive: true });
@@ -630,7 +639,7 @@ ${SPOK_MARKERS.end}`);
       };
 
       const summary = formatCleanupSummary(result);
-      expect(summary).toContain('✓ Removed .claude/commands/spok/ (replaced by /opsx:*)');
+      expect(summary).toContain('✓ Removed .claude/commands/spok/ (replaced by Spok skills)');
     });
 
     it('should format modified files', () => {
@@ -919,17 +928,18 @@ ${SPOK_MARKERS.end}`);
     it('should include expected tool patterns', () => {
       expect(LEGACY_SLASH_COMMAND_PATHS['claude']).toEqual({
         type: 'directory',
-        path: '.claude/commands/spok',
+        path: ['.claude/commands/spok', '.claude/commands/opsx'],
+        pattern: ['.claude/commands/spok-*.md', '.claude/commands/opsx-*.md'],
       });
 
       expect(LEGACY_SLASH_COMMAND_PATHS['cursor']).toEqual({
         type: 'files',
-        pattern: '.cursor/commands/spok-*.md',
+        pattern: ['.cursor/commands/spok-*.md', '.cursor/commands/opsx-*.md'],
       });
 
       expect(LEGACY_SLASH_COMMAND_PATHS['windsurf']).toEqual({
         type: 'files',
-        pattern: '.windsurf/workflows/spok-*.md',
+        pattern: ['.windsurf/workflows/spok-*.md', '.windsurf/workflows/opsx-*.md'],
       });
     });
 
@@ -941,8 +951,8 @@ ${SPOK_MARKERS.end}`);
         expect(registeredTools.has(tool)).toBe(true);
       }
 
-      // Pi was never a pre-1.0 legacy tool
-      expect(LEGACY_SLASH_COMMAND_PATHS).not.toHaveProperty('pi');
+      // Bob was added for retired opsx-* flat command cleanup
+      expect(LEGACY_SLASH_COMMAND_PATHS).toHaveProperty('bob');
     });
   });
 
