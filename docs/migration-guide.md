@@ -67,11 +67,15 @@ These verbs were removed entirely:
 | `spok spec` | Removed |
 | `spok config` | Edit `spok/config.yaml` directly |
 | `spok schema` / `spok schemas` | Schemas are an internal concept; `spec-driven` is the only one |
-| `spok workspace` | Removed |
+| `spok workspace` | Removed — see note below |
 | `spok experimental` | Removed |
 | `spok templates` | Removed |
 
 The surviving CLI surface is documented in [CLI](cli.md).
+
+### Workspace planning layouts
+
+If you still have a `.spok-workspace/` layout from an earlier version, Spok can resolve it for `spok status` and `spok instructions`. `/spok-apply` and `/spok-archive` require repo-local mode and will stop when `actionContext.mode` is `workspace-planning`. Migrate cross-repo work into a single repo or run apply/archive from each linked repo separately.
 
 ### Profiles and `--profile`
 

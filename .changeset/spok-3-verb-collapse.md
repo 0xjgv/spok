@@ -30,7 +30,7 @@ The following `spok` subcommands have been removed:
 
 `view`, `change`, `validate`, `show`, `feedback`, `completion`, `spec`, `config`, `schema`, `workspace`, `experimental`, `templates`, `schemas`
 
-The CLI surface is now four user-facing verbs (`init`, `update`, `archive`, `list`) plus four internal plumbing verbs the skills depend on (`new`, `status`, `instructions`, `__complete`).
+The CLI surface is now four user-facing verbs (`init`, `update`, `archive`, `list`) plus three internal plumbing verbs the skills depend on (`new`, `status`, `instructions`).
 
 #### Removed profile system
 

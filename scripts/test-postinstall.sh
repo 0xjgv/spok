@@ -12,13 +12,13 @@ echo ""
 
 # Save original environment
 ORIGINAL_CI="${CI:-}"
-ORIGINAL_SPOK_NO_COMPLETIONS="${SPOK_NO_COMPLETIONS:-}"
+ORIGINAL_SPOK_NO_INSTALL_TIP="${SPOK_NO_INSTALL_TIP:-}"
 
 # Test 1: Normal install
-echo "Test 1: Normal install (should print tip about completions)"
+echo "Test 1: Normal install (should print getting-started tip)"
 echo "--------------------------------------"
 unset CI
-unset SPOK_NO_COMPLETIONS
+unset SPOK_NO_INSTALL_TIP
 bun run scripts/postinstall.js
 echo ""
 
@@ -31,10 +31,10 @@ echo "[No output expected - skipped due to CI]"
 echo ""
 
 # Test 3: Opt-out flag (should skip silently)
-echo "Test 3: SPOK_NO_COMPLETIONS=1 (should skip silently)"
+echo "Test 3: SPOK_NO_INSTALL_TIP=1 (should skip silently)"
 echo "--------------------------------------"
 unset CI
-export SPOK_NO_COMPLETIONS=1
+export SPOK_NO_INSTALL_TIP=1
 bun run scripts/postinstall.js
 echo "[No output expected - skipped due to opt-out]"
 echo ""
@@ -46,10 +46,10 @@ else
   unset CI
 fi
 
-if [ -n "$ORIGINAL_SPOK_NO_COMPLETIONS" ]; then
-  export SPOK_NO_COMPLETIONS="$ORIGINAL_SPOK_NO_COMPLETIONS"
+if [ -n "$ORIGINAL_SPOK_NO_INSTALL_TIP" ]; then
+  export SPOK_NO_INSTALL_TIP="$ORIGINAL_SPOK_NO_INSTALL_TIP"
 else
-  unset SPOK_NO_COMPLETIONS
+  unset SPOK_NO_INSTALL_TIP
 fi
 
 echo "======================================"

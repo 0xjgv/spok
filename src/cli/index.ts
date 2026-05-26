@@ -161,19 +161,6 @@ program
     }
   });
 
-// Hidden command for machine-readable completion data
-program
-  .command('__complete <type>', { hidden: true })
-  .description('Output completion data in machine-readable format (internal use)')
-  .action(async (_type: string) => {
-    try {
-      // Completion data is no longer generated; exit gracefully.
-      process.exitCode = 1;
-    } catch {
-      process.exitCode = 1;
-    }
-  });
-
 // ═══════════════════════════════════════════════════════════
 // Internal plumbing commands (used by skills, not for direct invocation)
 // ═══════════════════════════════════════════════════════════

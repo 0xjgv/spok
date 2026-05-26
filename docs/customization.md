@@ -109,7 +109,7 @@ If you used previous versions of Spok, several customization knobs no longer exi
 
 - **Workflow profiles (`core`, `custom`)** — Removed. The three-verb surface is fixed.
 - **Custom schemas (`spok schema init`, `spok schema fork`, `spok schema validate`, `spok schema which`, `spok schemas`)** — Removed. `spec-driven` is the only schema and it's a CLI internal.
-- **Workspace commands (`spok workspace …`)** — Removed.
+- **Workspace commands (`spok workspace …`)** — Removed. Existing `.spok-workspace/` layouts may still resolve for `spok status` and `spok instructions`, but `/spok-apply` and `/spok-archive` require repo-local mode.
 - **Browsing/inspection (`spok view`, `spok show`, `spok validate`, `spok feedback`, `spok completion`, `spok templates`)** — Removed.
 
 If you depended on any of these, see the [Migration Guide](migration-guide.md) for the upgrade path.
