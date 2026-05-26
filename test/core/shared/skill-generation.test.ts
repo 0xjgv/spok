@@ -6,11 +6,14 @@ import {
   generateSkillContent,
 } from '../../../src/core/shared/skill-generation.js';
 
+const EXPECTED_WORKFLOWS = ['propose', 'apply', 'archive'] as const;
+const EXPECTED_SKILL_DIRS = ['spok-propose', 'spok-apply', 'spok-archive'] as const;
+
 describe('skill-generation', () => {
   describe('getSkillTemplates', () => {
-    it('should return all 11 skill templates', () => {
+    it('should return all 3 skill templates', () => {
       const templates = getSkillTemplates();
-      expect(templates).toHaveLength(11);
+      expect(templates).toHaveLength(3);
     });
 
     it('should have unique directory names', () => {
@@ -23,18 +26,9 @@ describe('skill-generation', () => {
     it('should include all expected skills', () => {
       const templates = getSkillTemplates();
       const dirNames = templates.map(t => t.dirName);
-
-      expect(dirNames).toContain('spok-explore');
-      expect(dirNames).toContain('spok-new-change');
-      expect(dirNames).toContain('spok-continue-change');
-      expect(dirNames).toContain('spok-apply-change');
-      expect(dirNames).toContain('spok-ff-change');
-      expect(dirNames).toContain('spok-sync-specs');
-      expect(dirNames).toContain('spok-archive-change');
-      expect(dirNames).toContain('spok-bulk-archive-change');
-      expect(dirNames).toContain('spok-verify-change');
-      expect(dirNames).toContain('spok-onboard');
-      expect(dirNames).toContain('spok-propose');
+      for (const dir of EXPECTED_SKILL_DIRS) {
+        expect(dirNames).toContain(dir);
+      }
     });
 
     it('should have valid template structure', () => {
@@ -57,15 +51,12 @@ describe('skill-generation', () => {
     });
 
     it('should filter by workflow IDs when provided', () => {
-      const filtered = getSkillTemplates(['propose', 'explore', 'apply', 'archive']);
-      expect(filtered).toHaveLength(4);
+      const filtered = getSkillTemplates(['propose', 'apply']);
+      expect(filtered).toHaveLength(2);
       const ids = filtered.map(t => t.workflowId);
       expect(ids).toContain('propose');
-      expect(ids).toContain('explore');
       expect(ids).toContain('apply');
-      expect(ids).toContain('archive');
-      expect(ids).not.toContain('new');
-      expect(ids).not.toContain('ff');
+      expect(ids).not.toContain('archive');
     });
 
     it('should return all templates when filter is undefined', () => {
@@ -88,9 +79,9 @@ describe('skill-generation', () => {
   });
 
   describe('getCommandTemplates', () => {
-    it('should return all 11 command templates', () => {
+    it('should return all 3 command templates', () => {
       const templates = getCommandTemplates();
-      expect(templates).toHaveLength(11);
+      expect(templates).toHaveLength(3);
     });
 
     it('should have unique IDs', () => {
@@ -103,30 +94,18 @@ describe('skill-generation', () => {
     it('should include all expected commands', () => {
       const templates = getCommandTemplates();
       const ids = templates.map(t => t.id);
-
-      expect(ids).toContain('explore');
-      expect(ids).toContain('new');
-      expect(ids).toContain('continue');
-      expect(ids).toContain('apply');
-      expect(ids).toContain('ff');
-      expect(ids).toContain('sync');
-      expect(ids).toContain('archive');
-      expect(ids).toContain('bulk-archive');
-      expect(ids).toContain('verify');
-      expect(ids).toContain('onboard');
-      expect(ids).toContain('propose');
+      for (const id of EXPECTED_WORKFLOWS) {
+        expect(ids).toContain(id);
+      }
     });
 
     it('should filter by workflow IDs when provided', () => {
-      const filtered = getCommandTemplates(['propose', 'explore', 'apply', 'archive']);
-      expect(filtered).toHaveLength(4);
+      const filtered = getCommandTemplates(['propose', 'apply']);
+      expect(filtered).toHaveLength(2);
       const ids = filtered.map(t => t.id);
       expect(ids).toContain('propose');
-      expect(ids).toContain('explore');
       expect(ids).toContain('apply');
-      expect(ids).toContain('archive');
-      expect(ids).not.toContain('new');
-      expect(ids).not.toContain('ff');
+      expect(ids).not.toContain('archive');
     });
 
     it('should return all templates when filter is undefined', () => {
@@ -142,9 +121,9 @@ describe('skill-generation', () => {
   });
 
   describe('getCommandContents', () => {
-    it('should return all 11 command contents', () => {
+    it('should return all 3 command contents', () => {
       const contents = getCommandContents();
-      expect(contents).toHaveLength(11);
+      expect(contents).toHaveLength(3);
     });
 
     it('should have valid content structure', () => {
@@ -169,12 +148,12 @@ describe('skill-generation', () => {
     });
 
     it('should filter by workflow IDs when provided', () => {
-      const filtered = getCommandContents(['propose', 'explore']);
+      const filtered = getCommandContents(['propose', 'apply']);
       expect(filtered).toHaveLength(2);
       const ids = filtered.map(c => c.id);
       expect(ids).toContain('propose');
-      expect(ids).toContain('explore');
-      expect(ids).not.toContain('new');
+      expect(ids).toContain('apply');
+      expect(ids).not.toContain('archive');
     });
 
     it('should return all contents when filter is undefined', () => {
@@ -260,15 +239,15 @@ describe('skill-generation', () => {
       const template = {
         name: 'transform-test',
         description: 'Test transform callback',
-        instructions: 'Use /opsx:new to start and /opsx:apply to implement.',
+        instructions: 'Use /opsx:propose to start and /opsx:apply to implement.',
       };
 
       const transformer = (text: string) => text.replace(/\/opsx:/g, '/opsx-');
       const content = generateSkillContent(template, '0.23.0', transformer);
 
-      expect(content).toContain('/opsx-new');
+      expect(content).toContain('/opsx-propose');
       expect(content).toContain('/opsx-apply');
-      expect(content).not.toContain('/opsx:new');
+      expect(content).not.toContain('/opsx:propose');
       expect(content).not.toContain('/opsx:apply');
     });
 
@@ -276,12 +255,12 @@ describe('skill-generation', () => {
       const template = {
         name: 'no-transform-test',
         description: 'Test without transform',
-        instructions: 'Use /opsx:new to start.',
+        instructions: 'Use /opsx:propose to start.',
       };
 
       const content = generateSkillContent(template, '0.23.0', undefined);
 
-      expect(content).toContain('/opsx:new');
+      expect(content).toContain('/opsx:propose');
     });
 
     it('should support custom transformInstructions logic', () => {

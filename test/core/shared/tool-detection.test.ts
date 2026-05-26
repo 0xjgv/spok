@@ -28,18 +28,10 @@ describe('tool-detection', () => {
 
   describe('SKILL_NAMES', () => {
     it('should contain all skill names matching COMMAND_IDS', () => {
-      expect(SKILL_NAMES).toHaveLength(11);
-      expect(SKILL_NAMES).toContain('spok-explore');
-      expect(SKILL_NAMES).toContain('spok-new-change');
-      expect(SKILL_NAMES).toContain('spok-continue-change');
-      expect(SKILL_NAMES).toContain('spok-apply-change');
-      expect(SKILL_NAMES).toContain('spok-ff-change');
-      expect(SKILL_NAMES).toContain('spok-sync-specs');
-      expect(SKILL_NAMES).toContain('spok-archive-change');
-      expect(SKILL_NAMES).toContain('spok-bulk-archive-change');
-      expect(SKILL_NAMES).toContain('spok-verify-change');
-      expect(SKILL_NAMES).toContain('spok-onboard');
+      expect(SKILL_NAMES).toHaveLength(3);
       expect(SKILL_NAMES).toContain('spok-propose');
+      expect(SKILL_NAMES).toContain('spok-apply');
+      expect(SKILL_NAMES).toContain('spok-archive');
     });
   });
 
@@ -69,7 +61,7 @@ describe('tool-detection', () => {
     });
 
     it('should detect when one skill exists', async () => {
-      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-explore');
+      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-propose');
       await fs.mkdir(skillDir, { recursive: true });
       await fs.writeFile(path.join(skillDir, 'SKILL.md'), 'test content');
 
@@ -104,7 +96,7 @@ describe('tool-detection', () => {
     });
 
     it('should detect configured tools', async () => {
-      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-explore');
+      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-propose');
       await fs.mkdir(skillDir, { recursive: true });
       await fs.writeFile(path.join(skillDir, 'SKILL.md'), 'test content');
 
@@ -123,7 +115,7 @@ describe('tool-detection', () => {
     it('should return null when generatedBy is not present', async () => {
       const filePath = path.join(testDir, 'skill.md');
       await fs.writeFile(filePath, `---
-name: spok-explore
+name: spok-propose
 metadata:
   author: spok
   version: "1.0"
@@ -139,7 +131,7 @@ Content here
     it('should extract generatedBy version with double quotes', async () => {
       const filePath = path.join(testDir, 'skill.md');
       await fs.writeFile(filePath, `---
-name: spok-explore
+name: spok-propose
 metadata:
   author: spok
   version: "1.0"
@@ -156,7 +148,7 @@ Content here
     it('should extract generatedBy version with single quotes', async () => {
       const filePath = path.join(testDir, 'skill.md');
       await fs.writeFile(filePath, `---
-name: spok-explore
+name: spok-propose
 metadata:
   generatedBy: '0.24.0'
 ---
@@ -171,7 +163,7 @@ Content here
     it('should extract generatedBy version without quotes', async () => {
       const filePath = path.join(testDir, 'skill.md');
       await fs.writeFile(filePath, `---
-name: spok-explore
+name: spok-propose
 metadata:
   generatedBy: 0.25.0
 ---
@@ -200,10 +192,10 @@ Content here
     });
 
     it('should detect needsUpdate when generatedBy is missing', async () => {
-      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-explore');
+      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-propose');
       await fs.mkdir(skillDir, { recursive: true });
       await fs.writeFile(path.join(skillDir, 'SKILL.md'), `---
-name: spok-explore
+name: spok-propose
 metadata:
   author: spok
   version: "1.0"
@@ -219,10 +211,10 @@ Content here
     });
 
     it('should detect needsUpdate when version differs', async () => {
-      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-explore');
+      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-propose');
       await fs.mkdir(skillDir, { recursive: true });
       await fs.writeFile(path.join(skillDir, 'SKILL.md'), `---
-name: spok-explore
+name: spok-propose
 metadata:
   author: spok
   version: "1.0"
@@ -239,10 +231,10 @@ Content here
     });
 
     it('should not need update when version matches', async () => {
-      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-explore');
+      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-propose');
       await fs.mkdir(skillDir, { recursive: true });
       await fs.writeFile(path.join(skillDir, 'SKILL.md'), `---
-name: spok-explore
+name: spok-propose
 metadata:
   author: spok
   version: "1.0"
@@ -259,7 +251,7 @@ Content here
     });
 
     it('should include tool name in status', async () => {
-      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-explore');
+      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-propose');
       await fs.mkdir(skillDir, { recursive: true });
       await fs.writeFile(path.join(skillDir, 'SKILL.md'), 'content');
 
@@ -277,12 +269,12 @@ Content here
 
     it('should return configured tools', async () => {
       // Setup Claude
-      const claudeSkillDir = path.join(testDir, '.claude', 'skills', 'spok-explore');
+      const claudeSkillDir = path.join(testDir, '.claude', 'skills', 'spok-propose');
       await fs.mkdir(claudeSkillDir, { recursive: true });
       await fs.writeFile(path.join(claudeSkillDir, 'SKILL.md'), 'content');
 
       // Setup Cursor
-      const cursorSkillDir = path.join(testDir, '.cursor', 'skills', 'spok-explore');
+      const cursorSkillDir = path.join(testDir, '.cursor', 'skills', 'spok-propose');
       await fs.mkdir(cursorSkillDir, { recursive: true });
       await fs.writeFile(path.join(cursorSkillDir, 'SKILL.md'), 'content');
 
@@ -301,7 +293,7 @@ Content here
 
     it('should return version status for all configured tools', async () => {
       // Setup Claude with old version
-      const claudeSkillDir = path.join(testDir, '.claude', 'skills', 'spok-explore');
+      const claudeSkillDir = path.join(testDir, '.claude', 'skills', 'spok-propose');
       await fs.mkdir(claudeSkillDir, { recursive: true });
       await fs.writeFile(path.join(claudeSkillDir, 'SKILL.md'), `---
 metadata:
@@ -310,7 +302,7 @@ metadata:
 `);
 
       // Setup Cursor with current version
-      const cursorSkillDir = path.join(testDir, '.cursor', 'skills', 'spok-explore');
+      const cursorSkillDir = path.join(testDir, '.cursor', 'skills', 'spok-propose');
       await fs.mkdir(cursorSkillDir, { recursive: true });
       await fs.writeFile(path.join(cursorSkillDir, 'SKILL.md'), `---
 metadata:

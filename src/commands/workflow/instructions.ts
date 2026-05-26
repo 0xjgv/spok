@@ -316,17 +316,17 @@ export async function generateApplyInstructions(
 
   if (missingArtifacts.length > 0) {
     state = 'blocked';
-    instruction = `Cannot apply this change yet. Missing artifacts: ${missingArtifacts.join(', ')}.\nUse the spok-continue-change skill to create the missing artifacts first.`;
+    instruction = `Cannot apply this change yet. Missing artifacts: ${missingArtifacts.join(', ')}.\nUse spok-propose to (re)scaffold the missing artifacts first.`;
   } else if (tracksFile && !tracksFileExists) {
     // Tracking file configured but doesn't exist yet
     const tracksFilename = path.basename(tracksFile);
     state = 'blocked';
-    instruction = `The ${tracksFilename} file is missing and must be created.\nUse spok-continue-change to generate the tracking file.`;
+    instruction = `The ${tracksFilename} file is missing and must be created.\nRun spok-propose so it can invoke spok-create-scoped-chunks to write ${tracksFilename}.`;
   } else if (tracksFile && tracksFileExists && total === 0) {
-    // Tracking file exists but contains no tasks
+    // Tracking file exists but contains no chunks
     const tracksFilename = path.basename(tracksFile);
     state = 'blocked';
-    instruction = `The ${tracksFilename} file exists but contains no tasks.\nAdd tasks to ${tracksFilename} or regenerate it with spok-continue-change.`;
+    instruction = `The ${tracksFilename} file exists but contains no chunks.\nRe-run spok-propose (it invokes spok-create-scoped-chunks) to regenerate ${tracksFilename}.`;
   } else if (tracksFile && remaining === 0 && total > 0) {
     state = 'all_done';
     instruction = 'All tasks are complete! This change is ready to be archived.\nConsider running tests and reviewing the changes before archiving.';
@@ -403,7 +403,7 @@ export function printApplyInstructionsText(instructions: ApplyInstructions): voi
     console.log('### ⚠️ Blocked');
     console.log();
     console.log(`Missing artifacts: ${missingArtifacts.join(', ')}`);
-    console.log('Use the spok-continue-change skill to create these first.');
+    console.log('Run spok-propose to (re)scaffold these first.');
     console.log();
   }
 

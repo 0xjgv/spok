@@ -2,7 +2,6 @@
  * Update Command
  *
  * Refreshes Spok skills and commands for configured tools.
- * Supports profile-aware updates, delivery changes, migration, and smart update detection.
  */
 
 import path from 'path';
@@ -34,23 +33,22 @@ import {
   type LegacyDetectionResult,
 } from './legacy-cleanup.js';
 import { isInteractive } from '../utils/interactive.js';
-import { getGlobalConfig, type Delivery, type Profile } from './global-config.js';
-import { getProfileWorkflows, ALL_WORKFLOWS } from './profiles.js';
+import { getGlobalConfig, type Delivery } from './global-config.js';
 import { getAvailableTools } from './available-tools.js';
-import {
-  WORKFLOW_TO_SKILL_DIR,
-  getCommandConfiguredTools,
-  getConfiguredToolsForProfileSync,
-  getToolsNeedingProfileSync,
-} from './profile-sync-drift.js';
-import {
-  scanInstalledWorkflows as scanInstalledWorkflowsShared,
-  migrateIfNeeded as migrateIfNeededShared,
-} from './migration.js';
+import { installVendoredSkills } from './skill-vendor.js';
+import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
+
+const SPOK_WORKFLOWS = ['propose', 'apply', 'archive'] as const;
+type SpokWorkflow = (typeof SPOK_WORKFLOWS)[number];
+
+const WORKFLOW_TO_SKILL_DIR: Record<SpokWorkflow, string> = {
+  propose: 'spok-propose',
+  apply: 'spok-apply',
+  archive: 'spok-archive',
+};
 
 const require = createRequire(import.meta.url);
 const { version: SPOK_VERSION } = require('../../package.json');
-const OLD_CORE_WORKFLOWS = ['propose', 'explore', 'apply', 'archive'] as const;
 
 /**
  * Options for the update command.
@@ -61,16 +59,135 @@ export interface UpdateCommandOptions {
 }
 
 /**
- * Scans installed workflow artifacts (skills and managed commands) across all configured tools.
- * Returns the union of detected workflow IDs that match ALL_WORKFLOWS.
- *
- * Wrapper around the shared migration module's scanInstalledWorkflows that accepts tool IDs.
+ * Scans installed workflow artifacts (skills and managed commands) across configured tools.
+ * Returns the union of detected workflow IDs that belong to SPOK_WORKFLOWS.
  */
 export function scanInstalledWorkflows(projectPath: string, toolIds: string[]): string[] {
-  const tools = toolIds
-    .map((id) => AI_TOOLS.find((t) => t.value === id))
-    .filter((t): t is NonNullable<typeof t> => t != null);
-  return scanInstalledWorkflowsShared(projectPath, tools);
+  const installed = new Set<SpokWorkflow>();
+
+  for (const toolId of toolIds) {
+    const tool = AI_TOOLS.find((t) => t.value === toolId);
+    if (!tool?.skillsDir) continue;
+    const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
+
+    for (const workflow of SPOK_WORKFLOWS) {
+      const dirName = WORKFLOW_TO_SKILL_DIR[workflow];
+      if (fs.existsSync(path.join(skillsDir, dirName, 'SKILL.md'))) {
+        installed.add(workflow);
+      }
+    }
+
+    const adapter = CommandAdapterRegistry.get(toolId);
+    if (!adapter) continue;
+    for (const workflow of SPOK_WORKFLOWS) {
+      const commandPath = adapter.getFilePath(workflow);
+      const fullPath = path.isAbsolute(commandPath)
+        ? commandPath
+        : path.join(projectPath, commandPath);
+      if (fs.existsSync(fullPath)) {
+        installed.add(workflow);
+      }
+    }
+  }
+
+  return SPOK_WORKFLOWS.filter((workflow) => installed.has(workflow));
+}
+
+function toolHasAnyConfiguredCommand(projectPath: string, toolId: string): boolean {
+  const adapter = CommandAdapterRegistry.get(toolId);
+  if (!adapter) return false;
+  for (const workflow of SPOK_WORKFLOWS) {
+    const cmdPath = adapter.getFilePath(workflow);
+    const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
+    if (fs.existsSync(fullPath)) return true;
+  }
+  return false;
+}
+
+function getCommandConfiguredTools(projectPath: string): string[] {
+  return AI_TOOLS
+    .filter((tool) => {
+      if (!tool.skillsDir) return false;
+      const toolDir = path.join(projectPath, tool.skillsDir);
+      try {
+        return fs.statSync(toolDir).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .map((tool) => tool.value)
+    .filter((toolId) => toolHasAnyConfiguredCommand(projectPath, toolId));
+}
+
+function getSkillConfiguredTools(projectPath: string): string[] {
+  return AI_TOOLS
+    .filter((tool) => Boolean(tool.skillsDir))
+    .map((tool) => tool.value)
+    .filter((toolId) => {
+      const tool = AI_TOOLS.find((t) => t.value === toolId);
+      if (!tool?.skillsDir) return false;
+      const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
+      for (const workflow of SPOK_WORKFLOWS) {
+        const skillFile = path.join(skillsDir, WORKFLOW_TO_SKILL_DIR[workflow], 'SKILL.md');
+        if (fs.existsSync(skillFile)) return true;
+      }
+      return false;
+    });
+}
+
+function getConfiguredTools(projectPath: string): string[] {
+  return [...new Set([
+    ...getSkillConfiguredTools(projectPath),
+    ...getCommandConfiguredTools(projectPath),
+  ])];
+}
+
+function hasToolDeliveryDrift(projectPath: string, toolId: string, delivery: Delivery): boolean {
+  const tool = AI_TOOLS.find((t) => t.value === toolId);
+  if (!tool?.skillsDir) return false;
+
+  const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
+  const adapter = CommandAdapterRegistry.get(toolId);
+  const shouldGenerateSkills = delivery !== 'commands';
+  const shouldGenerateCommands = delivery !== 'skills';
+
+  if (shouldGenerateSkills) {
+    for (const workflow of SPOK_WORKFLOWS) {
+      const skillFile = path.join(skillsDir, WORKFLOW_TO_SKILL_DIR[workflow], 'SKILL.md');
+      if (!fs.existsSync(skillFile)) return true;
+    }
+  } else {
+    for (const workflow of SPOK_WORKFLOWS) {
+      const skillDir = path.join(skillsDir, WORKFLOW_TO_SKILL_DIR[workflow]);
+      if (fs.existsSync(skillDir)) return true;
+    }
+  }
+
+  if (adapter) {
+    if (shouldGenerateCommands) {
+      for (const workflow of SPOK_WORKFLOWS) {
+        const cmdPath = adapter.getFilePath(workflow);
+        const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
+        if (!fs.existsSync(fullPath)) return true;
+      }
+    } else {
+      for (const workflow of SPOK_WORKFLOWS) {
+        const cmdPath = adapter.getFilePath(workflow);
+        const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
+        if (fs.existsSync(fullPath)) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function getToolsNeedingDeliverySync(
+  projectPath: string,
+  delivery: Delivery,
+  configuredTools: readonly string[]
+): string[] {
+  return [...configuredTools].filter((toolId) => hasToolDeliveryDrift(projectPath, toolId, delivery));
 }
 
 export class UpdateCommand {
@@ -89,31 +206,21 @@ export class UpdateCommand {
       throw new Error(`No Spok directory found. Run 'spok init' first.`);
     }
 
-    // 2. Perform one-time migration if needed before any legacy upgrade generation.
-    // Use detected tool directories to preserve existing opsx skills/commands.
-    const detectedTools = getAvailableTools(resolvedProjectPath);
-    migrateIfNeededShared(resolvedProjectPath, detectedTools);
-
-    // 3. Read global config for profile/delivery
+    // 2. Read global config for delivery
     const globalConfig = getGlobalConfig();
-    const profile = globalConfig.profile ?? 'core';
     const delivery: Delivery = globalConfig.delivery ?? 'both';
-    const profileWorkflows = getProfileWorkflows(profile, globalConfig.workflows);
-    const desiredWorkflows = profileWorkflows.filter((workflow): workflow is (typeof ALL_WORKFLOWS)[number] =>
-      (ALL_WORKFLOWS as readonly string[]).includes(workflow)
-    );
+    const desiredWorkflows = [...SPOK_WORKFLOWS];
     const shouldGenerateSkills = delivery !== 'commands';
     const shouldGenerateCommands = delivery !== 'skills';
 
-    // 4. Detect and handle legacy artifacts + upgrade legacy tools using effective config
+    // 3. Detect and handle legacy artifacts + upgrade legacy tools
     const newlyConfiguredTools = await this.handleLegacyCleanup(
       resolvedProjectPath,
-      desiredWorkflows,
       delivery
     );
 
-    // 5. Find configured tools
-    const configuredTools = getConfiguredToolsForProfileSync(resolvedProjectPath);
+    // 4. Find configured tools
+    const configuredTools = getConfiguredTools(resolvedProjectPath);
 
     if (configuredTools.length === 0 && newlyConfiguredTools.length === 0) {
       console.log(chalk.yellow('No configured tools found.'));
@@ -137,9 +244,8 @@ export class UpdateCommand {
     const toolsNeedingVersionUpdate = toolStatuses
       .filter((s) => s.needsUpdate)
       .map((s) => s.toolId);
-    const toolsNeedingConfigSync = getToolsNeedingProfileSync(
+    const toolsNeedingConfigSync = getToolsNeedingDeliverySync(
       resolvedProjectPath,
-      desiredWorkflows,
       delivery,
       configuredTools
     );
@@ -153,10 +259,8 @@ export class UpdateCommand {
       // All tools are up to date
       this.displayUpToDateMessage(toolStatuses);
 
-      // Still check for new tool directories and extra workflows
+      // Still check for new tool directories
       this.detectNewTools(resolvedProjectPath, configuredTools);
-      this.displayExtraWorkflowsNote(resolvedProjectPath, configuredTools, desiredWorkflows);
-      this.displayOldCoreCustomProfileNote(profile, globalConfig.workflows);
       return;
     }
 
@@ -178,8 +282,6 @@ export class UpdateCommand {
     const failedTools: Array<{ name: string; error: string }> = [];
     let removedCommandCount = 0;
     let removedSkillCount = 0;
-    let removedDeselectedCommandCount = 0;
-    let removedDeselectedSkillCount = 0;
 
     for (const toolId of toolsToUpdate) {
       const tool = AI_TOOLS.find((t) => t.value === toolId);
@@ -202,7 +304,8 @@ export class UpdateCommand {
             await FileSystemUtils.writeFile(skillFile, skillContent);
           }
 
-          removedDeselectedSkillCount += await this.removeUnselectedSkillDirs(skillsDir, desiredWorkflows);
+          // Refresh vendored helper skills (idempotent overwrite).
+          await installVendoredSkills(resolvedProjectPath, tool.skillsDir);
         }
 
         // Delete skill directories if delivery is commands-only
@@ -221,11 +324,6 @@ export class UpdateCommand {
               await FileSystemUtils.writeFile(commandFile, cmd.fileContent);
             }
 
-            removedDeselectedCommandCount += await this.removeUnselectedCommandFiles(
-              resolvedProjectPath,
-              toolId,
-              desiredWorkflows
-            );
           }
         }
 
@@ -259,20 +357,14 @@ export class UpdateCommand {
     if (removedSkillCount > 0) {
       console.log(chalk.dim(`Removed: ${removedSkillCount} skill directories (delivery: commands)`));
     }
-    if (removedDeselectedCommandCount > 0) {
-      console.log(chalk.dim(`Removed: ${removedDeselectedCommandCount} command files (deselected workflows)`));
-    }
-    if (removedDeselectedSkillCount > 0) {
-      console.log(chalk.dim(`Removed: ${removedDeselectedSkillCount} skill directories (deselected workflows)`));
-    }
 
     // 12. Show onboarding message for newly configured tools from legacy upgrade
     if (newlyConfiguredTools.length > 0) {
       console.log();
       console.log(chalk.bold('Getting started:'));
-      console.log('  /opsx:new       Start a new change');
-      console.log('  /opsx:continue  Create the next artifact');
-      console.log('  /opsx:apply     Implement tasks');
+      console.log('  /spok-propose  Start a new change');
+      console.log('  /spok-apply    Implement the next chunk');
+      console.log('  /spok-archive  Finalize the change');
       console.log();
       console.log(`Learn more: ${chalk.cyan('https://github.com/Fission-AI/Spok')}`);
     }
@@ -282,14 +374,22 @@ export class UpdateCommand {
     // 13. Detect new tool directories not currently configured
     this.detectNewTools(resolvedProjectPath, configuredAndNewTools);
 
-    // 14. Display note about extra workflows not in profile
-    this.displayExtraWorkflowsNote(resolvedProjectPath, configuredAndNewTools, desiredWorkflows);
-    this.displayOldCoreCustomProfileNote(profile, globalConfig.workflows);
-
-    // 15. List affected tools
+    // 14. List affected tools
     if (updatedTools.length > 0) {
       const toolDisplayNames = updatedTools;
       console.log(chalk.dim(`Tools: ${toolDisplayNames.join(', ')}`));
+    }
+
+    // 15. Warn if Claude is configured but custom subagents referenced by
+    // vendored skills aren't installed in ~/.claude/agents/.
+    const claudeIsConfigured = configuredAndNewTools.includes('claude');
+    if (claudeIsConfigured) {
+      const subagentResult = checkClaudeSubagents();
+      const subagentWarning = formatSubagentWarning(subagentResult);
+      if (subagentWarning) {
+        console.log();
+        console.log(chalk.yellow(subagentWarning));
+      }
     }
 
     console.log();
@@ -356,85 +456,13 @@ export class UpdateCommand {
   }
 
   /**
-   * Displays a note about extra workflows installed that aren't in the current profile.
-   */
-  private displayExtraWorkflowsNote(
-    projectPath: string,
-    configuredTools: string[],
-    profileWorkflows: readonly string[]
-  ): void {
-    const installedWorkflows = scanInstalledWorkflows(projectPath, configuredTools);
-    const profileSet = new Set(profileWorkflows);
-    const extraWorkflows = installedWorkflows.filter((w) => !profileSet.has(w));
-
-    if (extraWorkflows.length > 0) {
-      console.log(chalk.dim(`Note: ${extraWorkflows.length} extra workflows not in profile (use \`spok config profile\` to manage)`));
-    }
-  }
-
-  /**
-   * Suggest opting back into core when a custom profile still matches the old
-   * pre-sync core set. Keep custom profiles user-owned; do not mutate them.
-   */
-  private displayOldCoreCustomProfileNote(profile: Profile, workflows?: readonly string[]): void {
-    if (profile !== 'custom' || !workflows) {
-      return;
-    }
-
-    const workflowSet = new Set(workflows);
-    const matchesOldCore =
-      workflowSet.size === OLD_CORE_WORKFLOWS.length &&
-      OLD_CORE_WORKFLOWS.every((workflow) => workflowSet.has(workflow));
-
-    if (!matchesOldCore) {
-      return;
-    }
-
-    console.log(chalk.dim('Note: The core profile now includes sync. Your custom profile is preserving the old core workflow set.'));
-    console.log(chalk.dim('Run `spok config profile core` and then `spok update` to add sync.'));
-  }
-
-  /**
    * Removes skill directories for workflows when delivery changed to commands-only.
-   * Returns the number of directories removed.
    */
   private async removeSkillDirs(skillsDir: string): Promise<number> {
     let removed = 0;
 
-    for (const workflow of ALL_WORKFLOWS) {
+    for (const workflow of SPOK_WORKFLOWS) {
       const dirName = WORKFLOW_TO_SKILL_DIR[workflow];
-      if (!dirName) continue;
-
-      const skillDir = path.join(skillsDir, dirName);
-      try {
-        if (fs.existsSync(skillDir)) {
-          await fs.promises.rm(skillDir, { recursive: true, force: true });
-          removed++;
-        }
-      } catch {
-        // Ignore errors
-      }
-    }
-
-    return removed;
-  }
-
-  /**
-   * Removes skill directories for workflows that are no longer selected in the active profile.
-   * Returns the number of directories removed.
-   */
-  private async removeUnselectedSkillDirs(
-    skillsDir: string,
-    desiredWorkflows: readonly (typeof ALL_WORKFLOWS)[number][]
-  ): Promise<number> {
-    const desiredSet = new Set(desiredWorkflows);
-    let removed = 0;
-
-    for (const workflow of ALL_WORKFLOWS) {
-      if (desiredSet.has(workflow)) continue;
-      const dirName = WORKFLOW_TO_SKILL_DIR[workflow];
-      if (!dirName) continue;
-
       const skillDir = path.join(skillsDir, dirName);
       try {
         if (fs.existsSync(skillDir)) {
@@ -451,52 +479,14 @@ export class UpdateCommand {
 
   /**
    * Removes command files for workflows when delivery changed to skills-only.
-   * Returns the number of files removed.
    */
-  private async removeCommandFiles(
-    projectPath: string,
-    toolId: string,
-  ): Promise<number> {
+  private async removeCommandFiles(projectPath: string, toolId: string): Promise<number> {
     let removed = 0;
 
     const adapter = CommandAdapterRegistry.get(toolId);
     if (!adapter) return 0;
 
-    for (const workflow of ALL_WORKFLOWS) {
-      const cmdPath = adapter.getFilePath(workflow);
-      const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
-
-      try {
-        if (fs.existsSync(fullPath)) {
-          await fs.promises.unlink(fullPath);
-          removed++;
-        }
-      } catch {
-        // Ignore errors
-      }
-    }
-
-    return removed;
-  }
-
-  /**
-   * Removes command files for workflows that are no longer selected in the active profile.
-   * Returns the number of files removed.
-   */
-  private async removeUnselectedCommandFiles(
-    projectPath: string,
-    toolId: string,
-    desiredWorkflows: readonly (typeof ALL_WORKFLOWS)[number][]
-  ): Promise<number> {
-    let removed = 0;
-
-    const adapter = CommandAdapterRegistry.get(toolId);
-    if (!adapter) return 0;
-
-    const desiredSet = new Set(desiredWorkflows);
-
-    for (const workflow of ALL_WORKFLOWS) {
-      if (desiredSet.has(workflow)) continue;
+    for (const workflow of SPOK_WORKFLOWS) {
       const cmdPath = adapter.getFilePath(workflow);
       const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
 
@@ -520,7 +510,6 @@ export class UpdateCommand {
    */
   private async handleLegacyCleanup(
     projectPath: string,
-    desiredWorkflows: readonly (typeof ALL_WORKFLOWS)[number][],
     delivery: Delivery
   ): Promise<string[]> {
     // Detect legacy artifacts
@@ -541,7 +530,7 @@ export class UpdateCommand {
       // --force flag: proceed with cleanup automatically
       await this.performLegacyCleanup(projectPath, detection);
       // Then upgrade legacy tools to new skills
-      return this.upgradeLegacyTools(projectPath, detection, canPrompt, desiredWorkflows, delivery);
+      return this.upgradeLegacyTools(projectPath, detection, canPrompt, delivery);
     }
 
     if (!canPrompt) {
@@ -562,7 +551,7 @@ export class UpdateCommand {
     if (shouldCleanup) {
       await this.performLegacyCleanup(projectPath, detection);
       // Then upgrade legacy tools to new skills
-      return this.upgradeLegacyTools(projectPath, detection, canPrompt, desiredWorkflows, delivery);
+      return this.upgradeLegacyTools(projectPath, detection, canPrompt, delivery);
     } else {
       console.log(chalk.dim('Skipping legacy cleanup. Continuing with skill update...'));
       console.log();
@@ -597,9 +586,9 @@ export class UpdateCommand {
     projectPath: string,
     detection: LegacyDetectionResult,
     canPrompt: boolean,
-    desiredWorkflows: readonly (typeof ALL_WORKFLOWS)[number][],
     delivery: Delivery
   ): Promise<string[]> {
+    const desiredWorkflows = [...SPOK_WORKFLOWS];
     // Get tools that had legacy artifacts
     const legacyTools = getToolsFromLegacyArtifacts(detection);
 
@@ -608,7 +597,7 @@ export class UpdateCommand {
     }
 
     // Get currently configured tools
-    const configuredTools = getConfiguredToolsForProfileSync(projectPath);
+    const configuredTools = getConfiguredTools(projectPath);
     const configuredSet = new Set(configuredTools);
 
     // Filter to tools that aren't already configured
@@ -695,6 +684,9 @@ export class UpdateCommand {
             const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
             await FileSystemUtils.writeFile(skillFile, skillContent);
           }
+
+          // Refresh vendored helper skills (idempotent overwrite).
+          await installVendoredSkills(projectPath, tool.skillsDir);
         }
 
         // Create commands when delivery includes commands

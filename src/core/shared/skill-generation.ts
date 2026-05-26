@@ -5,27 +5,11 @@
  */
 
 import {
-  getExploreSkillTemplate,
-  getNewChangeSkillTemplate,
-  getContinueChangeSkillTemplate,
-  getApplyChangeSkillTemplate,
-  getFfChangeSkillTemplate,
-  getSyncSpecsSkillTemplate,
-  getArchiveChangeSkillTemplate,
-  getBulkArchiveChangeSkillTemplate,
-  getVerifyChangeSkillTemplate,
-  getOnboardSkillTemplate,
+  getApplySkillTemplate,
+  getArchiveSkillTemplate,
   getOpsxProposeSkillTemplate,
-  getOpsxExploreCommandTemplate,
-  getOpsxNewCommandTemplate,
-  getOpsxContinueCommandTemplate,
   getOpsxApplyCommandTemplate,
-  getOpsxFfCommandTemplate,
-  getOpsxSyncCommandTemplate,
   getOpsxArchiveCommandTemplate,
-  getOpsxBulkArchiveCommandTemplate,
-  getOpsxVerifyCommandTemplate,
-  getOpsxOnboardCommandTemplate,
   getOpsxProposeCommandTemplate,
   type SkillTemplate,
 } from '../templates/skill-templates.js';
@@ -44,7 +28,7 @@ export interface SkillTemplateEntry {
  * Command template with ID mapping.
  */
 export interface CommandTemplateEntry {
-  template: ReturnType<typeof getOpsxExploreCommandTemplate>;
+  template: ReturnType<typeof getOpsxApplyCommandTemplate>;
   id: string;
 }
 
@@ -55,17 +39,9 @@ export interface CommandTemplateEntry {
  */
 export function getSkillTemplates(workflowFilter?: readonly string[]): SkillTemplateEntry[] {
   const all: SkillTemplateEntry[] = [
-    { template: getExploreSkillTemplate(), dirName: 'spok-explore', workflowId: 'explore' },
-    { template: getNewChangeSkillTemplate(), dirName: 'spok-new-change', workflowId: 'new' },
-    { template: getContinueChangeSkillTemplate(), dirName: 'spok-continue-change', workflowId: 'continue' },
-    { template: getApplyChangeSkillTemplate(), dirName: 'spok-apply-change', workflowId: 'apply' },
-    { template: getFfChangeSkillTemplate(), dirName: 'spok-ff-change', workflowId: 'ff' },
-    { template: getSyncSpecsSkillTemplate(), dirName: 'spok-sync-specs', workflowId: 'sync' },
-    { template: getArchiveChangeSkillTemplate(), dirName: 'spok-archive-change', workflowId: 'archive' },
-    { template: getBulkArchiveChangeSkillTemplate(), dirName: 'spok-bulk-archive-change', workflowId: 'bulk-archive' },
-    { template: getVerifyChangeSkillTemplate(), dirName: 'spok-verify-change', workflowId: 'verify' },
-    { template: getOnboardSkillTemplate(), dirName: 'spok-onboard', workflowId: 'onboard' },
     { template: getOpsxProposeSkillTemplate(), dirName: 'spok-propose', workflowId: 'propose' },
+    { template: getApplySkillTemplate(), dirName: 'spok-apply', workflowId: 'apply' },
+    { template: getArchiveSkillTemplate(), dirName: 'spok-archive', workflowId: 'archive' },
   ];
 
   if (!workflowFilter) return all;
@@ -81,17 +57,9 @@ export function getSkillTemplates(workflowFilter?: readonly string[]): SkillTemp
  */
 export function getCommandTemplates(workflowFilter?: readonly string[]): CommandTemplateEntry[] {
   const all: CommandTemplateEntry[] = [
-    { template: getOpsxExploreCommandTemplate(), id: 'explore' },
-    { template: getOpsxNewCommandTemplate(), id: 'new' },
-    { template: getOpsxContinueCommandTemplate(), id: 'continue' },
-    { template: getOpsxApplyCommandTemplate(), id: 'apply' },
-    { template: getOpsxFfCommandTemplate(), id: 'ff' },
-    { template: getOpsxSyncCommandTemplate(), id: 'sync' },
-    { template: getOpsxArchiveCommandTemplate(), id: 'archive' },
-    { template: getOpsxBulkArchiveCommandTemplate(), id: 'bulk-archive' },
-    { template: getOpsxVerifyCommandTemplate(), id: 'verify' },
-    { template: getOpsxOnboardCommandTemplate(), id: 'onboard' },
     { template: getOpsxProposeCommandTemplate(), id: 'propose' },
+    { template: getOpsxApplyCommandTemplate(), id: 'apply' },
+    { template: getOpsxArchiveCommandTemplate(), id: 'archive' },
   ];
 
   if (!workflowFilter) return all;

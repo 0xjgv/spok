@@ -15,13 +15,25 @@ brownfield-first        — works with existing codebases, not just greenfield
 
 ### Why These Principles Matter
 
-**Fluid not rigid.** Traditional spec systems lock you into phases: first you plan, then you implement, then you're done. Spok is more flexible — you can create artifacts in any order that makes sense for your work.
+**Fluid not rigid.** Traditional spec systems lock you into phases: first you plan, then you implement, then you're done. Spok is more flexible — you can refine artifacts in any order that makes sense for your work.
 
 **Iterative not waterfall.** Requirements change. Understanding deepens. What seemed like a good approach at the start might not hold up after you see the codebase. Spok embraces this reality.
 
-**Easy not complex.** Some spec frameworks require extensive setup, rigid formats, or heavyweight processes. Spok stays out of your way. Initialize in seconds, start working immediately, customize only if you need to.
+**Easy not complex.** Some spec frameworks require extensive setup, rigid formats, or heavyweight processes. Spok stays out of your way. Initialize in seconds, start working immediately.
 
 **Brownfield-first.** Most software work isn't building from scratch — it's modifying existing systems. Spok's delta-based approach makes it easy to specify changes to existing behavior, not just describe new systems.
+
+## The Three-Verb Surface
+
+Spok ships exactly three user-facing slash commands. Everything else is internal plumbing or vendored helper skills.
+
+| Verb | Slash command | Skill name | Purpose |
+|------|---------------|------------|---------|
+| Propose | `/spok-propose` | `spok-propose` | Scaffold a change with proposal, specs, design, and a chunked `tasks.md` |
+| Apply | `/spok-apply` | `spok-apply` | Ship one unchecked chunk from `tasks.md` end-to-end |
+| Archive | `/spok-archive` | `spok-archive` | Apply delta specs to main specs and move the change to `archive/` |
+
+These three skills delegate to a closure of vendored helper skills (`spok-flow`, `spok-create-scoped-chunks`, and others) that ship with the CLI and are installed automatically by `spok init` and refreshed by `spok update`.
 
 ## The Big Picture
 
@@ -29,7 +41,7 @@ Spok organizes your work into two main areas:
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                        spok/                                   │
+│                            spok/                                   │
 │                                                                    │
 │   ┌─────────────────────┐      ┌───────────────────────────────┐   │
 │   │       specs/        │      │         changes/              │   │
@@ -47,144 +59,7 @@ Spok organizes your work into two main areas:
 
 **Changes** are proposed modifications — they live in separate folders until you're ready to merge them.
 
-This separation is key. You can work on multiple changes in parallel without conflicts. You can review a change before it affects the main specs. And when you archive a change, its deltas merge cleanly into the source of truth.
-
-## Coordination Workspaces
-
-Workspace support is under active development and is not ready for use yet. Do not build external automation, integrations, or long-lived workflows on top of workspace behavior; the commands, state files, and JSON output can change at any point.
-
-The commands below provide the first setup flow for planning across linked repos or folders.
-
-Repo-local Spok projects are the right default when one repo owns the planning, implementation, and archive flow. Some work spans several repos or folders. For that case, an Spok coordination workspace is the durable planning home.
-
-The workspace mental model is:
-
-```text
-workspace = where related cross-repo changes live
-link      = a stable name for a repo or folder the workspace can plan against
-change    = one feature, fix, project, or other planned piece of work
-```
-
-A workspace has a different shape from a repo-local project:
-
-```text
-workspace-folder/
-├── changes/                       # Workspace-level planning
-└── .spok-workspace/
-    ├── workspace.yaml             # Shared workspace identity and link names
-    └── local.yaml                 # This machine's local paths
-```
-
-Repo-local Spok state keeps the existing shape:
-
-```text
-repo-root/
-└── spok/
-    ├── specs/
-    └── changes/
-```
-
-That distinction matters. The workspace folder is a coordination surface for planning across linked repos or folders. Each repo's `spok/` directory remains the home for repo-owned specs, repo-local changes, and implementation planning. Users do not need to run repo-local `spok init` inside a workspace folder.
-
-Stable link names are how workspace planning refers to repos and folders. The shared workspace state keeps names such as `api`, `web`, or `checkout`; each machine maps those names to its own local paths in `.spok-workspace/local.yaml`.
-
-```yaml
-# .spok-workspace/workspace.yaml
-version: 1
-name: platform
-links:
-  api: {}
-  web: {}
-```
-
-```yaml
-# .spok-workspace/local.yaml
-version: 1
-paths:
-  api: /repos/api
-  web: /repos/web
-```
-
-Spok-created workspaces exclude `.spok-workspace/local.yaml` from portable collaboration state by default. `.spok-workspace/workspace.yaml` remains portable because it stores the workspace name and stable link names, not one user's absolute checkout paths.
-
-Linked paths can be full repos, folders inside a large monorepo, or other existing folders. They do not need repo-local `spok/` state before they can participate in workspace planning. Later implementation, verify, or archive workflows may require more repo readiness, but planning visibility starts with the link.
-
-```text
-multi-repo:
-  api      -> /repos/api
-  web      -> /repos/web
-
-large monorepo:
-  billing  -> /repos/platform/services/billing
-  checkout -> /repos/platform/apps/checkout
-```
-
-Managed workspaces live under the standard Spok data directory:
-
-```text
-getGlobalDataDir()/workspaces
-```
-
-That means `$XDG_DATA_HOME/spok/workspaces` when `XDG_DATA_HOME` is set, `~/.local/share/spok/workspaces` on Unix-style fallback, and `%LOCALAPPDATA%\spok\workspaces` on native Windows fallback. Native Windows shells, PowerShell, and WSL2 each keep the path strings for the runtime running Spok. This foundation does not translate between `D:\repo`, `/mnt/d/repo`, and UNC WSL paths.
-
-Spok also keeps a machine-local registry at:
-
-```text
-getGlobalDataDir()/workspaces/registry.yaml
-```
-
-The registry maps workspace names to workspace locations so later global commands can list or select known workspaces from anywhere. It is only an index. Each workspace folder remains authoritative for its own `.spok-workspace/workspace.yaml` and `.spok-workspace/local.yaml`, so stale registry records can be reported and repaired without redefining the workspace itself.
-
-Workspace visibility is not change commitment. Set up a workspace when Spok should know which repos or folders are relevant; create a change later when you are ready to plan a feature, fix, project, or other piece of work.
-
-Useful commands:
-
-```bash
-# Guided setup
-spok workspace setup
-
-# Automation-friendly setup
-spok workspace setup --no-interactive --name platform --link /repos/api --link web=/repos/web
-spok workspace setup --no-interactive --name platform --link /repos/api --opener codex
-
-# See known workspaces from the local registry
-spok workspace list
-spok workspace ls
-
-# Add or repair links for the selected workspace
-spok workspace link /repos/api
-spok workspace link api-service /repos/api
-spok workspace relink api-service /new/path/to/api
-
-# Check what this machine can resolve
-spok workspace doctor
-spok workspace doctor --workspace platform
-
-# Refresh workspace-local agent skills from the active global profile
-spok workspace update
-spok workspace update --workspace platform --tools codex,claude
-
-# Open the linked working set
-spok workspace open
-spok workspace open platform --agent github-copilot
-spok workspace open --editor
-```
-
-`workspace setup` always creates the workspace in the standard workspace location, records it in the local registry, shows the workspace location, and requires at least one linked repo or folder. Interactive setup asks for a preferred opener and can install Spok skills for selected agents. Non-interactive setup stores one only when `--opener codex`, `--opener claude`, `--opener github-copilot`, or `--opener editor` is provided.
-
-Workspace skills are installed only in the workspace root. The active global profile selects which workflow skills are generated; `--tools` selects which agents receive them. Workspace setup and update are skills-only in this beta slice, so they do not create slash command files even when global delivery includes commands. Run `spok workspace update` after changing the global profile to refresh, add, or remove managed workspace-local skill directories without editing linked repos or folders.
-
-Spok also maintains root workspace open files: an Spok-managed guidance block in `AGENTS.md`, a machine-local `<workspace-name>.code-workspace` file for VS Code and GitHub Copilot-in-VS-Code opens, and a specific ignore entry for that maintained `.code-workspace` file. User-authored `*.code-workspace` files remain trackable because the ignore rule targets only the maintained file.
-
-The maintained VS Code workspace includes the coordination root as `.` plus valid linked repos or folders as additional roots. VS Code displays those entries as a multi-root workspace.
-
-`workspace open` opens the linked working set with the stored preferred opener unless `--agent <tool>` or `--editor` is passed for that one session. Passing both opener overrides is an error. Root workspace open makes linked repos and folders visible for exploration and planning; implementation starts after the user explicitly asks for implementation work.
-
-`workspace link` and `workspace relink` record existing folders only; they do not create, copy, move, initialize, or edit the linked repo or folder. After a successful link or relink, Spok refreshes the managed guidance, VS Code workspace file, and ignore rule.
-
-Workspace commands that need one workspace can run from anywhere with `--workspace <name>`. If you run them inside a workspace folder or subdirectory, Spok uses that current workspace. If several known workspaces are available and you do not pass `--workspace <name>`, human commands show a picker; `--json` and `--no-interactive` fail with a structured status error instead of prompting.
-
-Direct workspace commands support JSON output for scripts. JSON responses keep primary data in `workspace`, `workspaces`, or `link` objects and report warnings or errors in `status` arrays. Healthy objects use `status: []`.
+This separation lets you work on multiple changes in parallel without conflicts, review a change before it touches the source of truth, and merge deltas cleanly when you archive.
 
 ## Specs
 
@@ -256,65 +131,43 @@ The system MUST expire sessions after 30 minutes of inactivity.
 | `#### Scenario:` | A concrete example of the requirement in action |
 | SHALL/MUST/SHOULD | RFC 2119 keywords indicating requirement strength |
 
-### Why Structure Specs This Way
-
-**Requirements are the "what"** — they state what the system should do without specifying implementation.
-
-**Scenarios are the "when"** — they provide concrete examples that can be verified. Good scenarios:
-- Are testable (you could write an automated test for them)
-- Cover both happy path and edge cases
-- Use Given/When/Then or similar structured format
-
-**RFC 2119 keywords** (SHALL, MUST, SHOULD, MAY) communicate intent:
-- **MUST/SHALL** — absolute requirement
-- **SHOULD** — recommended, but exceptions exist
-- **MAY** — optional
-
 ### What a Spec Is (and Is Not)
 
 A spec is a **behavior contract**, not an implementation plan.
 
 Good spec content:
+
 - Observable behavior users or downstream systems rely on
 - Inputs, outputs, and error conditions
 - External constraints (security, privacy, reliability, compatibility)
 - Scenarios that can be tested or explicitly validated
 
 Avoid in specs:
+
 - Internal class/function names
 - Library or framework choices
 - Step-by-step implementation details
-- Detailed execution plans (those belong in `design.md` or `tasks.md`)
+- Detailed execution plans (those belong in `design.md` or as chunks in `tasks.md`)
 
-Quick test:
-- If implementation can change without changing externally visible behavior, it likely does not belong in the spec.
+Quick test: if implementation can change without changing externally visible behavior, it likely does not belong in the spec.
 
 ### Keep It Lightweight: Progressive Rigor
 
 Spok aims to avoid bureaucracy. Use the lightest level that still makes the change verifiable.
 
 **Lite spec (default):**
+
 - Short behavior-first requirements
 - Clear scope and non-goals
 - A few concrete acceptance checks
 
 **Full spec (for higher risk):**
+
 - Cross-team or cross-repo changes
 - API/contract changes, migrations, security/privacy concerns
 - Changes where ambiguity is likely to cause expensive rework
 
 Most changes should stay in Lite mode.
-
-### Human + Agent Collaboration
-
-In many teams, humans explore and agents draft artifacts. The intended loop is:
-
-1. Human provides intent, context, and constraints.
-2. Agent converts this into behavior-first requirements and scenarios.
-3. Agent keeps implementation detail in `design.md` and `tasks.md`, not `spec.md`.
-4. Validation confirms structure and clarity before implementation.
-
-This keeps specs readable for humans and consistent for agents.
 
 ## Changes
 
@@ -326,28 +179,29 @@ A change is a proposed modification to your system, packaged as a folder with ev
 spok/changes/add-dark-mode/
 ├── proposal.md           # Why and what
 ├── design.md             # How (technical approach)
-├── tasks.md              # Implementation checklist
-├── .spok.yaml        # Change metadata (optional)
-└── specs/                # Delta specs
-    └── ui/
-        └── spec.md       # What's changing in ui/spec.md
+├── tasks.md              # Chunked checklist
+├── .spok.yaml            # Change metadata (schema, created date)
+├── specs/                # Delta specs
+│   └── ui/
+│       └── spec.md       # What's changing in ui/spec.md
+└── .flow/                # Per-chunk tickets written by /spok-apply
+    └── theme-context-css-vars/
+        └── ticket.md
 ```
 
 Each change is self-contained. It has:
-- **Artifacts** — documents that capture intent, design, and tasks
-- **Delta specs** — specifications for what's being added, modified, or removed
-- **Metadata** — optional configuration for this specific change
+
+- **Artifacts** — documents that capture intent, design, and a chunked task list
+- **Delta specs** — specifications for what's being added, modified, removed, or renamed
+- **Per-chunk tickets** — created on demand by `/spok-apply` under `.flow/<chunk-slug>/`
 
 ### Why Changes Are Folders
 
 Packaging a change as a folder has several benefits:
 
-1. **Everything together.** Proposal, design, tasks, and specs live in one place. No hunting through different locations.
-
-2. **Parallel work.** Multiple changes can exist simultaneously without conflicting. Work on `add-dark-mode` while `fix-auth-bug` is also in progress.
-
-3. **Clean history.** When archived, changes move to `changes/archive/` with their full context preserved. You can look back and understand not just what changed, but why.
-
+1. **Everything together.** Proposal, design, tasks, deltas, and per-chunk tickets live in one place.
+2. **Parallel work.** Multiple changes can exist simultaneously without conflicting.
+3. **Clean history.** When archived, changes move to `changes/archive/` with their full context preserved.
 4. **Review-friendly.** A change folder is easy to review — open it, read the proposal, check the design, see the spec deltas.
 
 ## Artifacts
@@ -357,17 +211,16 @@ Artifacts are the documents within a change that guide the work.
 ### The Artifact Flow
 
 ```
-proposal ──────► specs ──────► design ──────► tasks ──────► implement
-    │               │             │              │
-   why            what           how          steps
- + scope        changes       approach      to take
+proposal ──────► specs ──────► design ──────► tasks.md ──────► implement
+    │               │             │              │                │
+   why            what           how         chunks            /spok-apply
+ + scope        changes       approach     to ship           (one chunk
+                                                              at a time)
 ```
 
-Artifacts build on each other. Each artifact provides context for the next.
+`/spok-propose` writes the first four artifacts. `/spok-apply` consumes `tasks.md` one chunk per invocation.
 
-### Artifact Types
-
-#### Proposal (`proposal.md`)
+### Proposal (`proposal.md`)
 
 The proposal captures **intent**, **scope**, and **approach** at a high level.
 
@@ -394,16 +247,11 @@ for state management. Detect system preference on first load,
 allow manual override.
 ```
 
-**When to update the proposal:**
-- Scope changes (narrowing or expanding)
-- Intent clarifies (better understanding of the problem)
-- Approach fundamentally shifts
-
-#### Specs (delta specs in `specs/`)
+### Specs (delta specs in `specs/`)
 
 Delta specs describe **what's changing** relative to the current specs. See [Delta Specs](#delta-specs) below.
 
-#### Design (`design.md`)
+### Design (`design.md`)
 
 The design captures **technical approach** and **architecture decisions**.
 
@@ -427,62 +275,64 @@ Using CSS variables instead of CSS-in-JS because:
 - Works with existing stylesheet
 - No runtime overhead
 - Browser-native solution
-
-## Data Flow
-```
-ThemeProvider (context)
-       │
-       ▼
-ThemeToggle ◄──► localStorage
-       │
-       ▼
-CSS Variables (applied to :root)
-```
-
-## File Changes
-- `src/contexts/ThemeContext.tsx` (new)
-- `src/components/ThemeToggle.tsx` (new)
-- `src/styles/globals.css` (modified)
 ````
 
-**When to update the design:**
-- Implementation reveals the approach won't work
-- Better solution discovered
-- Dependencies or constraints change
+### Tasks (`tasks.md`)
 
-#### Tasks (`tasks.md`)
-
-Tasks are the **implementation checklist** — concrete steps with checkboxes.
+`tasks.md` is a **chunked checklist**. Each top-level checkbox is one chunk — a thin, end-to-end-testable slice of work, including any layers (db, backend, frontend, infra) the slice needs to be observable.
 
 ```markdown
-# Tasks
+- [ ] 1. Add theme context + CSS variables
+    **Slug:** theme-context-css-vars
+    **Layers:** frontend
+    **Prerequisites:** none
+    **End-to-end test:** test/ui/theme-toggle.test.tsx
+    **Rollback:** revert src/contexts/ThemeContext.tsx and globals.css
 
-## 1. Theme Infrastructure
-- [ ] 1.1 Create ThemeContext with light/dark state
-- [ ] 1.2 Add CSS custom properties for colors
-- [ ] 1.3 Implement localStorage persistence
-- [ ] 1.4 Add system preference detection
+    Introduce a ThemeContext provider, declare CSS variables on
+    :root for light/dark palettes, and wire the provider into the
+    React tree so children can read the current theme.
 
-## 2. UI Components
-- [ ] 2.1 Create ThemeToggle component
-- [ ] 2.2 Add toggle to settings page
-- [ ] 2.3 Update Header to include quick toggle
+- [ ] 2. Wire toggle component to localStorage
+    **Slug:** wire-toggle-localstorage
+    **Layers:** frontend
+    **Prerequisites:** theme-context-css-vars
+    ...
 
-## 3. Styling
-- [ ] 3.1 Define dark theme color palette
-- [ ] 3.2 Update components to use CSS variables
-- [ ] 3.3 Test contrast ratios for accessibility
+- [ ] 3. Apply theme to remaining surfaces
+    **Slug:** apply-theme-surfaces
+    **Layers:** frontend
+    **Prerequisites:** theme-context-css-vars
+    ...
 ```
 
-**Task best practices:**
-- Group related tasks under headings
-- Use hierarchical numbering (1.1, 1.2, etc.)
-- Keep tasks small enough to complete in one session
-- Check tasks off as you complete them
+**Fields under each chunk:**
+
+| Field | Meaning |
+|-------|---------|
+| `**Slug:**` | Stable kebab-case identifier used for `.flow/<slug>/` tickets |
+| `**Layers:**` | Which layers are touched (db, backend, frontend, infra) |
+| `**Prerequisites:**` | Slugs of other chunks that must ship first (`none` if independent) |
+| `**End-to-end test:**` | The test that proves the slice works |
+| `**Rollback:**` | One-line rollback plan |
+
+`/spok-apply` finds the first `- [ ]` chunk, stages it as a ticket, runs the flow, and flips the box to `- [x]` on success.
+
+## Chunks and the Flow Loop
+
+A chunk is the unit of shipping. `/spok-apply` ships exactly one chunk per invocation by:
+
+1. Reading `tasks.md` and picking the first `- [ ]` chunk.
+2. Halting if a prerequisite is unchecked.
+3. Staging a ticket at `<changeRoot>/.flow/<chunk-slug>/ticket.md` containing the chunk's title, slug, layers, end-to-end test, rollback, body, and pointers back to the change's proposal/specs/design.
+4. Invoking the vendored `spok-flow` skill against that ticket directory. The flow skill drives **research → design → plan → implement → review → commit** for the chunk.
+5. On success, flipping `- [ ]` to `- [x]` for that chunk's line.
+
+This is intentionally one chunk per command call. You stay in control of the shipping cadence, you can inspect each commit, and you can stop after any chunk without losing state — the unchecked boxes in `tasks.md` are the resumable queue.
 
 ## Delta Specs
 
-Delta specs are the key concept that makes Spok work for brownfield development. They describe **what's changing** rather than restating the entire spec.
+Delta specs are how a change describes modifications to existing behavior. Instead of restating an entire spec, deltas list operations.
 
 ### The Format
 
@@ -528,12 +378,13 @@ The system MUST expire sessions after 15 minutes of inactivity.
 | Section | Meaning | What Happens on Archive |
 |---------|---------|------------------------|
 | `## ADDED Requirements` | New behavior | Appended to main spec |
-| `## MODIFIED Requirements` | Changed behavior | Replaces existing requirement |
+| `## MODIFIED Requirements` | Changed behavior | Replaces existing requirement with the same header |
 | `## REMOVED Requirements` | Deprecated behavior | Deleted from main spec |
+| `## RENAMED Requirements` | Rename only | Header renamed per `FROM:` / `TO:` pairs, scenarios untouched |
 
 ### Why Deltas Instead of Full Specs
 
-**Clarity.** A delta shows exactly what's changing. Reading a full spec, you'd have to diff it mentally against the current version.
+**Clarity.** A delta shows exactly what's changing. Reading a full spec rewrite, you'd have to diff it mentally against the current version.
 
 **Conflict avoidance.** Two changes can touch the same spec file without conflicting, as long as they modify different requirements.
 
@@ -541,125 +392,62 @@ The system MUST expire sessions after 15 minutes of inactivity.
 
 **Brownfield fit.** Most work modifies existing behavior. Deltas make modifications first-class, not an afterthought.
 
-## Schemas
+## Project Configuration
 
-Schemas define the artifact types and their dependencies for a workflow.
-
-### How Schemas Work
+`spok/config.yaml` lets you inject project context and per-artifact rules into every `/spok-propose` artifact generation.
 
 ```yaml
-# spok/schemas/spec-driven/schema.yaml
-name: spec-driven
-artifacts:
-  - id: proposal
-    generates: proposal.md
-    requires: []              # No dependencies, can create first
+schema: spec-driven
 
-  - id: specs
-    generates: specs/**/*.md
-    requires: [proposal]      # Needs proposal before creating
+context: |
+  Tech stack: TypeScript, React, Node.js, PostgreSQL
+  API style: RESTful, documented in docs/api.md
+  Testing: Jest + React Testing Library
+  We value backwards compatibility for all public APIs
 
-  - id: design
-    generates: design.md
-    requires: [proposal]      # Can create in parallel with specs
-
-  - id: tasks
-    generates: tasks.md
-    requires: [specs, design] # Needs both specs and design first
+rules:
+  proposal:
+    - Include rollback plan
+    - Identify affected teams
+  specs:
+    - Use Given/When/Then format
+    - Reference existing patterns before inventing new ones
+  design:
+    - Document fallback strategies
 ```
 
-**Artifacts form a dependency graph:**
+**How it's used:**
 
-```
-                    proposal
-                   (root node)
-                       │
-         ┌─────────────┴─────────────┐
-         │                           │
-         ▼                           ▼
-      specs                       design
-   (requires:                  (requires:
-    proposal)                   proposal)
-         │                           │
-         └─────────────┬─────────────┘
-                       │
-                       ▼
-                    tasks
-                (requires:
-                specs, design)
-```
+- `context:` is injected into the instructions for every artifact.
+- `rules.<artifact-id>:` is injected only when that artifact is being generated.
+- These are constraints for the AI, not content that ends up inside the artifact file.
 
-**Dependencies are enablers, not gates.** They show what's possible to create, not what you must create next. You can skip design if you don't need it. You can create specs before or after design — both depend only on proposal.
-
-### Built-in Schemas
-
-**spec-driven** (default)
-
-The standard workflow for spec-driven development:
-
-```
-proposal → specs → design → tasks → implement
-```
-
-Best for: Most feature work where you want to agree on specs before implementation.
-
-### Custom Schemas
-
-Create custom schemas for your team's workflow:
-
-```bash
-# Create from scratch
-spok schema init research-first
-
-# Or fork an existing one
-spok schema fork spec-driven research-first
-```
-
-**Example custom schema:**
-
-```yaml
-# spok/schemas/research-first/schema.yaml
-name: research-first
-artifacts:
-  - id: research
-    generates: research.md
-    requires: []           # Do research first
-
-  - id: proposal
-    generates: proposal.md
-    requires: [research]   # Proposal informed by research
-
-  - id: tasks
-    generates: tasks.md
-    requires: [proposal]   # Skip specs/design, go straight to tasks
-```
-
-See [Customization](customization.md) for full details on creating and using custom schemas.
+`/spok-propose` fetches the merged template + context + rules for each artifact through `spok instructions <artifact> --change <name> --json` — you can run that command directly if you want to inspect what the skill sees.
 
 ## Archive
 
-Archiving completes a change by merging its delta specs into the main specs and preserving the change for history.
+Archiving completes a change by applying its delta specs into the main specs and preserving the change for history.
 
 ### What Happens When You Archive
 
 ```
-Before archive:
+Before /spok-archive:
 
 spok/
 ├── specs/
 │   └── auth/
-│       └── spec.md ◄────────────────┐
+│       └── spec.md  ◄───────────────┐
 └── changes/                         │
     └── add-2fa/                     │
         ├── proposal.md              │
-        ├── design.md                │ merge
+        ├── design.md                │ apply deltas
         ├── tasks.md                 │
         └── specs/                   │
             └── auth/                │
                 └── spec.md ─────────┘
 
 
-After archive:
+After /spok-archive:
 
 spok/
 ├── specs/
@@ -667,7 +455,7 @@ spok/
 │       └── spec.md        # Now includes 2FA requirements
 └── changes/
     └── archive/
-        └── 2025-01-24-add-2fa/    # Preserved for history
+        └── 2026-05-26-add-2fa/    # Preserved for history
             ├── proposal.md
             ├── design.md
             ├── tasks.md
@@ -678,17 +466,15 @@ spok/
 
 ### The Archive Process
 
-1. **Merge deltas.** Each delta spec section (ADDED/MODIFIED/REMOVED) is applied to the corresponding main spec.
-
-2. **Move to archive.** The change folder moves to `changes/archive/` with a date prefix for chronological ordering.
-
-3. **Preserve context.** All artifacts remain intact in the archive. You can always look back to understand why a change was made.
+1. **Apply deltas.** Each delta spec section (ADDED/MODIFIED/REMOVED/RENAMED) is applied to the corresponding main spec. Sync is unconditional; there is no separate sync step.
+2. **Move to archive.** The change folder moves to `changes/archive/` with a date prefix.
+3. **Preserve context.** All artifacts remain intact in the archive — proposal, design, tasks, deltas, and `.flow/` tickets.
 
 ### Why Archive Matters
 
 **Clean state.** Active changes (`changes/`) shows only work in progress. Completed work moves out of the way.
 
-**Audit trail.** The archive preserves the full context of every change — not just what changed, but the proposal explaining why, the design explaining how, and the tasks showing the work done.
+**Audit trail.** The archive preserves the full context of every change — the proposal explaining why, the design explaining how, the chunked tasks showing what shipped, and the per-chunk tickets the flow skill wrote.
 
 **Spec evolution.** Specs grow organically as changes are archived. Each archive merges its deltas, building up a comprehensive specification over time.
 
@@ -696,37 +482,26 @@ spok/
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                              SPOK FLOW                                   │
+│                                  SPOK FLOW                                   │
 │                                                                              │
 │   ┌────────────────┐                                                         │
-│   │  1. START      │  /opsx:propose (core) or /opsx:new (expanded)           │
-│   │     CHANGE     │                                                         │
+│   │  1. PROPOSE    │  /spok-propose <description>                            │
+│   │                │  → proposal + specs + design + chunked tasks.md         │
 │   └───────┬────────┘                                                         │
 │           │                                                                  │
 │           ▼                                                                  │
 │   ┌────────────────┐                                                         │
-│   │  2. CREATE     │  /opsx:ff or /opsx:continue (expanded workflow)         │
-│   │     ARTIFACTS  │  Creates proposal → specs → design → tasks              │
-│   │                │  (based on schema dependencies)                         │
+│   │  2. APPLY      │  /spok-apply (one chunk per call)                       │
+│   │  (loop)        │  → research → design → plan → implement → review →     │
+│   │                │     commit, then tick the box                           │
 │   └───────┬────────┘                                                         │
 │           │                                                                  │
-│           ▼                                                                  │
-│   ┌────────────────┐                                                         │
-│   │  3. IMPLEMENT  │  /opsx:apply                                            │
-│   │     TASKS      │  Work through tasks, checking them off                  │
-│   │                │◄──── Update artifacts as you learn                      │
-│   └───────┬────────┘                                                         │
-│           │                                                                  │
-│           ▼                                                                  │
-│   ┌────────────────┐                                                         │
-│   │  4. VERIFY     │  /opsx:verify (optional)                                │
-│   │     WORK       │  Check implementation matches specs                     │
-│   └───────┬────────┘                                                         │
+│   repeat until tasks.md is fully ticked                                      │
 │           │                                                                  │
 │           ▼                                                                  │
 │   ┌────────────────┐     ┌──────────────────────────────────────────────┐    │
-│   │  5. ARCHIVE    │────►│  Delta specs merge into main specs           │    │
-│   │     CHANGE     │     │  Change folder moves to archive/             │    │
+│   │  3. ARCHIVE    │────►│  Delta specs applied to main specs           │    │
+│   │                │     │  Change folder moves to archive/             │    │
 │   └────────────────┘     │  Specs are now the updated source of truth   │    │
 │                          └──────────────────────────────────────────────┘    │
 │                                                                              │
@@ -735,31 +510,32 @@ spok/
 
 **The virtuous cycle:**
 
-1. Specs describe current behavior
-2. Changes propose modifications (as deltas)
-3. Implementation makes the changes real
-4. Archive merges deltas into specs
-5. Specs now describe the new behavior
-6. Next change builds on updated specs
+1. Specs describe current behavior.
+2. Changes propose modifications (as deltas) and slice the work into chunks.
+3. `/spok-apply` ships chunks one at a time.
+4. `/spok-archive` merges deltas into specs.
+5. Specs now describe the new behavior.
+6. The next change builds on the updated specs.
 
 ## Glossary
 
 | Term | Definition |
 |------|------------|
 | **Artifact** | A document within a change (proposal, design, tasks, or delta specs) |
-| **Archive** | The process of completing a change and merging its deltas into main specs |
+| **Archive** | The process of completing a change, applying its deltas, and moving it to `changes/archive/` |
 | **Change** | A proposed modification to the system, packaged as a folder with artifacts |
-| **Delta spec** | A spec that describes changes (ADDED/MODIFIED/REMOVED) relative to current specs |
+| **Chunk** | One thin, end-to-end-testable slice of work; one top-level checkbox in `tasks.md` |
+| **Delta spec** | A spec that describes changes (ADDED/MODIFIED/REMOVED/RENAMED) relative to current specs |
 | **Domain** | A logical grouping for specs (e.g., `auth/`, `payments/`) |
+| **Flow** | The research → design → plan → implement → review → commit loop the `spok-flow` skill runs per chunk |
 | **Requirement** | A specific behavior the system must have |
 | **Scenario** | A concrete example of a requirement, typically in Given/When/Then format |
-| **Schema** | A definition of artifact types and their dependencies |
-| **Spec** | A specification describing system behavior, containing requirements and scenarios |
 | **Source of truth** | The `spok/specs/` directory, containing the current agreed-upon behavior |
+| **Ticket** | The per-chunk `.flow/<chunk-slug>/ticket.md` file `/spok-apply` writes for `spok-flow` |
 
 ## Next Steps
 
-- [Getting Started](getting-started.md) - Practical first steps
-- [Workflows](workflows.md) - Common patterns and when to use each
-- [Commands](commands.md) - Full command reference
-- [Customization](customization.md) - Create custom schemas and configure your project
+- [Getting Started](getting-started.md) — Practical first steps
+- [Workflows](workflows.md) — Patterns and when to use each
+- [Commands](commands.md) — Full command reference
+- [CLI](cli.md) — Terminal reference

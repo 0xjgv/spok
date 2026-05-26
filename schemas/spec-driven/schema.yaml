@@ -112,35 +112,33 @@ artifacts:
 
   - id: tasks
     generates: tasks.md
-    description: Implementation checklist with trackable tasks
+    description: Chunk checklist — one user-observable behavior per top-level checkbox
     template: tasks.md
     instruction: |
-      Create the task list that breaks down the implementation work.
+      `tasks.md` is owned by the `spok-create-scoped-chunks` skill, which the
+      `spok-propose` skill invokes after writing the proposal/specs/design.
+      Do NOT write `tasks.md` from this artifact's instruction directly.
 
-      **IMPORTANT: Follow the template below exactly.** The apply phase parses
-      checkbox format to track progress. Tasks not using `- [ ]` won't be tracked.
-
-      Guidelines:
-      - Group related tasks under ## numbered headings
-      - Each task MUST be a checkbox: `- [ ] X.Y Task description`
-      - Tasks should be small enough to complete in one session
-      - Order tasks by dependency (what must be done first?)
+      Required shape (parsed by `spok-apply`):
+      - One top-level checkbox per chunk: `- [ ] N. <chunk title>`
+      - Each chunk represents one user-observable behavior that crosses ≥2 layers and is independently shippable.
+      - Chunk metadata and body live in an indented block beneath the checkbox.
 
       Example:
       ```
-      ## 1. Setup
+      # Tasks — <change-slug>
 
-      - [ ] 1.1 Create new module structure
-      - [ ] 1.2 Add dependencies to package.json
+      - [ ] 1. Users can export account history as CSV
+          **Slug:** csv-export
+          **Layers:** db, backend, frontend
+          **Prerequisites:** none
+          **End-to-end test:** test/integration/csv-export.test.ts
+          **Rollback:** revert PR; flip flag `csv_export` off
 
-      ## 2. Core Implementation
-
-      - [ ] 2.1 Implement data export function
-      - [ ] 2.2 Add CSV formatting utilities
+          What to build: …
       ```
 
-      Reference specs for what needs to be built, design for how to build it.
-      Each task should be verifiable - you know when it's done.
+      `spok-apply` flips `- [ ]` → `- [x]` when a chunk ships.
     requires:
       - specs
       - design
@@ -149,5 +147,9 @@ apply:
   requires: [tasks]
   tracks: tasks.md
   instruction: |
-    Read context files, work through pending tasks, mark complete as you go.
-    Pause if you hit blockers or need clarification.
+    Hand off to the `spok-flow` skill, one chunk at a time. `tasks.md` is a
+    flat list of cross-layer chunks in checkbox form. The `spok-apply` skill
+    parses the first unchecked `- [ ] N. <title>` line, stages
+    `<changeRoot>/.flow/<chunk-slug>/ticket.md`, invokes `spok-flow` with that
+    ticket directory, and ticks the box on success. Do NOT loop through
+    chunks in a single apply run.

@@ -1,340 +1,160 @@
 # Workflows
 
-This guide covers common workflow patterns for Spok and when to use each one. For basic setup, see [Getting Started](getting-started.md). For command reference, see [Commands](commands.md).
+This guide covers common workflow patterns for Spok. For basic setup, see [Getting Started](getting-started.md). For the command reference, see [Commands](commands.md).
 
-## Philosophy: Actions, Not Phases
+## The core loop
 
-Traditional workflows force you through phases: planning, then implementation, then done. But real work doesn't fit neatly into boxes.
-
-OPSX takes a different approach:
+Spok exposes exactly three slash commands, and they always run in the same order:
 
 ```text
-Traditional (phase-locked):
-
-  PLANNING ────────► IMPLEMENTING ────────► DONE
-      │                    │
-      │   "Can't go back"  │
-      └────────────────────┘
-
-OPSX (fluid actions):
-
-  proposal ──► specs ──► design ──► tasks ──► implement
+/spok-propose <description>
+     │
+     ▼
+/spok-apply     ← run once per chunk in tasks.md
+     │
+     ▼
+/spok-archive   ← when every chunk is shipped
 ```
 
-**Key principles:**
+- **`/spok-propose`** scaffolds the change folder, creates the planning artifacts (proposal, specs, design), and writes a `tasks.md` that is a list of chunks. A chunk is one thin, end-to-end-testable slice of work.
+- **`/spok-apply`** picks the first unchecked chunk, stages a ticket under `.flow/<chunk-slug>/`, runs research → design → plan → implement → review → commit on it via the vendored `spok-flow` skill, then flips the chunk's checkbox to `[x]`. One chunk per invocation.
+- **`/spok-archive`** applies any delta specs to the main specs and moves the change into `spok/changes/archive/YYYY-MM-DD-<name>/`. Sync is folded in — there is no separate sync step.
 
-- **Actions, not phases** - Commands are things you can do, not stages you're stuck in
-- **Dependencies are enablers** - They show what's possible, not what's required next
+That loop is the entire workflow. The patterns below are about how you sequence it across real-world situations.
 
-> **Customization:** OPSX workflows are driven by schemas that define artifact sequences. See [Customization](customization.md) for details on creating custom schemas.
+---
 
-## Two Modes
+## Pattern: small feature, fast path
 
-### Default Quick Path (`core` profile)
-
-New installs default to `core`, which provides:
-- `/opsx:propose`
-- `/opsx:explore`
-- `/opsx:apply`
-- `/opsx:sync`
-- `/opsx:archive`
-
-Typical flow:
+You know what you want. You want it built.
 
 ```text
-/opsx:propose ──► /opsx:apply ──► /opsx:sync ──► /opsx:archive
-```
-
-### Expanded/Full Workflow (custom selection)
-
-If you want explicit scaffold-and-build commands (`/opsx:new`, `/opsx:continue`, `/opsx:ff`, `/opsx:verify`, `/opsx:bulk-archive`, `/opsx:onboard`), enable them with:
-
-```bash
-spok config profile
-spok update
-```
-
-## Workflow Patterns (Expanded Mode)
-
-### Quick Feature
-
-When you know what you want to build and just need to execute:
-
-```text
-/opsx:new ──► /opsx:ff ──► /opsx:apply ──► /opsx:verify ──► /opsx:archive
+/spok-propose add-logout-button
+/spok-apply        # chunk 1
+/spok-apply        # chunk 2
+/spok-archive
 ```
 
 **Example conversation:**
 
 ```text
-You: /opsx:new add-logout-button
+You: /spok-propose add-logout-button
 
 AI:  Created spok/changes/add-logout-button/
-     Ready to create: proposal
-
-You: /opsx:ff
-
-AI:  Creating all planning artifacts...
      ✓ proposal.md
-     ✓ specs/
+     ✓ specs/auth/spec.md
      ✓ design.md
-     ✓ tasks.md
-     Ready for implementation!
+     ✓ tasks.md (2 chunks)
+     Run /spok-apply to ship the first chunk.
 
-You: /opsx:apply
+You: /spok-apply
 
-AI:  Working through tasks...
-     ✓ Added logout button to header
-     ✓ Implemented session clearing
-     ✓ Added confirmation dialog
-     All tasks complete!
+AI:  Shipping chunk 1: Add logout endpoint + session clearing
+     [research → design → plan → implement → review → commit]
+     ✓ Chunk shipped.
+     Remaining: 1/2. Next: Wire logout button to header.
 
-You: /opsx:archive
+You: /spok-apply
 
-AI:  ✓ Merged specs
-     ✓ Archived change
+AI:  Shipping chunk 2: Wire logout button to header
+     ✓ Chunk shipped.
+     Remaining: 0/2. Run /spok-archive.
+
+You: /spok-archive
+
+AI:  ✓ Applied 1 ADDED requirement to spok/specs/auth/spec.md
+     ✓ Moved to spok/changes/archive/2026-05-26-add-logout-button/
 ```
 
-**Best for:** Small to medium features, bug fixes, straightforward changes.
+**Best for:** small to medium features, bug fixes, straightforward changes.
 
-### Exploratory
+---
 
-When requirements are unclear or you need to investigate first:
+## Pattern: review and edit `tasks.md` before applying
+
+You can — and should — sanity-check `tasks.md` after `/spok-propose` runs. The chunked format is plain Markdown:
+
+```markdown
+- [ ] 1. Add theme context + CSS variables
+    **Slug:** theme-context-css-vars
+    **Layers:** frontend
+    **Prerequisites:** none
+    **End-to-end test:** test/ui/theme-toggle.test.tsx
+    **Rollback:** revert src/contexts/ThemeContext.tsx and globals.css
+
+    <chunk body>
+
+- [ ] 2. Wire toggle to localStorage
+    **Slug:** wire-toggle-localstorage
+    **Layers:** frontend
+    **Prerequisites:** theme-context-css-vars
+    ...
+```
+
+Common edits:
+
+- Reorder chunks if you want a different shipping sequence.
+- Tighten a chunk title or slug.
+- Split one chunk into two if it's still too large to ship in a single `/spok-apply` invocation.
+- Adjust `**Prerequisites:**` to reflect dependencies you spotted.
+
+Don't pre-tick checkboxes — `/spok-apply` owns the checkbox flip and uses it to track progress.
+
+---
+
+## Pattern: parallel changes
+
+Multiple changes can coexist under `spok/changes/`. Each one has its own `tasks.md` and `.flow/` ticket directory, so they don't collide.
 
 ```text
-/opsx:explore ──► /opsx:new ──► /opsx:continue ──► ... ──► /opsx:apply
+# Mid-implementation of add-dark-mode, an urgent bug shows up.
+
+/spok-propose fix-login-redirect
+/spok-apply
+/spok-archive
+
+# Resume the original change by naming it explicitly:
+/spok-apply add-dark-mode
 ```
 
-**Example conversation:**
+**Best for:** parallel work streams, urgent interrupts, team collaboration on different branches.
 
-```text
-You: /opsx:explore
+When `/spok-apply` is called without arguments and several active changes exist, the skill uses `spok list --json` and asks you to pick.
 
-AI:  What would you like to explore?
+---
 
-You: I want to improve page load performance but I'm not sure
-     where the bottlenecks are.
+## Pattern: long-running change
 
-AI:  Let me help investigate...
-     [Analyzes bundle sizes, identifies slow queries, reviews
-     component render patterns]
+A change can stay active across many sessions. Each `/spok-apply` invocation:
 
-     I found three main bottlenecks:
-     1. Large unoptimized images
-     2. Synchronous data fetching in ProductList
-     3. Re-renders from context changes
+1. Reads `tasks.md` to find the first `- [ ]` chunk.
+2. Stages a fresh ticket in `.flow/<chunk-slug>/`.
+3. Runs the full flow loop for just that chunk.
+4. Ticks the checkbox.
 
-     Which would you like to address first?
+That means you can stop after any chunk and pick up later without remembering state. The unchecked boxes in `tasks.md` are the resumable queue.
 
-You: Let's tackle the data fetching issue.
+If `/spok-flow` hits a blocker partway through a chunk, the checkbox stays `- [ ]`. Fix the blocker, then run `/spok-apply` again — it picks the same chunk up from a clean ticket.
 
-You: /opsx:new optimize-product-list-fetching
+---
 
-AI:  Created change. Ready to create: proposal
+## When to update a change vs. start a new one
 
-You: /opsx:continue
-
-AI:  Creating proposal based on our exploration...
-     [Writes proposal incorporating investigation insights]
-
-     Ready to create: specs, design
-     Which would you like next?
-
-You: /opsx:continue
-
-AI:  Creating specs...
-```
-
-**Best for:** Performance optimization, debugging, architectural decisions, unclear requirements.
-
-### Parallel Changes
-
-Work on multiple changes at once:
-
-```text
-Change A: /opsx:new ──► /opsx:ff ──► /opsx:apply (in progress)
-                                         │
-                                    context switch
-                                         │
-Change B: /opsx:new ──► /opsx:ff ──────► /opsx:apply
-```
-
-**Example conversation:**
-
-```text
-You: I'm working on add-dark-mode but got pulled into a bug fix
-
-You: /opsx:new fix-login-redirect
-
-AI:  Created spok/changes/fix-login-redirect/
-
-You: /opsx:ff
-
-AI:  ✓ Created planning artifacts
-
-You: /opsx:apply
-
-AI:  Working on fix-login-redirect...
-     [Implements the fix]
-     All tasks complete!
-
-You: /opsx:archive
-
-AI:  ✓ Archived fix-login-redirect
-
-You: Let's get back to dark mode
-
-You: /opsx:apply add-dark-mode
-
-AI:  Resuming add-dark-mode...
-     Picking up at task 2.3: Update Header...
-```
-
-**Best for:** Parallel work streams, urgent interrupts, team collaboration.
-
-When you have multiple completed changes, use `/opsx:bulk-archive`:
-
-```text
-You: /opsx:bulk-archive
-
-AI:  Found 3 completed changes:
-     - add-dark-mode (all tasks done)
-     - fix-login-redirect (all tasks done)
-     - update-footer (all tasks done)
-
-     Checking for spec conflicts...
-     ⚠ add-dark-mode and update-footer both touch specs/ui/
-
-     Inspecting codebase to resolve...
-     Both changes are implemented. Will apply in chronological order.
-
-     Archive all 3 changes?
-
-You: Yes
-
-AI:  ✓ Archived add-dark-mode
-     ✓ Archived fix-login-redirect
-     ✓ Archived update-footer
-     Specs merged in order: add-dark-mode → update-footer
-```
-
-Bulk archive detects when multiple changes touch the same specs and resolves conflicts by checking what's actually implemented.
-
-### Completing a Change
-
-The recommended completion flow:
-
-```text
-/opsx:apply ──► /opsx:verify ──► /opsx:archive
-                    │                 │
-              validates          prompts to sync
-              implementation     if needed
-```
-
-#### Verify: Check Your Work
-
-`/opsx:verify` validates implementation against your artifacts across three dimensions:
-
-```text
-You: /opsx:verify
-
-AI:  Verifying add-auth...
-
-     COMPLETENESS
-     ✓ All 12 tasks in tasks.md are checked
-     ✓ All requirements in specs have corresponding code
-     ⚠ Scenario "Session timeout after inactivity" not tested
-
-     CORRECTNESS
-     ✓ Implementation matches spec intent
-     ✓ Edge cases from scenarios are handled
-     ✓ Error states match spec definitions
-
-     COHERENCE
-     ✓ Design decisions reflected in code structure
-     ✓ Naming conventions consistent with design.md
-     ⚠ Design mentions "event-driven" but implementation uses polling
-
-     SUMMARY
-     ─────────────────────────────
-     Critical issues: 0
-     Warnings: 2
-     Ready to archive: Yes (with warnings)
-
-     Recommendations:
-     1. Add test for session timeout scenario
-     2. Consider refactoring to event-driven as designed, or update design.md
-```
-
-**What verify checks:**
-
-| Dimension | What it validates |
-|-----------|------------------|
-| Completeness | All tasks done, all requirements implemented, scenarios covered |
-| Correctness | Implementation matches spec intent, edge cases handled |
-| Coherence | Design decisions reflected in code, patterns consistent |
-
-Verify won't block archive, but it surfaces issues you might want to address first.
-
-#### Archive: Finalize the Change
-
-`/opsx:archive` completes the change and moves it to the archive:
-
-```text
-You: /opsx:archive
-
-AI:  Archiving add-auth...
-
-     Artifact status:
-     ✓ proposal.md exists
-     ✓ specs/ exists
-     ✓ design.md exists
-     ✓ tasks.md exists (12/12 tasks complete)
-
-     Delta specs: Not yet synced to main
-     → Would you like to sync now?
-
-You: Yes
-
-AI:  ✓ Synced specs to spok/specs/auth/spec.md
-     ✓ Moved to spok/changes/archive/2025-01-24-add-auth/
-
-     Change archived successfully.
-```
-
-Archive will prompt if specs aren't synced. It won't block on incomplete tasks, but it will warn you.
-
-## When to Use What
-
-### `/opsx:ff` vs `/opsx:continue`
-
-| Situation | Use |
-|-----------|-----|
-| Clear requirements, ready to build | `/opsx:ff` |
-| Exploring, want to review each step | `/opsx:continue` |
-| Want to iterate on proposal before specs | `/opsx:continue` |
-| Time pressure, need to move fast | `/opsx:ff` |
-| Complex change, want control | `/opsx:continue` |
-
-**Rule of thumb:** If you can describe the full scope upfront, use `/opsx:ff`. If you're figuring it out as you go, use `/opsx:continue`.
-
-### When to Update vs Start Fresh
-
-A common question: when is updating an existing change okay, and when should you start a new one?
+A common question once a change is mid-flight.
 
 **Update the existing change when:**
 
-- Same intent, refined execution
-- Scope narrows (MVP first, rest later)
-- Learning-driven corrections (codebase isn't what you expected)
-- Design tweaks based on implementation discoveries
+- Same intent, refined execution.
+- Scope narrows (MVP first, rest later).
+- Learning-driven corrections (the codebase isn't what you expected).
+- Design tweaks discovered during implementation.
 
 **Start a new change when:**
 
-- Intent fundamentally changed
-- Scope exploded to different work entirely
-- Original change can be marked "done" standalone
-- Patches would confuse more than clarify
+- Intent fundamentally changed.
+- Scope exploded to different work entirely.
+- The original change can be marked "done" standalone.
+- A patch would obscure the history more than clarify it.
 
 ```text
                      ┌─────────────────────────────────────┐
@@ -358,67 +178,36 @@ A common question: when is updating an existing change okay, and when should you
 
 **Example: "Add dark mode"**
 
-- "Need to also support custom themes" → New change (scope exploded)
-- "System preference detection is harder than expected" → Update (same intent)
-- "Let's ship toggle first, add preferences later" → Update then archive, then new change
+- "Need to also support custom themes" → New change (scope exploded).
+- "System preference detection is harder than expected" → Update the existing design and chunks.
+- "Let's ship the toggle first and add preferences later" → Update, archive, then a new change for preferences.
+
+---
 
 ## Best Practices
 
-### Keep Changes Focused
+### Keep changes focused
 
-One logical unit of work per change. If you're doing "add feature X and also refactor Y", consider two separate changes.
+One logical unit of work per change. If you're doing "add feature X and also refactor Y," consider two separate changes.
 
 **Why it matters:**
-- Easier to review and understand
-- Cleaner archive history
-- Can ship independently
-- Simpler rollback if needed
 
-### Use `/opsx:explore` for Unclear Requirements
+- Easier to review and understand.
+- Cleaner archive history.
+- Can ship independently.
+- Simpler rollback if needed.
 
-Before committing to a change, explore the problem space:
+### Keep chunks thin
 
-```text
-You: /opsx:explore
+The chunking pass in `/spok-propose` tries to produce thin, end-to-end-testable chunks. If a chunk feels too big, split it in `tasks.md` before running `/spok-apply`. A good chunk:
 
-AI:  What would you like to explore?
+- Touches whatever layers (db, backend, frontend, infra) it needs to make the slice observable.
+- Has a single named end-to-end test.
+- Has a one-line rollback.
 
-You: How should we handle rate limiting for our API?
+### Name changes clearly
 
-AI:  Let me investigate your current setup and options...
-     [Researches codebase, considers patterns]
-
-     I see three approaches we could take:
-     1. Middleware-based (simple, per-endpoint)
-     2. Redis-backed (scalable, shared state)
-     3. Token bucket per user (fair, complex)
-
-     Your current stack suggests #1 or #2. What's your scale?
-```
-
-Exploration clarifies thinking before you create artifacts.
-
-### Verify Before Archiving
-
-Use `/opsx:verify` to check implementation matches artifacts:
-
-```text
-You: /opsx:verify
-
-AI:  Verifying add-dark-mode...
-
-     ✓ All tasks in tasks.md are checked
-     ✓ Requirements in specs have corresponding code
-     ✓ Design decisions are reflected in implementation
-
-     Ready to archive!
-```
-
-Catches mismatches before you close out the change.
-
-### Name Changes Clearly
-
-Good names make `spok list` useful:
+Good names make `spok list` useful.
 
 ```text
 Good:                          Avoid:
@@ -428,25 +217,24 @@ optimize-product-query         changes
 implement-2fa                  wip
 ```
 
-## Command Quick Reference
+### Inject project context once, not every prompt
+
+Put your tech stack, conventions, and non-obvious constraints in `spok/config.yaml` under `context:`. Spok injects that into every artifact instruction, so `/spok-propose` doesn't need to be reminded every time. See [Concepts](concepts.md#project-configuration) for the structure.
+
+---
+
+## Quick Reference
 
 For full command details and options, see [Commands](commands.md).
 
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
-| `/opsx:propose` | Create change + planning artifacts | Fast default path (`core` profile) |
-| `/opsx:explore` | Think through ideas | Unclear requirements, investigation |
-| `/opsx:new` | Start a change scaffold | Expanded mode, explicit artifact control |
-| `/opsx:continue` | Create next artifact | Expanded mode, step-by-step artifact creation |
-| `/opsx:ff` | Create all planning artifacts | Expanded mode, clear scope |
-| `/opsx:apply` | Implement tasks | Ready to write code |
-| `/opsx:verify` | Validate implementation | Expanded mode, before archiving |
-| `/opsx:sync` | Merge delta specs | Expanded mode, optional |
-| `/opsx:archive` | Complete the change | All work finished |
-| `/opsx:bulk-archive` | Archive multiple changes | Expanded mode, parallel work |
+| `/spok-propose` | Create a change with chunked `tasks.md` | Start of every change |
+| `/spok-apply` | Ship the next unchecked chunk | Once per chunk, repeat until done |
+| `/spok-archive` | Apply delta specs and archive | Once at the end |
 
 ## Next Steps
 
-- [Commands](commands.md) - Full command reference with options
-- [Concepts](concepts.md) - Deep dive into specs, artifacts, and schemas
-- [Customization](customization.md) - Create custom workflows
+- [Commands](commands.md) — Full command reference
+- [Concepts](concepts.md) — Specs, changes, chunks, and how they fit together
+- [Getting Started](getting-started.md) — Step-by-step first run

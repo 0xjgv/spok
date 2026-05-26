@@ -32,19 +32,19 @@ import {
   type LegacyDetectionResult,
 } from './legacy-cleanup.js';
 import {
-  SKILL_NAMES,
   getToolsWithSkillsDir,
-  getToolSkillStatus,
   getToolStates,
   getSkillTemplates,
   getCommandContents,
   generateSkillContent,
   type ToolSkillStatus,
 } from './shared/index.js';
-import { getGlobalConfig, type Delivery, type Profile } from './global-config.js';
-import { getProfileWorkflows, CORE_WORKFLOWS, ALL_WORKFLOWS } from './profiles.js';
+import { getGlobalConfig, type Delivery } from './global-config.js';
 import { getAvailableTools } from './available-tools.js';
-import { migrateIfNeeded } from './migration.js';
+import { installVendoredSkills } from './skill-vendor.js';
+import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
+
+const SPOK_WORKFLOWS = ['propose', 'apply', 'archive'] as const;
 
 const require = createRequire(import.meta.url);
 const { version: SPOK_VERSION } = require('../../package.json');
@@ -61,17 +61,9 @@ const PROGRESS_SPINNER = {
 };
 
 const WORKFLOW_TO_SKILL_DIR: Record<string, string> = {
-  'explore': 'spok-explore',
-  'new': 'spok-new-change',
-  'continue': 'spok-continue-change',
-  'apply': 'spok-apply-change',
-  'ff': 'spok-ff-change',
-  'sync': 'spok-sync-specs',
-  'archive': 'spok-archive-change',
-  'bulk-archive': 'spok-bulk-archive-change',
-  'verify': 'spok-verify-change',
-  'onboard': 'spok-onboard',
-  'propose': 'spok-propose',
+  propose: 'spok-propose',
+  apply: 'spok-apply',
+  archive: 'spok-archive',
 };
 
 // -----------------------------------------------------------------------------
@@ -82,7 +74,6 @@ type InitCommandOptions = {
   tools?: string;
   force?: boolean;
   interactive?: boolean;
-  profile?: string;
 };
 
 // -----------------------------------------------------------------------------
@@ -93,13 +84,11 @@ export class InitCommand {
   private readonly toolsArg?: string;
   private readonly force: boolean;
   private readonly interactiveOption?: boolean;
-  private readonly profileOverride?: string;
 
   constructor(options: InitCommandOptions = {}) {
     this.toolsArg = options.tools;
     this.force = options.force ?? false;
     this.interactiveOption = options.interactive;
-    this.profileOverride = options.profile;
   }
 
   async execute(targetPath: string): Promise<void> {
@@ -113,13 +102,8 @@ export class InitCommand {
     // Check for legacy artifacts and handle cleanup
     await this.handleLegacyCleanup(projectPath, extendMode);
 
-    // Detect available tools in the project (task 7.1)
+    // Detect available tools in the project
     const detectedTools = getAvailableTools(projectPath);
-
-    // Migration check: migrate existing projects to profile system (task 7.3)
-    if (extendMode) {
-      migrateIfNeeded(projectPath, detectedTools);
-    }
 
     // Show animated welcome screen (interactive mode only)
     const canPrompt = this.canPromptInteractively();
@@ -127,10 +111,6 @@ export class InitCommand {
       const { showWelcomeScreen } = await import('../ui/welcome-screen.js');
       await showWelcomeScreen();
     }
-
-    // Validate profile override early so invalid values fail before tool setup.
-    // The resolved value is consumed later when generation reads effective config.
-    this.resolveProfileOverride();
 
     // Get tool states before processing
     const toolStates = getToolStates(projectPath);
@@ -150,8 +130,24 @@ export class InitCommand {
     // Create config.yaml if needed
     const configStatus = await this.createConfig(spokPath, extendMode);
 
+    // Warn if Claude is configured but custom subagents referenced by vendored
+    // skills aren't installed in ~/.claude/agents/.
+    this.warnIfClaudeSubagentsMissing(validatedTools);
+
     // Display success message
     this.displaySuccessMessage(projectPath, validatedTools, results, configStatus);
+  }
+
+  private warnIfClaudeSubagentsMissing(
+    tools: Array<{ value: string }>
+  ): void {
+    if (!tools.some((tool) => tool.value === 'claude')) return;
+    const result = checkClaudeSubagents();
+    const warning = formatSubagentWarning(result);
+    if (warning) {
+      console.log();
+      console.log(chalk.yellow(warning));
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -175,18 +171,6 @@ export class InitCommand {
     if (this.interactiveOption === false) return false;
     if (this.toolsArg !== undefined) return false;
     return isInteractive({ interactive: this.interactiveOption });
-  }
-
-  private resolveProfileOverride(): Profile | undefined {
-    if (this.profileOverride === undefined) {
-      return undefined;
-    }
-
-    if (this.profileOverride === 'core' || this.profileOverride === 'custom') {
-      return this.profileOverride;
-    }
-
-    throw new Error(`Invalid profile "${this.profileOverride}". Available profiles: core, custom`);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -509,13 +493,12 @@ export class InitCommand {
     let removedCommandCount = 0;
     let removedSkillCount = 0;
 
-    // Read global config for profile and delivery settings (use --profile override if set)
+    // Read global config for delivery settings
     const globalConfig = getGlobalConfig();
-    const profile: Profile = this.resolveProfileOverride() ?? globalConfig.profile ?? 'core';
     const delivery: Delivery = globalConfig.delivery ?? 'both';
-    const workflows = getProfileWorkflows(profile, globalConfig.workflows);
+    const workflows = [...SPOK_WORKFLOWS];
 
-    // Get skill and command templates filtered by profile workflows
+    // Get skill and command templates
     const shouldGenerateSkills = delivery !== 'commands';
     const shouldGenerateCommands = delivery !== 'skills';
     const skillTemplates = shouldGenerateSkills ? getSkillTemplates(workflows) : [];
@@ -544,6 +527,10 @@ export class InitCommand {
             // Write the skill file
             await FileSystemUtils.writeFile(skillFile, skillContent);
           }
+
+          // Copy vendored helper skills (spok-flow, spok-create-scoped-chunks,
+          // and their transitive helpers) into the same skills directory.
+          await installVendoredSkills(projectPath, tool.skillsDir);
         }
         if (!shouldGenerateSkills) {
           const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
@@ -648,13 +635,12 @@ export class InitCommand {
       console.log(`Refreshed: ${results.refreshedTools.map((t) => t.name).join(', ')}`);
     }
 
-    // Show counts (respecting profile filter)
+    // Show counts
     const successfulTools = [...results.createdTools, ...results.refreshedTools];
     if (successfulTools.length > 0) {
       const globalConfig = getGlobalConfig();
-      const profile: Profile = (this.profileOverride as Profile) ?? globalConfig.profile ?? 'core';
       const delivery: Delivery = globalConfig.delivery ?? 'both';
-      const workflows = getProfileWorkflows(profile, globalConfig.workflows);
+      const workflows = [...SPOK_WORKFLOWS];
       const toolDirs = [...new Set(successfulTools.map((t) => t.skillsDir))].join(', ');
       const skillCount = delivery !== 'commands' ? getSkillTemplates(workflows).length : 0;
       const commandCount = delivery !== 'skills' ? getCommandContents(workflows).length : 0;
@@ -696,20 +682,11 @@ export class InitCommand {
       console.log(chalk.dim(`Config: skipped (non-interactive mode)`));
     }
 
-    // Getting started (task 7.6: show propose if in profile)
-    const globalCfg = getGlobalConfig();
-    const activeProfile: Profile = (this.profileOverride as Profile) ?? globalCfg.profile ?? 'core';
-    const activeWorkflows = [...getProfileWorkflows(activeProfile, globalCfg.workflows)];
     console.log();
-    if (activeWorkflows.includes('propose')) {
-      console.log(chalk.bold('Getting started:'));
-      console.log('  Start your first change: /opsx:propose "your idea"');
-    } else if (activeWorkflows.includes('new')) {
-      console.log(chalk.bold('Getting started:'));
-      console.log('  Start your first change: /opsx:new "your idea"');
-    } else {
-      console.log("Done. Run 'spok config profile' to configure your workflows.");
-    }
+    console.log(chalk.bold('Getting started:'));
+    console.log('  /spok-propose "your idea"');
+    console.log('  /spok-apply');
+    console.log('  /spok-archive');
 
     // Links
     console.log();
@@ -737,7 +714,7 @@ export class InitCommand {
   private async removeSkillDirs(skillsDir: string): Promise<number> {
     let removed = 0;
 
-    for (const workflow of ALL_WORKFLOWS) {
+    for (const workflow of SPOK_WORKFLOWS) {
       const dirName = WORKFLOW_TO_SKILL_DIR[workflow];
       if (!dirName) continue;
 
@@ -760,7 +737,7 @@ export class InitCommand {
     const adapter = CommandAdapterRegistry.get(toolId);
     if (!adapter) return 0;
 
-    for (const workflow of ALL_WORKFLOWS) {
+    for (const workflow of SPOK_WORKFLOWS) {
       const cmdPath = adapter.getFilePath(workflow);
       const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
 

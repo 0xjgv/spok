@@ -8,6 +8,7 @@ import {
   detectLegacyConfigFiles,
   detectLegacySlashCommands,
   detectLegacyStructureFiles,
+  detectRetiredSkillDirs,
   hasSpokMarkers,
   isOnlySpokContent,
   removeMarkerBlock,
@@ -18,6 +19,7 @@ import {
   getToolsFromLegacyArtifacts,
   LEGACY_CONFIG_FILES,
   LEGACY_SLASH_COMMAND_PATHS,
+  RETIRED_SKILL_DIRS,
 } from '../../src/core/legacy-cleanup.js';
 import { SPOK_MARKERS } from '../../src/core/config.js';
 import { CommandAdapterRegistry } from '../../src/core/command-generation/registry.js';
@@ -1157,6 +1159,88 @@ ${SPOK_MARKERS.end}`);
 
       const tools = getToolsFromLegacyArtifacts(detection);
       expect(tools).toHaveLength(0);
+    });
+  });
+
+  describe('RETIRED_SKILL_DIRS', () => {
+    it('should include the renamed surviving skills', () => {
+      expect(RETIRED_SKILL_DIRS).toContain('spok-apply-change');
+      expect(RETIRED_SKILL_DIRS).toContain('spok-archive-change');
+    });
+
+    it('should include workflows retired in the 3-verb collapse', () => {
+      expect(RETIRED_SKILL_DIRS).toContain('spok-explore');
+      expect(RETIRED_SKILL_DIRS).toContain('spok-new-change');
+      expect(RETIRED_SKILL_DIRS).toContain('spok-continue-change');
+      expect(RETIRED_SKILL_DIRS).toContain('spok-sync-specs');
+      expect(RETIRED_SKILL_DIRS).toContain('spok-onboard');
+      expect(RETIRED_SKILL_DIRS).toContain('spok-feedback');
+    });
+  });
+
+  describe('detectRetiredSkillDirs', () => {
+    it('returns empty array when no retired skill directories exist', async () => {
+      const found = await detectRetiredSkillDirs(testDir);
+      expect(found).toEqual([]);
+    });
+
+    it('finds a retired Claude skill directory', async () => {
+      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-apply-change');
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(path.join(skillDir, 'SKILL.md'), '# stale\n');
+
+      const found = await detectRetiredSkillDirs(testDir);
+      expect(found).toContain('.claude/skills/spok-apply-change');
+    });
+
+    it('does not flag the surviving skill names', async () => {
+      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-apply');
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(path.join(skillDir, 'SKILL.md'), '# current\n');
+
+      const found = await detectRetiredSkillDirs(testDir);
+      expect(found).not.toContain('.claude/skills/spok-apply');
+    });
+
+    it('finds retired dirs across multiple tools', async () => {
+      const claudeRetired = path.join(testDir, '.claude', 'skills', 'spok-explore');
+      const cursorRetired = path.join(testDir, '.cursor', 'skills', 'spok-sync-specs');
+      await fs.mkdir(claudeRetired, { recursive: true });
+      await fs.mkdir(cursorRetired, { recursive: true });
+
+      const found = await detectRetiredSkillDirs(testDir);
+      expect(found).toContain('.claude/skills/spok-explore');
+      expect(found).toContain('.cursor/skills/spok-sync-specs');
+    });
+  });
+
+  describe('cleanupLegacyArtifacts — retired skill dirs', () => {
+    it('deletes retired skill directories detected via detectLegacyArtifacts', async () => {
+      const skillDir = path.join(testDir, '.claude', 'skills', 'spok-apply-change');
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(path.join(skillDir, 'SKILL.md'), '# stale\n');
+
+      const detection = await detectLegacyArtifacts(testDir);
+      expect(detection.retiredSkillDirs).toContain('.claude/skills/spok-apply-change');
+
+      const result = await cleanupLegacyArtifacts(testDir, detection);
+      expect(result.deletedDirs).toContain('.claude/skills/spok-apply-change');
+      await expect(fs.access(skillDir)).rejects.toThrow();
+    });
+
+    it('leaves the surviving skill directory untouched', async () => {
+      const surviving = path.join(testDir, '.claude', 'skills', 'spok-apply');
+      const retired = path.join(testDir, '.claude', 'skills', 'spok-apply-change');
+      await fs.mkdir(surviving, { recursive: true });
+      await fs.mkdir(retired, { recursive: true });
+      await fs.writeFile(path.join(surviving, 'SKILL.md'), '# current\n');
+      await fs.writeFile(path.join(retired, 'SKILL.md'), '# stale\n');
+
+      const detection = await detectLegacyArtifacts(testDir);
+      await cleanupLegacyArtifacts(testDir, detection);
+
+      await expect(fs.access(surviving)).resolves.not.toThrow();
+      await expect(fs.access(retired)).rejects.toThrow();
     });
   });
 });

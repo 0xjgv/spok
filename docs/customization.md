@@ -1,33 +1,19 @@
 # Customization
 
-Spok provides three levels of customization:
+Spok 1.0 ships with a fixed three-verb surface (`/spok-propose`, `/spok-apply`, `/spok-archive`) and one built-in workflow schema (`spec-driven`). The customization surface that remains is project-level configuration: telling Spok about your project so the artifacts it generates fit your conventions.
 
-| Level | What it does | Best for |
-|-------|--------------|----------|
-| **Project Config** | Set defaults, inject context/rules | Most teams |
-| **Custom Schemas** | Define your own workflow artifacts | Teams with unique processes |
-| **Global Overrides** | Share schemas across all projects | Power users |
+For commands, see [Commands](commands.md). For the CLI, see [CLI](cli.md).
 
----
+## Project Configuration (`spok/config.yaml`)
 
-## Project Configuration
+`spok/config.yaml` is created during `spok init`. It controls two things:
 
-The `spok/config.yaml` file is the easiest way to customize Spok for your team. It lets you:
+- **`context:`** — A project description injected into every artifact instruction. Use this to encode tech stack, conventions, and non-obvious constraints.
+- **`rules:`** — Per-artifact rules injected only when that artifact is being generated.
 
-- **Set a default schema** - Skip `--schema` on every command
-- **Inject project context** - AI sees your tech stack, conventions, etc.
-- **Add per-artifact rules** - Custom rules for specific artifacts
-
-### Quick Setup
-
-```bash
-spok init
-```
-
-This walks you through creating a config interactively. Or create one manually:
+### Example
 
 ```yaml
-# spok/config.yaml
 schema: spec-driven
 
 context: |
@@ -43,23 +29,15 @@ rules:
   specs:
     - Use Given/When/Then format
     - Reference existing patterns before inventing new ones
+  design:
+    - Document fallback strategies
+  tasks:
+    - Keep each chunk to a single end-to-end-testable slice
 ```
 
-### How It Works
+### How It Reaches the AI
 
-**Default schema:**
-
-```bash
-# Without config
-spok new change my-feature --schema spec-driven
-
-# With config - schema is automatic
-spok new change my-feature
-```
-
-**Context and rules injection:**
-
-When generating any artifact, your context and rules are injected into the AI prompt:
+When `/spok-propose` creates an artifact, the skill calls `spok instructions <artifact> --change <name> --json`. That response includes:
 
 ```xml
 <context>
@@ -73,284 +51,72 @@ Tech stack: TypeScript, React, Node.js, PostgreSQL
 </rules>
 
 <template>
-[Schema's built-in template]
+[Built-in template for this artifact]
 </template>
 ```
 
-- **Context** appears in ALL artifacts
-- **Rules** ONLY appear for the matching artifact
+- **Context** appears for every artifact.
+- **Rules** appear only for the matching artifact (e.g., `rules.proposal` only when generating `proposal.md`).
 
-### Schema Resolution Order
+The AI uses these as constraints, not as content to copy into the artifact file.
 
-When Spok needs a schema, it checks in this order:
+### Inspecting the Resolved Instructions
 
-1. CLI flag: `--schema <name>`
-2. Change metadata (`.spok.yaml` in the change folder)
-3. Project config (`spok/config.yaml`)
-4. Default (`spec-driven`)
-
----
-
-## Custom Schemas
-
-When project config isn't enough, create your own schema with a completely custom workflow. Custom schemas live in your project's `spok/schemas/` directory and are version-controlled with your code.
-
-```text
-your-project/
-├── spok/
-│   ├── config.yaml        # Project config
-│   ├── schemas/           # Custom schemas live here
-│   │   └── my-workflow/
-│   │       ├── schema.yaml
-│   │       └── templates/
-│   └── changes/           # Your changes
-└── src/
-```
-
-### Fork an Existing Schema
-
-The fastest way to customize is to fork a built-in schema:
+To see exactly what the skill will receive:
 
 ```bash
-spok schema fork spec-driven my-workflow
+spok instructions proposal --change my-change --json
 ```
 
-This copies the entire `spec-driven` schema to `spok/schemas/my-workflow/` where you can edit it freely.
+This is also how you debug "the AI keeps ignoring my rules" — if the rule isn't in the JSON output, it's not reaching the model.
 
-**What you get:**
+## What `context:` Should Hold
 
-```text
-spok/schemas/my-workflow/
-├── schema.yaml           # Workflow definition
-└── templates/
-    ├── proposal.md       # Template for proposal artifact
-    ├── spec.md           # Template for specs
-    ├── design.md         # Template for design
-    └── tasks.md          # Template for tasks
-```
+Be selective. Context is injected into **every** artifact instruction, so trim it ruthlessly.
 
-Now edit `schema.yaml` to change the workflow, or edit templates to change what AI generates.
+**Good candidates:**
 
-### Create a Schema from Scratch
+- Tech stack (languages, frameworks, databases)
+- Architectural patterns (monorepo, microservices, hexagonal, etc.)
+- Non-obvious constraints ("we can't depend on library X because…")
+- Conventions that often get ignored by default
 
-For a completely fresh workflow:
+**Move to `rules:` instead:**
 
-```bash
-# Interactive
-spok schema init research-first
+- Artifact-specific formatting ("use Given/When/Then in specs")
+- Per-artifact checklists ("proposals must include a rollback plan")
 
-# Non-interactive
-spok schema init rapid \
-  --description "Rapid iteration workflow" \
-  --artifacts "proposal,tasks" \
-  --default
-```
+**Leave out entirely:**
 
-### Schema Structure
+- General best practices the model already knows
+- Verbose history that doesn't affect current work
 
-A schema defines the artifacts in your workflow and how they depend on each other:
+## Multi-Language Output
+
+To produce artifacts in a language other than English, put a directive in `context:`. See [Multi-Language](multi-language.md) for examples.
 
 ```yaml
-# spok/schemas/my-workflow/schema.yaml
-name: my-workflow
-version: 1
-description: My team's custom workflow
+context: |
+  Language: Portuguese (pt-BR)
+  All artifacts must be written in Brazilian Portuguese.
 
-artifacts:
-  - id: proposal
-    generates: proposal.md
-    description: Initial proposal document
-    template: proposal.md
-    instruction: |
-      Create a proposal that explains WHY this change is needed.
-      Focus on the problem, not the solution.
-    requires: []
-
-  - id: design
-    generates: design.md
-    description: Technical design
-    template: design.md
-    instruction: |
-      Create a design document explaining HOW to implement.
-    requires:
-      - proposal    # Can't create design until proposal exists
-
-  - id: tasks
-    generates: tasks.md
-    description: Implementation checklist
-    template: tasks.md
-    requires:
-      - design
-
-apply:
-  requires: [tasks]
-  tracks: tasks.md
+  Tech stack: TypeScript, React, Node.js
 ```
 
-**Key fields:**
+## What Was Removed in 1.0
 
-| Field | Purpose |
-|-------|---------|
-| `id` | Unique identifier, used in commands and rules |
-| `generates` | Output filename (supports globs like `specs/**/*.md`) |
-| `template` | Template file in `templates/` directory |
-| `instruction` | AI instructions for creating this artifact |
-| `requires` | Dependencies - which artifacts must exist first |
+If you used previous versions of Spok, several customization knobs no longer exist:
 
-### Templates
+- **Workflow profiles (`core`, `custom`)** — Removed. The three-verb surface is fixed.
+- **Custom schemas (`spok schema init`, `spok schema fork`, `spok schema validate`, `spok schema which`, `spok schemas`)** — Removed. `spec-driven` is the only schema and it's a CLI internal.
+- **Workspace commands (`spok workspace …`)** — Removed.
+- **Browsing/inspection (`spok view`, `spok show`, `spok validate`, `spok feedback`, `spok completion`, `spok templates`)** — Removed.
 
-Templates are markdown files that guide the AI. They're injected into the prompt when creating that artifact.
-
-```markdown
-<!-- templates/proposal.md -->
-## Why
-
-<!-- Explain the motivation for this change. What problem does this solve? -->
-
-## What Changes
-
-<!-- Describe what will change. Be specific about new capabilities or modifications. -->
-
-## Impact
-
-<!-- Affected code, APIs, dependencies, systems -->
-```
-
-Templates can include:
-- Section headers the AI should fill in
-- HTML comments with guidance for the AI
-- Example formats showing expected structure
-
-### Validate Your Schema
-
-Before using a custom schema, validate it:
-
-```bash
-spok schema validate my-workflow
-```
-
-This checks:
-- `schema.yaml` syntax is correct
-- All referenced templates exist
-- No circular dependencies
-- Artifact IDs are valid
-
-### Use Your Custom Schema
-
-Once created, use your schema with:
-
-```bash
-# Specify on command
-spok new change feature --schema my-workflow
-
-# Or set as default in config.yaml
-schema: my-workflow
-```
-
-### Debug Schema Resolution
-
-Not sure which schema is being used? Check with:
-
-```bash
-# See where a specific schema resolves from
-spok schema which my-workflow
-
-# List all available schemas
-spok schema which --all
-```
-
-Output shows whether it's from your project, user directory, or the package:
-
-```text
-Schema: my-workflow
-Source: project
-Path: /path/to/project/spok/schemas/my-workflow
-```
-
----
-
-> **Note:** Spok also supports user-level schemas at `~/.local/share/spok/schemas/` for sharing across projects, but project-level schemas in `spok/schemas/` are recommended since they're version-controlled with your code.
-
----
-
-## Examples
-
-### Rapid Iteration Workflow
-
-A minimal workflow for quick iterations:
-
-```yaml
-# spok/schemas/rapid/schema.yaml
-name: rapid
-version: 1
-description: Fast iteration with minimal overhead
-
-artifacts:
-  - id: proposal
-    generates: proposal.md
-    description: Quick proposal
-    template: proposal.md
-    instruction: |
-      Create a brief proposal for this change.
-      Focus on what and why, skip detailed specs.
-    requires: []
-
-  - id: tasks
-    generates: tasks.md
-    description: Implementation checklist
-    template: tasks.md
-    requires: [proposal]
-
-apply:
-  requires: [tasks]
-  tracks: tasks.md
-```
-
-### Adding a Review Artifact
-
-Fork the default and add a review step:
-
-```bash
-spok schema fork spec-driven with-review
-```
-
-Then edit `schema.yaml` to add:
-
-```yaml
-  - id: review
-    generates: review.md
-    description: Pre-implementation review checklist
-    template: review.md
-    instruction: |
-      Create a review checklist based on the design.
-      Include security, performance, and testing considerations.
-    requires:
-      - design
-
-  - id: tasks
-    # ... existing tasks config ...
-    requires:
-      - specs
-      - design
-      - review    # Now tasks require review too
-```
-
----
-
-## Community Schemas
-
-Spok also supports community-maintained schemas distributed via standalone repositories. These provide opinionated workflows that integrate Spok with other tools or systems, similar to how [github/spec-kit's community extension catalog](https://github.com/github/spec-kit/tree/main/extensions) works for spec-kit.
-
-Community schemas are not vendored into Spok core — they live in their own repositories with their own release cadence. To use one, copy the schema bundle into your project's `spok/schemas/<schema-name>/` directory (each repo's README has install instructions).
-
-| Schema | Maintainer | Repository | Description |
-|--------|-----------|-----------|-------------|
-| `superpowers-bridge` | @JiangWay | [JiangWay/spok-schemas](https://github.com/JiangWay/spok-schemas/tree/main/superpowers-bridge) | Integrates Spok's artifact governance with [obra/superpowers](https://github.com/obra/superpowers) execution skills (brainstorming, writing-plans, TDD via subagents, code review, finishing). Adds an evidence-first `retrospective` artifact filling a gap Superpowers does not natively cover. |
-
-> Want to contribute a community schema? Open an issue with a link to your repository, or submit a PR adding a row to this table.
-
----
+If you depended on any of these, see the [Migration Guide](migration-guide.md) for the upgrade path.
 
 ## See Also
 
-- [CLI Reference: Schema Commands](cli.md#schema-commands) - Full command documentation
+- [Commands](commands.md) — Slash command reference
+- [CLI](cli.md) — Terminal reference, including `spok instructions`
+- [Multi-Language](multi-language.md) — Generating artifacts in other languages
+- [Migration Guide](migration-guide.md) — Upgrading from previous versions

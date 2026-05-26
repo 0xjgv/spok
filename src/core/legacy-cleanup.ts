@@ -7,7 +7,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import chalk from 'chalk';
 import { FileSystemUtils, removeMarkerBlock as removeMarkerBlockUtil } from '../utils/file-system.js';
-import { SPOK_MARKERS } from './config.js';
+import { SPOK_MARKERS, AI_TOOLS } from './config.js';
 
 /**
  * Legacy config file names from the old ToolRegistry.
@@ -60,6 +60,28 @@ export const LEGACY_SLASH_COMMAND_PATHS: Record<string, LegacySlashCommandPatter
 };
 
 /**
+ * Skill directory names retired in the 3-verb collapse. `spok update`
+ * removes any of these found under a tool's `skills/` directory so
+ * upgraded installs don't end up with stale skills pointing at
+ * deleted commands.
+ */
+export const RETIRED_SKILL_DIRS = [
+  'spok-apply-change',
+  'spok-archive-change',
+  'spok-explore',
+  'spok-new-change',
+  'spok-continue-change',
+  'spok-ff-change',
+  'spok-sync-specs',
+  'spok-bulk-archive-change',
+  'spok-verify-change',
+  'spok-onboard',
+  'spok-feedback',
+] as const;
+
+export type RetiredSkillDir = (typeof RETIRED_SKILL_DIRS)[number];
+
+/**
  * Pattern types for legacy slash commands
  */
 export interface LegacySlashCommandPattern {
@@ -86,6 +108,8 @@ export interface LegacyDetectionResult {
   hasProjectMd: boolean;
   /** Whether root AGENTS.md has Spok markers */
   hasRootAgentsWithMarkers: boolean;
+  /** Retired skill directories detected under tool skill roots (e.g. .claude/skills/spok-explore) */
+  retiredSkillDirs: string[];
   /** Whether any legacy artifacts were found */
   hasLegacyArtifacts: boolean;
 }
@@ -107,6 +131,7 @@ export async function detectLegacyArtifacts(
     hasOpenspecAgents: false,
     hasProjectMd: false,
     hasRootAgentsWithMarkers: false,
+    retiredSkillDirs: [],
     hasLegacyArtifacts: false,
   };
 
@@ -126,6 +151,9 @@ export async function detectLegacyArtifacts(
   result.hasProjectMd = structureResult.hasProjectMd;
   result.hasRootAgentsWithMarkers = structureResult.hasRootAgentsWithMarkers;
 
+  // Detect retired skill directories under each tool's skills/ root
+  result.retiredSkillDirs = await detectRetiredSkillDirs(projectPath);
+
   // Determine if any legacy artifacts exist
   result.hasLegacyArtifacts =
     result.configFiles.length > 0 ||
@@ -133,9 +161,34 @@ export async function detectLegacyArtifacts(
     result.slashCommandFiles.length > 0 ||
     result.hasOpenspecAgents ||
     result.hasRootAgentsWithMarkers ||
-    result.hasProjectMd;
+    result.hasProjectMd ||
+    result.retiredSkillDirs.length > 0;
 
   return result;
+}
+
+/**
+ * Detects retired skill directories (e.g. `<tool>/skills/spok-apply-change`) under any
+ * configured tool's skill root. Returns project-relative paths.
+ *
+ * @param projectPath - The root path of the project
+ * @returns Array of project-relative paths to retired skill directories
+ */
+export async function detectRetiredSkillDirs(projectPath: string): Promise<string[]> {
+  const found: string[] = [];
+
+  for (const tool of AI_TOOLS) {
+    if (!tool.skillsDir) continue;
+    for (const dirName of RETIRED_SKILL_DIRS) {
+      const relPath = path.join(tool.skillsDir, 'skills', dirName);
+      const fullPath = path.join(projectPath, relPath);
+      if (await FileSystemUtils.directoryExists(fullPath)) {
+        found.push(relPath);
+      }
+    }
+  }
+
+  return found;
 }
 
 /**
@@ -427,6 +480,17 @@ export async function cleanupLegacyArtifacts(
   // Note: Root AGENTS.md is handled via configFilesToUpdate above (it's in LEGACY_CONFIG_FILES)
   // This hasRootAgentsWithMarkers flag is just for detection, cleanup happens via configFilesToUpdate
 
+  // Delete retired skill directories (these are 100% Spok-managed)
+  for (const relPath of detection.retiredSkillDirs ?? []) {
+    const fullPath = FileSystemUtils.joinPath(projectPath, relPath);
+    try {
+      await fs.rm(fullPath, { recursive: true, force: true });
+      result.deletedDirs.push(relPath);
+    } catch (error: any) {
+      result.errors.push(`Failed to delete retired skill ${relPath}: ${error.message}`);
+    }
+  }
+
   return result;
 }
 
@@ -501,6 +565,11 @@ function buildRemovalsList(detection: LegacyDetectionResult): Array<{ path: stri
   // spok/AGENTS.md (inside spok/, it's Spok-managed)
   if (detection.hasOpenspecAgents) {
     removals.push({ path: 'spok/AGENTS.md', explanation: 'obsolete workflow file' });
+  }
+
+  // Retired skill directories (skills from removed workflows)
+  for (const dir of detection.retiredSkillDirs ?? []) {
+    removals.push({ path: `${dir}/`, explanation: 'retired skill — workflow removed' });
   }
 
   // Note: Config files (CLAUDE.md, AGENTS.md, etc.) are NEVER in the removals list

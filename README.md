@@ -33,39 +33,45 @@ Our philosophy:
 → scalable from personal projects to enterprises
 ```
 
-> [!TIP]
-> **New workflow now available!** We've rebuilt Spok with a new artifact-guided workflow.
->
-> Run `/opsx:propose "your idea"` to get started. → [Learn more here](docs/opsx.md)
+Spok is built around three slash commands you give your AI coding assistant:
+
+```text
+/spok-propose  →  /spok-apply  →  /spok-archive
+```
+
+That's the whole surface. Propose creates a change with a chunked tasks list, apply ships one chunk end-to-end at a time, archive folds your delta specs into the main specs and moves the change into history.
 
 <p align="center">
   Follow <a href="https://x.com/0xTab">@0xTab on X</a> for updates · Join the <a href="https://discord.gg/YctCnvvshC">Spok Discord</a> for help and questions.
 </p>
 
-<!-- TODO: Add GIF demo of /opsx:propose → /opsx:archive workflow -->
-
 ## See it in action
 
 ```text
-You: /opsx:propose add-dark-mode
+You: /spok-propose add-dark-mode
 AI:  Created spok/changes/add-dark-mode/
      ✓ proposal.md — why we're doing this, what's changing
      ✓ specs/       — requirements and scenarios
      ✓ design.md    — technical approach
-     ✓ tasks.md     — implementation checklist
-     Ready for implementation!
+     ✓ tasks.md     — chunked checklist (3 chunks)
+     Run /spok-apply to ship the first chunk.
 
-You: /opsx:apply
-AI:  Implementing tasks...
-     ✓ 1.1 Add theme context provider
-     ✓ 1.2 Create toggle component
-     ✓ 2.1 Add CSS variables
-     ✓ 2.2 Wire up localStorage
-     All tasks complete!
+You: /spok-apply
+AI:  Shipping chunk 1: Add theme context + CSS variables
+     [runs research → design → plan → implement → review → commit]
+     ✓ Chunk shipped. 2/3 remaining.
 
-You: /opsx:archive
-AI:  Archived to spok/changes/archive/2025-01-23-add-dark-mode/
-     Specs updated. Ready for the next feature.
+You: /spok-apply
+AI:  Shipping chunk 2: Wire toggle component to localStorage
+     ✓ Chunk shipped. 1/3 remaining.
+
+You: /spok-apply
+AI:  Shipping chunk 3: Apply theme to remaining surfaces
+     ✓ Chunk shipped. 0/3 remaining. Run /spok-archive.
+
+You: /spok-archive
+AI:  Applied delta specs to spok/specs/ui/spec.md
+     Archived to spok/changes/archive/2026-05-26-add-dark-mode/
 ```
 
 <details>
@@ -94,9 +100,9 @@ cd your-project
 spok init
 ```
 
-Now tell your AI: `/opsx:propose <what-you-want-to-build>`
+Now tell your AI: `/spok-propose <what-you-want-to-build>`.
 
-If you want the expanded workflow (`/opsx:new`, `/opsx:continue`, `/opsx:ff`, `/opsx:verify`, `/opsx:bulk-archive`, `/opsx:onboard`), select it with `spok config profile` and apply with `spok update`.
+`spok init` configures your AI coding assistants (Claude Code, Cursor, Windsurf, and others), installs the three workflow skills (`spok-propose`, `spok-apply`, `spok-archive`), and vendors the helper skills they call (`spok-flow`, `spok-create-scoped-chunks`, and the rest of the closure).
 
 > [!NOTE]
 > Not sure if your tool is supported? [View the full list](docs/supported-tools.md) – we support 25+ tools and growing.
@@ -112,14 +118,7 @@ If you want the expanded workflow (`/opsx:new`, `/opsx:continue`, `/opsx:ff`, `/
 → **[Supported Tools](docs/supported-tools.md)**: tool integrations & install paths<br>
 → **[Concepts](docs/concepts.md)**: how it all fits<br>
 → **[Multi-Language](docs/multi-language.md)**: multi-language support<br>
-→ **[Customization](docs/customization.md)**: make it yours
-
-
-## Community schemas
-
-Third-party schema bundles distributed via standalone repositories — these provide opinionated workflows that integrate Spok with other tools, similar to how [github/spec-kit's community extension catalog](https://github.com/github/spec-kit/tree/main/extensions) handles tool integrations.
-
-→ **[Browse the catalog](docs/customization.md#community-schemas)** in the customization docs.
+→ **[Migration Guide](docs/migration-guide.md)**: upgrading from older Spok versions
 
 
 ## Why Spok?
@@ -127,9 +126,9 @@ Third-party schema bundles distributed via standalone repositories — these pro
 AI coding assistants are powerful but unpredictable when requirements live only in chat history. Spok adds a lightweight spec layer so you agree on what to build before any code is written.
 
 - **Agree before you build** — human and AI align on specs before code gets written
-- **Stay organized** — each change gets its own folder with proposal, specs, design, and tasks
-- **Work fluidly** — update any artifact anytime, no rigid phase gates
-- **Use your tools** — works with 20+ AI assistants via slash commands
+- **Stay organized** — each change gets its own folder with proposal, specs, design, and a chunked tasks list
+- **Ship one chunk at a time** — `/spok-apply` runs a full research → design → plan → implement → review → commit loop for one chunk, then stops
+- **Use your tools** — works with 20+ AI assistants
 
 ### How we compare
 
@@ -149,7 +148,7 @@ bun add -g spok@latest
 
 **Refresh agent instructions**
 
-Run this inside each project to regenerate AI guidance and ensure the latest slash commands are active:
+Run this inside each project to regenerate AI guidance and ensure the latest skills are active:
 
 ```bash
 spok update
@@ -165,7 +164,7 @@ spok update
 
 **Small fixes** — Bug fixes, typo corrections, and minor improvements can be submitted directly as PRs.
 
-**Larger changes** — For new features, significant refactors, or architectural changes, please submit an Spok change proposal first so we can align on intent and goals before implementation begins.
+**Larger changes** — For new features, significant refactors, or architectural changes, please submit a Spok change proposal first so we can align on intent and goals before implementation begins.
 
 When writing proposals, keep the Spok philosophy in mind: we serve a wide variety of users across different coding agents, models, and use cases. Changes should work well for everyone.
 
