@@ -2,19 +2,9 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { extractFrontmatter } from '../helpers/frontmatter';
 
 const SKILLS_DIR = path.resolve(__dirname, '../../.claude/skills');
-
-function extractFrontmatter(content: string): string {
-  if (!content.startsWith('---\n')) {
-    throw new Error('no frontmatter');
-  }
-  const end = content.indexOf('\n---', 4);
-  if (end === -1) {
-    throw new Error('unterminated frontmatter');
-  }
-  return content.slice(4, end);
-}
 
 describe('spok skill frontmatter', () => {
   it('every spok-*/SKILL.md declares metadata.version "0.1.0"', async () => {

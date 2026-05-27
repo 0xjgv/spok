@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # @fission-ai/openspec
 
 ## 1.3.1

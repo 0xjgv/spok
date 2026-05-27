@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # Getting Started
 
 This guide walks through your first change with Spok after you've installed and initialized it. For installation instructions, see the [main README](../README.md#quick-start).

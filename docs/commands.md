@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # Commands
 
 This is the reference for Spok's user-facing slash commands. These commands are invoked in your AI coding assistant's chat interface (e.g., Claude Code, Cursor, Windsurf).

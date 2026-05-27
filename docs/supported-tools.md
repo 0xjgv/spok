@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # Supported Tools
 
 Spok works with many AI coding assistants. `spok init` configures the tools you select by installing the three user-facing skills (`spok-propose`, `spok-apply`, `spok-archive`) plus the vendored helper skill closure (`spok-flow`, `spok-create-scoped-chunks`, and the rest) under each tool's skills directory.

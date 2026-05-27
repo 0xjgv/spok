@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # CLI Reference
 
 The Spok CLI (`spok`) is the terminal companion to the three slash commands. It has a small user-facing surface for setup and bookkeeping, plus a small set of internal plumbing verbs that the skills call into.

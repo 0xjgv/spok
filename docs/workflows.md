@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # Workflows
 
 This guide covers common workflow patterns for Spok. For basic setup, see [Getting Started](getting-started.md). For the command reference, see [Commands](commands.md).

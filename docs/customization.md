@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # Customization
 
 Spok 1.0 ships with a fixed three-verb surface (`/spok-propose`, `/spok-apply`, `/spok-archive`) and one built-in workflow schema (`spec-driven`). The customization surface that remains is project-level configuration: telling Spok about your project so the artifacts it generates fit your conventions.

@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 <p align="center">
   <a href="https://github.com/Fission-AI/Spok">
     <picture>

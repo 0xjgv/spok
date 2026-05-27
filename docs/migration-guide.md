@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # Migration Guide: Spok 0.x → 1.0
 
 Spok 1.0 is a major breaking release. The surface area shrank from 17 CLI subcommands + 11 workflow skills down to a fixed three-verb workflow plus a small CLI for setup and bookkeeping. This guide is for projects upgrading from an earlier version of Spok.

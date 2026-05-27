@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # Multi-Language Guide
 
 Configure Spok to generate artifacts in languages other than English.

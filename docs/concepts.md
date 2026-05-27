@@ -1,3 +1,7 @@
+---
+version: 0.1.0
+---
+
 # Concepts
 
 This guide explains the core ideas behind Spok and how they fit together. For practical usage, see [Getting Started](getting-started.md) and [Workflows](workflows.md).
