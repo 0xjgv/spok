@@ -4,7 +4,7 @@ type: validation
 repo: [current repository]
 branch: [current branch name]
 sha: [result of git rev-parse HEAD]
-plan: [.humanlayer/tasks/.../YYYY-MM-DD-plan.md]
+plan: [<task-dir>/plan.md]
 exec_plan: [path if provided, otherwise "none"]
 verdict: PASS|FAIL
 ---
@@ -19,7 +19,7 @@ verdict: PASS|FAIL
 
 - Plan: `[path]`
 - ExecPlan: `[path or "none"]`
-- Validation date: `[YYYY-MM-DD]`
+- Validation date: `[today's date]`
 - Working tree state: `[clean/dirty summary]`
 
 ## Validation Verdict

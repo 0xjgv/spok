@@ -1,6 +1,6 @@
 ---
 name: spok-validate-implementation
-description: validate an implementation against a task plan and current code. use this when given a .humanlayer/tasks/*/*-plan.md path or when asked to verify implemented work before review or PR
+description: validate an implementation against a task plan and current code. use this when given a plan path from a task directory or when asked to verify implemented work before review or PR
 ---
 
 # Validate Implementation
@@ -9,8 +9,8 @@ You are validating implemented work against an existing implementation plan and 
 
 ## Input
 
-- `planPath`: Path to the plan document (e.g. `.humanlayer/tasks/TASKNAME/YYYY-MM-DD-plan.md`)
-- Optionally, a task directory in `.humanlayer/tasks/TASKNAME`
+- `planPath`: Path to the plan document (e.g. `<task-dir>/plan.md`)
+- Optionally, a task directory
 - Optionally, an ExecPlan path for additional validation context
 - Optionally, a ticket file containing feedback or review comments
 
@@ -19,7 +19,7 @@ You are validating implemented work against an existing implementation plan and 
 If the user does not provide a plan path or task directory, ask for it:
 
 ```
-I'm ready to validate the implementation. Please provide the plan path or task directory in `.humanlayer/tasks/` so I can compare the implemented work against the plan and run the required checks.
+I'm ready to validate the implementation. Please provide the plan path or task directory so I can compare the implemented work against the plan and run the required checks.
 ```
 
 Then wait for the user's input.
@@ -28,8 +28,8 @@ Then wait for the user's input.
 
 1. **Read all input files FULLY**:
    - Use Read tool WITHOUT limit/offset to read the plan document and any other provided paths
-   - If a ticket like ENG-1234 or a task is mentioned, find the task directory: `ls .humanlayer/tasks/ | grep -i TEAMID-XXX`
-   - If the user gave a task directory instead of a specific file, use `ls .humanlayer/tasks/TASKNAME` and read the most recent `YYYY-MM-DD-plan.md`
+   - The skill argument is the absolute path to the task directory (or a plan file within it). Treat that path as the source of truth — do not search elsewhere.
+   - If the argument is a directory, read `<task-dir>/plan.md`; if it is a plan file, read it directly.
    - Read all relevant files in the task directory to build full context
    - If an ExecPlan path is provided or clearly referenced, read it fully as additional validation context
 
@@ -96,19 +96,15 @@ Then wait for the user's input.
 
 `Read({SKILLBASE}/references/validation_template.md)`
 
-1. **Write the validation document** to `.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-validation.md`
-   - First, find the task directory: `ls .humanlayer/tasks | grep -i "eng-XXXX"`
-   - If the directory doesn't exist, create: `.humanlayer/tasks/ENG-XXXX-description/`
-   - Format: `YYYY-MM-DD-validation.md` where YYYY-MM-DD is today's date
-   - Directory naming:
-     - With ticket: `.humanlayer/tasks/ENG-1478-parent-child-tracking/2025-01-08-validation.md`
-     - Without ticket: `.humanlayer/tasks/feature-name/2025-01-08-validation.md`
+1. **Write the validation document** to `<task-dir>/validation.md`
+   - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
+   - Filename is bare: `validation.md` (no date prefix).
 
 2. **Read the final output template**
 
 `Read({SKILLBASE}/references/validation_final_answer.md)`
 
-1. Respond to the user with a summary following the template, including GitHub permalinks when available
+1. Respond to the user with a summary following the template
 
 ## Validation Guidelines
 
@@ -126,14 +122,6 @@ When documents conflict, use this order:
 If the implementation does not match the plan, do not rewrite history. Record the mismatch and fail validation if the discrepancy affects required behavior or proof.
 
 <guidance>
-## Cloud Permalinks
-
-When you write or edit documents in .humanlayer/tasks/, a cloud permalink is automatically provided in the hook response.
-
-- The permalink appears as `additionalContext` after Write/Edit/MultiEdit/Read operations
-- Use this permalink in your final output for easy navigation
-- Example format: `http(s)://{DOMAIN}/artifacts/{artifactId}`
-
 ## Markdown Formatting
 
 When writing markdown files that contain code blocks showing other markdown (like README examples or SKILL.md templates), use 4 backticks (````) for the outer fence so inner 3-backtick code blocks don't prematurely close it:

@@ -1,6 +1,6 @@
 ### Status
 
-- Document: [.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-research-questions.md](cloud permalink from hook)
+- Document: `<task-dir>/research-questions.md`
 - Ticket: [ENG-XXXX](ticket URL if known, otherwise omit link)
 - Questions: [count]
 
@@ -15,11 +15,7 @@
 To continue this session, use a prompt like the below:
 
 ```text
-use the rpi:spok-create-research skill with the questions document at .humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-research-questions.md
+use the spok-create-research skill with the questions document at <task-dir>/research-questions.md
 ```
 
 The research phase will extract the questions and conduct comprehensive codebase research to answer them.
-
----
-
-You can view the full document here: [YYYY-MM-DD-research-questions.md](cloud permalink from hook)

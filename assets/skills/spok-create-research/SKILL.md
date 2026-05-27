@@ -1,5 +1,5 @@
 ---
-name: research-codebase
+name: spok-create-research
 description:  research the codebase 
 ---
 
@@ -69,18 +69,14 @@ Then wait for the user's research query.
    - Prioritize live codebase findings as primary source of truth
    - Connect findings across different components
    - Include specific file paths and line numbers for reference
-   - Verify all rpi/ paths are correct (task-specific files go in .humanlayer/tasks/)
+   - Verify path correctness — task-specific files go in `<task-dir>/`
    - Highlight patterns, connections, and architectural decisions
    - Answer the user's specific questions with concrete evidence
 
 5. **Gather metadata for the research document:**
-   - Filename: `.humanlayer/tasks/TASKNAME/YYYY-MM-DD-research.md`
-     - First, find the task directory: `ls .humanlayer/tasks | grep -i "eng-XXXX"`
-     - If the directory doesn't exist, create: `.humanlayer/tasks/ENG-XXXX-description/`
-     - Format: `YYYY-MM-DD-research.md` where YYYY-MM-DD is today's date
-     - Directory naming:
-       - With ticket: `.humanlayer/tasks/ENG-1478-parent-child-tracking/2025-01-08-research.md`
-       - Without ticket: `.humanlayer/tasks/authentication-flow/2025-01-08-research.md`
+   - Output path: `<task-dir>/research.md`
+   - The skill argument is the absolute path to the research-questions file. Derive `<task-dir>` as its parent directory (the directory already exists — do not create or search for it).
+   - Filename is bare: `research.md` (no date prefix).
 
 6. **Generate research document:**
    - Use the metadata gathered in step 4
@@ -88,7 +84,7 @@ Then wait for the user's research query.
 
    `Read({SKILLBASE}/references/research_template.md)`
 
-   - Write the document to `.humanlayer/tasks/TASKNAME/YYYY-MM-DD-research.md`
+   - Write the document to `<task-dir>/research.md`
 
 7. **Note cloud permalinks:**
    Cloud permalinks are automatically provided when you write artifacts. Include them in your final output.
@@ -130,19 +126,11 @@ Then wait for the user's research query.
   - ALWAYS wait for all sub-agents to complete before synthesizing (step 4)
   - ALWAYS gather metadata before writing the document (step 5 before step 6)
   - NEVER write the research document with placeholder values
-- **Path handling**: Task-specific research goes in .humanlayer/tasks/
-  - Use `.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-research.md` for task research
+- **Path handling**: Task-specific research goes in `<task-dir>/research.md`
 
 ## Response
 
 Remember, you must respond to the user according to the output template at `{SKILLBASE}/references/research_final_answer.md`
-
-## Cloud Permalinks
-
-When you write or edit documents in .humanlayer/tasks/, a cloud permalink is automatically provided in the hook response.
-- The permalink appears as `additionalContext` after Write/Edit/MultiEdit/Read operations
-- Use this permalink in your final output for easy navigation
-- Example format: `http(s)://{DOMAIN}/artifacts/{artifactId}`
 
 ## Markdown Formatting
 

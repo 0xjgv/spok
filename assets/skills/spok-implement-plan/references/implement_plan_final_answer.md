@@ -8,9 +8,9 @@
 To create a PR, use a prompt like
 
 ```text
-use the rpi:describe-pr skill for .humanlayer/tasks/ENG-XXXX-description
+use the describe-pr skill for <task-dir>
 ```
 
 ---
 
-You can view the plan here: [YYYY-MM-DD-plan.md](cloud permalink from hook)
+You can view the plan at `<task-dir>/plan.md`.

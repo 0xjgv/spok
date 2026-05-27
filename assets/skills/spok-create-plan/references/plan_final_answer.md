@@ -1,6 +1,6 @@
 ### Status
 
-- Document: [.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-plan.md](cloud permalink from hook)
+- Document: `<task-dir>/plan.md`
 - Ticket: [ENG-XXXX](ticket URL if known, otherwise omit link)
 - Phases: [count]
 
@@ -20,9 +20,5 @@
 To proceed to implementation, use a prompt like
 
 ```text
-use the rpi:setup-worktree skill for [.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-plan.md]
+use the spok-implement-plan skill for <task-dir>
 ```
-
----
-
-You can view the full document here: [YYYY-MM-DD-plan.md](cloud permalink from hook)

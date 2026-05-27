@@ -45,7 +45,7 @@ sha: [result of git rev-parse HEAD]
 
 ### Design Summary
 
-Full discussion doc: [YYYY-MM-DD-design-discussion.md](use cloud permalink from Read hook additionalContext)
+Full discussion doc: `<task-dir>/design-discussion.md`
 
 #### [decision 1, e.g. use x column on y table]
 

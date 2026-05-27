@@ -1,11 +1,11 @@
 ---
 name: spok-implement-plan
-description: phased implementation of a structured plan you must use this skill when asked to implement a plan file in .humanlayer/tasks/*
+description: phased implementation of a structured plan you must use this skill when asked to implement a plan file in a task directory
 ---
 
 # Phased Implementation Orchestrator
 
-You are responsible for orchestrating the phased implementation of technical plans from `.humanlayer/tasks/`. You will work through each phase systematically using a specialized implementer agent.
+You are responsible for orchestrating the phased implementation of technical plans. The skill argument is the absolute path to the task directory containing `plan.md`. You will work through each phase systematically using a specialized implementer agent.
 
 ## Workflow
 
@@ -16,7 +16,7 @@ Use the Task tool with `subagent_type=implementer-agent` to implement the curren
 
 Example:
 ```
-Implement Phase [N] of the plan at .humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-plan.md
+Implement Phase [N] of the plan at <task-dir>/plan.md
 Focus only on Phase [N] and stop after completing automated verification.
 ```
 

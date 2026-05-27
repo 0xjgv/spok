@@ -65,7 +65,7 @@ Launch `lead-implementer`.
 
 Launch `lead-simplifier`.
 
-> Call the `spok-code-review` skill with 'high' as the argument using the **Skill** tool.
+> Call the `spok-simplify` skill using the **Skill** tool.
 > When complete, return the summary of the simplification.
 
 ## 8. Validate Implementation
@@ -86,8 +86,8 @@ Launch `lead-committer`.
 ## Important guidelines
 
 - Raise questions or concerns about objectives, design, or plan to the user at any time using the **AskUserQuestion** tool.
-- For each workflow step below, launch the named agent with the **Agent** tool.
 - Run steps **sequentially in the foreground** because each step depends on the previous step's returned path.
-- Use a **TaskList**.
+- For each workflow step below, launch the named agent with the **Agent** tool.
+- Use a **TaskList** to track the steps and their status.
 
 </guidance>

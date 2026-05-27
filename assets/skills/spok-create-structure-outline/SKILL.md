@@ -10,7 +10,7 @@ You are creating a phased implementation plan based on research findings and des
 ## Input
 
 - `changeRequest`: The user's original change request
-- `researchDocumentPath`: Path to the research document (e.g., `.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-research.md`)
+- `researchDocumentPath`: Path to the research document (e.g., `<task-dir>/research.md`)
 - `designDecisions`: List of design decisions made during the design discussion phase
 - `patternsToFollow`: List of patterns identified during research
 
@@ -22,9 +22,9 @@ You are creating a phased implementation plan based on research findings and des
    - Review all design decisions and patterns to follow
 
 2. **Check for related task content**:
-   - If a path in `.humanlayer/tasks/TASKNAME` is mentioned, use `ls .humanlayer/tasks/TASKNAME`
-   - Read all files in the task directory
-   - Read relevant files mentioned in the task files
+   - The skill argument is the absolute path to the task directory. Use `ls <task-dir>` to enumerate its files.
+   - Read all files in the task directory.
+   - Read relevant files mentioned in the task files.
 
 3. **Spawn sub-agents for follow-up research**:
 
@@ -58,19 +58,15 @@ You are creating a phased implementation plan based on research findings and des
 
 `Read({SKILLBASE}/references/structure_outline_template.md)`
 
-2. **Write the structure outline** to `.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-structure-outline.md`
-   - First, find the task directory: `ls .humanlayer/tasks | grep -i "eng-XXXX"`
-   - If the directory doesn't exist, create: `.humanlayer/tasks/ENG-XXXX-description/`
-   - Format: `YYYY-MM-DD-structure-outline.md` where YYYY-MM-DD is today's date
-   - Directory naming:
-     - With ticket: `.humanlayer/tasks/ENG-1478-parent-child-tracking/2025-01-08-structure-outline.md`
-     - Without ticket: `.humanlayer/tasks/improve-error-handling/2025-01-08-structure-outline.md`
+2. **Write the structure outline** to `<task-dir>/structure-outline.md`
+   - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
+   - Filename is bare: `structure-outline.md` (no date prefix).
 
 3. **Read the final output template**
 
 `Read({SKILLBASE}/references/structure_outline_final_answer.md)`
 
-4. Respond to the user with a summary following the template, including GitHub permalinks
+4. Respond to the user with a summary following the template
 
 ## Work with the user to iterate on the design
 
@@ -83,13 +79,6 @@ You are creating a phased implementation plan based on research findings and des
    - Update the structure according to the user's feedback
 
 <guidance>
-## Cloud Permalinks
-
-When you write or edit documents in .humanlayer/tasks/, a cloud permalink is automatically provided in the hook response.
-- The permalink appears as `additionalContext` after Write/Edit/MultiEdit/Read operations
-- Use this permalink in your final output for easy navigation
-- Example format: `http(s)://{DOMAIN}/artifacts/{artifactId}`
-
 ## Markdown Formatting
 
 When writing markdown files that contain code blocks showing other markdown (like README examples or SKILL.md templates), use 4 backticks (````) for the outer fence so inner 3-backtick code blocks don't prematurely close it:

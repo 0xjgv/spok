@@ -1,5 +1,5 @@
 ---
-name: research-questions
+name: spok-create-research-questions
 description: generate research questions based on a task, spec, or ticket
 ---
 
@@ -18,7 +18,7 @@ You have access to specialized agents to help research the codebase:
   - Returns file paths organized by purpose
 
 - **codebase-analyzer**: Understand how the current implementation works
-  - Traces data spok-flow and key functions
+  - Traces data flow and key functions
   - Returns detailed explanations with file:line references
 
 - **codebase-pattern-finder**: Find similar implementations to model after
@@ -65,25 +65,12 @@ YOU MUST FORMAT YOUR QUESTIONS like the below, as high level codebase exploratio
 
 Follow this format, using an appropriate number of questions for the task (no more than 8, no less than 2, use your judgement)
 
-2. **Write the research questions** to `.humanlayer/tasks/TASKNAME/YYYY-MM-DD-research-questions.md`
-   - First, check if a related task directory exists: `ls .humanlayer/tasks | grep -i "eng-XXXX"`
-   - If the directory doesn't exist, create: `.humanlayer/tasks/ENG-XXXX-description/`
-   - Format: `YYYY-MM-DD-research-questions.md` where YYYY-MM-DD is today's date
-   - Directory naming:
-     - With ticket: `.humanlayer/tasks/ENG-1478-parent-child-tracking/2025-01-08-research-questions.md`
-     - Without ticket: `.humanlayer/tasks/authentication-flow/2025-01-08-research-questions.md`
+2. **Write the research questions** to `<task-dir>/research-questions.md`
+   - The skill argument is the absolute path to the ticket file. Derive `<task-dir>` as its parent directory (the directory already exists — do not create or search for it).
+   - Filename is bare: `research-questions.md` (no date prefix).
 
 3. **Read the final output template**
 
 `Read({SKILLBASE}/references/research_questions_final_answer.md)`
 
-4. Respond with a summary following the template, including GitHub permalinks
-
-<guidance>
-## Cloud Permalinks
-
-When you write or edit documents in .humanlayer/tasks/, a cloud permalink is automatically provided in the hook response.
-- The permalink appears as `additionalContext` after Write/Edit/MultiEdit/Read operations
-- Use this permalink in your final output for easy navigation
-- Example format: `http(s)://{DOMAIN}/artifacts/{artifactId}`
-</guidance>
+4. Respond with a summary following the template

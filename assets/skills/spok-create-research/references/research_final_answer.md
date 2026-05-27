@@ -1,6 +1,6 @@
 ### Status
 
-- Document: [.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-research.md](cloud permalink from hook)
+- Document: `<task-dir>/research.md`
 - Ticket: [ENG-XXXX](ticket URL if known, otherwise omit link)
 - Open Questions: [count or "none"]
 
@@ -23,9 +23,5 @@
 To proceed to the next phase, use a prompt like
 
 ```text
-use the rpi:spok-create-design-discussion skill for [.humanlayer/tasks/ENG-XXXX-description]
+use the spok-create-design-discussion skill for <task-dir>
 ```
-
----
-
-You can view the full document here: [YYYY-MM-DD-research.md](cloud permalink from hook)

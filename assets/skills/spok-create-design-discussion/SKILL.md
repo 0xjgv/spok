@@ -10,16 +10,15 @@ You are now in the Design Discussion phase. Based on the research findings and t
 ## Steps to follow after receiving the user's request
 
 1. **Read all mentioned files immediately and FULLY**:
-   - Ticket files (e.g., `.humanlayer/tasks/eng-1234-description/ticket.md`)
-   - Research documents (e.g. `.humanlayer/tasks/eng-1234-description/research.md`)
+   - Ticket files (e.g., `<task-dir>/ticket.md`)
+   - Research documents (e.g. `<task-dir>/research.md`)
    - **IMPORTANT**: Use the Read tool WITHOUT limit/offset parameters to read entire files
    - **CRITICAL**: DO NOT spawn sub-tasks before reading these files yourself in the main context
    - **NEVER** read files partially - if a file is mentioned, read it completely
 
 2. **Check for related task content**:
-   - if a path in `.humanlayer/tasks/TASKNAME` is mentioned, use Bash(`ls .humanlayer/tasks/TASKNAME`)
-   - **IMPORTANT** DO NOT USE search or glob or grep, as .humanlayer/tasks may be a symlink and those tools don't traverse symlinks
-   - read all relevant files in the task directory to fully understand the work so far
+   - The skill argument is the absolute path to the task directory. Use `ls <task-dir>` to enumerate its files.
+   - Read all relevant files in the task directory to fully understand the work so far.
 
 3. **Create a research todo list** using TodoWrite to track exploration tasks
 
@@ -66,28 +65,17 @@ You are now in the Design Discussion phase. Based on the research findings and t
 
 `Read({SKILLBASE}/references/design_discussion_template.md)`
 
-2. **Write the design discussion** to `.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-design-discussion.md`
-   - First, find the task directory: `ls .humanlayer/tasks | grep -i "eng-XXXX"`
-   - If the directory doesn't exist, create: `.humanlayer/tasks/ENG-XXXX-description/`
-   - Format: `YYYY-MM-DD-design-discussion.md` where YYYY-MM-DD is today's date
-   - Directory naming:
-     - With ticket: `.humanlayer/tasks/ENG-1478-parent-child-tracking/2025-01-08-design-discussion.md`
-     - Without ticket: `.humanlayer/tasks/improve-error-handling/2025-01-08-design-discussion.md`
+2. **Write the design discussion** to `<task-dir>/design-discussion.md`
+   - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
+   - Filename is bare: `design-discussion.md` (no date prefix).
 
 3. **Read the final output template**
 
 `Read({SKILLBASE}/references/design_discussion_final_answer.md)`
 
-4.  Respond to the user with a summary following the template, including GitHub permalinks
+4.  Respond to the user with a summary following the template
 
 <guidance>
-## Cloud Permalinks
-
-When you write or edit documents in .humanlayer/tasks/, a cloud permalink is automatically provided in the hook response.
-- The permalink appears as `additionalContext` after Write/Edit/MultiEdit/Read operations
-- Use this permalink in your final output for easy navigation
-- Example format: `http(s)://{DOMAIN}/artifacts/{artifactId}`
-
 ## Markdown Formatting
 
 When writing markdown files that contain code blocks showing other markdown (like README examples or SKILL.md templates), use 4 backticks (````) for the outer fence so inner 3-backtick code blocks don't prematurely close it:

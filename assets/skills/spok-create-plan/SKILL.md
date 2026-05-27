@@ -11,7 +11,7 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
 
 1. **Read all input files FULLY**:
    - Use Read tool WITHOUT limit/offset to read all provided file paths
-   - `ls .humanlayer/tasks/TASKNAME` to find all related documents in the task directory
+   - The skill argument is the absolute path to the task directory. Use `ls <task-dir>` to enumerate all related documents.
    - Read everything in the task directory to build full context
 
 2. **Read relevant code files**:
@@ -23,7 +23,7 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
 `Read({SKILLBASE}/references/plan_template.md)`
 
 4. **Write the implementation plan**:
-   - Write to `.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-plan.md`
+   - Write to `<task-dir>/plan.md` (bare filename; the task directory is the absolute path passed as the skill argument and already exists)
    - Convert each phase from the structure outline into detailed implementation steps
    - Include specific code examples for each change
    - Add both automated and manual success criteria
@@ -51,16 +51,9 @@ the original ticket when they differ.
 
 `Read({SKILLBASE}/references/plan_final_answer.md)`
 
-2. Respond with a summary following the template, including GitHub permalinks
+2. Respond with a summary following the template
 
 <guidance>
-## Cloud Permalinks
-
-When you write or edit documents in .humanlayer/tasks/, a cloud permalink is automatically provided in the hook response.
-- The permalink appears as `additionalContext` after Write/Edit/MultiEdit/Read operations
-- Use this permalink in your final output for easy navigation
-- Example format: `http(s)://{DOMAIN}/artifacts/{artifactId}`
-
 ## Markdown Formatting
 
 When writing markdown files that contain code blocks showing other markdown (like README examples or SKILL.md templates), use 4 backticks (````) for the outer fence so inner 3-backtick code blocks don't prematurely close it:

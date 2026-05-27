@@ -1,6 +1,6 @@
 ### Status
 
-- Document: [.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-validation.md](cloud permalink from hook)
+- Document: `<task-dir>/validation.md`
 - Ticket: [ENG-XXXX](ticket URL if known, otherwise omit link)
 - Verdict: [PASS or FAIL]
 - Blocking Findings: [count or "none"]
@@ -19,15 +19,11 @@
 If the verdict is `FAIL`, continue with a prompt like
 
 ```text
-use the rpi:iterate-implementation skill for [.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-plan.md] and address the validation findings in [.humanlayer/tasks/ENG-XXXX-description/YYYY-MM-DD-validation.md]
+use the iterate-implementation skill for <task-dir>/plan.md and address the validation findings in <task-dir>/validation.md
 ```
 
 If the verdict is `PASS`, continue with a prompt like
 
 ```text
-use the rpi:describe-pr skill for .humanlayer/tasks/ENG-XXXX-description
+use the describe-pr skill for <task-dir>
 ```
-
----
-
-You can view the full document here: [YYYY-MM-DD-validation.md](cloud permalink from hook)
