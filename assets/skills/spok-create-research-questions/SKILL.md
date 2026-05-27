@@ -66,6 +66,7 @@ YOU MUST FORMAT YOUR QUESTIONS like the below, as high level codebase exploratio
 Follow this format, using an appropriate number of questions for the task (no more than 8, no less than 2, use your judgement)
 
 2. **Write the research questions** to `<task-dir>/research-questions.md`
+   - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-research-questions.md` (legacy date-prefixed orphans from pre-fork runs).
    - The skill argument is the absolute path to the ticket file. Derive `<task-dir>` as its parent directory (the directory already exists — do not create or search for it).
    - Filename is bare: `research-questions.md` (no date prefix).
 

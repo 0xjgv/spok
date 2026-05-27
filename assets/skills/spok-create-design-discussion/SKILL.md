@@ -66,6 +66,7 @@ You are now in the Design Discussion phase. Based on the research findings and t
 `Read({SKILLBASE}/references/design_discussion_template.md)`
 
 2. **Write the design discussion** to `<task-dir>/design-discussion.md`
+   - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-design-discussion.md` (legacy date-prefixed orphans from pre-fork runs).
    - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
    - Filename is bare: `design-discussion.md` (no date prefix).
 

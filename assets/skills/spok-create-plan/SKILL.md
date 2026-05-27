@@ -23,6 +23,7 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
 `Read({SKILLBASE}/references/plan_template.md)`
 
 4. **Write the implementation plan**:
+   - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-plan.md` (legacy date-prefixed orphans from pre-fork runs).
    - Write to `<task-dir>/plan.md` (bare filename; the task directory is the absolute path passed as the skill argument and already exists)
    - Convert each phase from the structure outline into detailed implementation steps
    - Include specific code examples for each change

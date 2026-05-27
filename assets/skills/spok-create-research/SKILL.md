@@ -84,6 +84,7 @@ Then wait for the user's research query.
 
    `Read({SKILLBASE}/references/research_template.md)`
 
+   - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-research.md` (legacy date-prefixed orphans from pre-fork runs).
    - Write the document to `<task-dir>/research.md`
 
 7. **Note cloud permalinks:**

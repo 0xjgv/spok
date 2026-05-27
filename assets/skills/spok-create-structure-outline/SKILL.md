@@ -59,6 +59,7 @@ You are creating a phased implementation plan based on research findings and des
 `Read({SKILLBASE}/references/structure_outline_template.md)`
 
 2. **Write the structure outline** to `<task-dir>/structure-outline.md`
+   - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-structure-outline.md` (legacy date-prefixed orphans from pre-fork runs).
    - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
    - Filename is bare: `structure-outline.md` (no date prefix).
 

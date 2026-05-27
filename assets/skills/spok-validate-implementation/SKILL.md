@@ -97,6 +97,7 @@ Then wait for the user's input.
 `Read({SKILLBASE}/references/validation_template.md)`
 
 1. **Write the validation document** to `<task-dir>/validation.md`
+   - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-validation.md` (legacy date-prefixed orphans from pre-fork runs).
    - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
    - Filename is bare: `validation.md` (no date prefix).
 
