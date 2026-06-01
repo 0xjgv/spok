@@ -140,7 +140,7 @@ describe('global-config', () => {
 
       const config = getGlobalConfig();
 
-      expect(config).toEqual({ featureFlags: {}, delivery: 'both' });
+      expect(config).toEqual({ featureFlags: {}, delivery: 'skills' });
     });
 
     it('should not create directory when reading non-existent config', () => {
@@ -177,7 +177,7 @@ describe('global-config', () => {
 
       const config = getGlobalConfig();
 
-      expect(config).toEqual({ featureFlags: {}, delivery: 'both' });
+      expect(config).toEqual({ featureFlags: {}, delivery: 'skills' });
     });
 
     it('should log warning for invalid JSON', () => {
@@ -243,7 +243,7 @@ describe('global-config', () => {
 
         const config = getGlobalConfig();
 
-        expect(config.delivery).toBe('both');
+        expect(config.delivery).toBe('skills');
         expect(config.featureFlags?.existingFlag).toBe(true);
       });
 

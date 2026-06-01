@@ -32,6 +32,16 @@ export interface CommandTemplateEntry {
   id: string;
 }
 
+function quoteYamlString(value: string): string {
+  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+  return `"${escaped}"`;
+}
+
+function formatYamlScalar(value: string): string {
+  const needsQuoting = /[:\n\r#{}[\],&*!|>'"%@`]|^\s|\s$/.test(value);
+  return needsQuoting ? quoteYamlString(value) : value;
+}
+
 /**
  * Gets skill templates with their directory names, optionally filtered by workflow IDs.
  *
@@ -102,14 +112,14 @@ export function generateSkillContent(
     : template.instructions;
 
   return `---
-name: ${template.name}
-description: ${template.description}
-license: ${template.license || 'MIT'}
-compatibility: ${template.compatibility || 'Requires spok CLI.'}
+name: ${formatYamlScalar(template.name)}
+description: ${formatYamlScalar(template.description)}
+license: ${formatYamlScalar(template.license || 'MIT')}
+compatibility: ${formatYamlScalar(template.compatibility || 'Requires spok CLI.')}
 metadata:
-  author: ${template.metadata?.author || 'spok'}
-  version: "${template.metadata?.version || '1.0'}"
-  generatedBy: "${generatedByVersion}"
+  author: ${formatYamlScalar(template.metadata?.author || 'spok')}
+  version: ${quoteYamlString(template.metadata?.version || '1.0')}
+  generatedBy: ${quoteYamlString(generatedByVersion)}
 ---
 
 ${instructions}

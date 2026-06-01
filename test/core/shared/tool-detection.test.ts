@@ -39,6 +39,7 @@ describe('tool-detection', () => {
     it('should return tools that have skillsDir configured', () => {
       const tools = getToolsWithSkillsDir();
       expect(tools).toContain('claude');
+      expect(tools).toContain('codex');
       expect(tools).toContain('cursor');
       expect(tools).toContain('windsurf');
       expect(tools.length).toBeGreaterThan(0);
@@ -82,6 +83,16 @@ describe('tool-detection', () => {
       expect(status.configured).toBe(true);
       expect(status.fullyConfigured).toBe(true);
       expect(status.skillCount).toBe(SKILL_NAMES.length);
+    });
+
+    it('should detect Codex skills under .agents', async () => {
+      const skillDir = path.join(testDir, '.agents', 'skills', 'spok-propose');
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(path.join(skillDir, 'SKILL.md'), 'test content');
+
+      const status = getToolSkillStatus(testDir, 'codex');
+      expect(status.configured).toBe(true);
+      expect(status.skillCount).toBe(1);
     });
   });
 

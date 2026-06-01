@@ -12,7 +12,6 @@ For each selected tool, Spok installs:
 
 1. **User-facing skills**: `<tool-skills-dir>/skills/spok-propose/SKILL.md`, `spok-apply/SKILL.md`, `spok-archive/SKILL.md`.
 2. **Vendored helper skills**: `<tool-skills-dir>/skills/spok-flow/`, `spok-create-scoped-chunks/`, `spok-create-research/`, `spok-create-research-questions/`, `spok-create-design-discussion/`, `spok-create-structure-outline/`, `spok-create-plan/`, `spok-implement-plan/`, `spok-code-review/`, `spok-validate-implementation/`, `spok-ci-commit/`.
-3. **Tool-specific command files** (when the tool supports them): a thin wrapper per user-facing skill so `/spok-propose`, `/spok-apply`, and `/spok-archive` show up as native slash commands.
 
 You invoke `/spok-propose`, `/spok-apply`, and `/spok-archive` directly in your AI tool. The user-facing skills delegate to the vendored helpers internally.
 
@@ -27,7 +26,7 @@ You invoke `/spok-propose`, `/spok-apply`, and `/spok-archive` directly in your 
 | Claude Code (`claude`) | `.claude/skills/spok-*/SKILL.md` |
 | Cline (`cline`) | `.cline/skills/spok-*/SKILL.md` |
 | CodeBuddy (`codebuddy`) | `.codebuddy/skills/spok-*/SKILL.md` |
-| Codex (`codex`) | `.codex/skills/spok-*/SKILL.md` |
+| Codex (`codex`) | `.agents/skills/spok-*/SKILL.md` |
 | ForgeCode (`forgecode`) | `.forge/skills/spok-*/SKILL.md` |
 | Continue (`continue`) | `.continue/skills/spok-*/SKILL.md` |
 | CoStrict (`costrict`) | `.cospec/skills/spok-*/SKILL.md` |

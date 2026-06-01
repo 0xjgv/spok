@@ -1,7 +1,7 @@
 /**
  * Update Command
  *
- * Refreshes Spok skills and commands for configured tools.
+ * Refreshes Spok skills for configured tools.
  */
 
 import path from 'path';
@@ -12,14 +12,10 @@ import { createRequire } from 'module';
 import { FileSystemUtils } from '../utils/file-system.js';
 import { transformToHyphenCommands } from '../utils/command-references.js';
 import { AI_TOOLS, SPOK_DIR_NAME } from './config.js';
-import {
-  generateCommands,
-  CommandAdapterRegistry,
-} from './command-generation/index.js';
+import { CommandAdapterRegistry } from './command-generation/index.js';
 import {
   getToolVersionStatus,
   getSkillTemplates,
-  getCommandContents,
   generateSkillContent,
   getToolsWithSkillsDir,
   type ToolVersionStatus,
@@ -33,7 +29,6 @@ import {
   type LegacyDetectionResult,
 } from './legacy-cleanup.js';
 import { isInteractive } from '../utils/interactive.js';
-import { getGlobalConfig, type Delivery } from './global-config.js';
 import { getAvailableTools } from './available-tools.js';
 import { installVendoredSkills } from './skill-vendor.js';
 import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
@@ -142,40 +137,23 @@ function getConfiguredTools(projectPath: string): string[] {
   ])];
 }
 
-function hasToolDeliveryDrift(projectPath: string, toolId: string, delivery: Delivery): boolean {
+function hasToolDeliveryDrift(projectPath: string, toolId: string): boolean {
   const tool = AI_TOOLS.find((t) => t.value === toolId);
   if (!tool?.skillsDir) return false;
 
   const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
   const adapter = CommandAdapterRegistry.get(toolId);
-  const shouldGenerateSkills = delivery !== 'commands';
-  const shouldGenerateCommands = delivery !== 'skills';
 
-  if (shouldGenerateSkills) {
-    for (const workflow of SPOK_WORKFLOWS) {
-      const skillFile = path.join(skillsDir, WORKFLOW_TO_SKILL_DIR[workflow], 'SKILL.md');
-      if (!fs.existsSync(skillFile)) return true;
-    }
-  } else {
-    for (const workflow of SPOK_WORKFLOWS) {
-      const skillDir = path.join(skillsDir, WORKFLOW_TO_SKILL_DIR[workflow]);
-      if (fs.existsSync(skillDir)) return true;
-    }
+  for (const workflow of SPOK_WORKFLOWS) {
+    const skillFile = path.join(skillsDir, WORKFLOW_TO_SKILL_DIR[workflow], 'SKILL.md');
+    if (!fs.existsSync(skillFile)) return true;
   }
 
   if (adapter) {
-    if (shouldGenerateCommands) {
-      for (const workflow of SPOK_WORKFLOWS) {
-        const cmdPath = adapter.getFilePath(workflow);
-        const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
-        if (!fs.existsSync(fullPath)) return true;
-      }
-    } else {
-      for (const workflow of SPOK_WORKFLOWS) {
-        const cmdPath = adapter.getFilePath(workflow);
-        const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
-        if (fs.existsSync(fullPath)) return true;
-      }
+    for (const workflow of SPOK_WORKFLOWS) {
+      const cmdPath = adapter.getFilePath(workflow);
+      const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
+      if (fs.existsSync(fullPath)) return true;
     }
   }
 
@@ -184,10 +162,9 @@ function hasToolDeliveryDrift(projectPath: string, toolId: string, delivery: Del
 
 function getToolsNeedingDeliverySync(
   projectPath: string,
-  delivery: Delivery,
   configuredTools: readonly string[]
 ): string[] {
-  return [...configuredTools].filter((toolId) => hasToolDeliveryDrift(projectPath, toolId, delivery));
+  return [...configuredTools].filter((toolId) => hasToolDeliveryDrift(projectPath, toolId));
 }
 
 export class UpdateCommand {
@@ -206,18 +183,10 @@ export class UpdateCommand {
       throw new Error(`No Spok directory found. Run 'spok init' first.`);
     }
 
-    // 2. Read global config for delivery
-    const globalConfig = getGlobalConfig();
-    const delivery: Delivery = globalConfig.delivery ?? 'both';
     const desiredWorkflows = [...SPOK_WORKFLOWS];
-    const shouldGenerateSkills = delivery !== 'commands';
-    const shouldGenerateCommands = delivery !== 'skills';
 
     // 3. Detect and handle legacy artifacts + upgrade legacy tools
-    const newlyConfiguredTools = await this.handleLegacyCleanup(
-      resolvedProjectPath,
-      delivery
-    );
+    const newlyConfiguredTools = await this.handleLegacyCleanup(resolvedProjectPath);
 
     // 4. Find configured tools
     const configuredTools = getConfiguredTools(resolvedProjectPath);
@@ -246,7 +215,6 @@ export class UpdateCommand {
       .map((s) => s.toolId);
     const toolsNeedingConfigSync = getToolsNeedingDeliverySync(
       resolvedProjectPath,
-      delivery,
       configuredTools
     );
     const toolsToUpdateSet = new Set<string>([
@@ -272,16 +240,14 @@ export class UpdateCommand {
     }
     console.log();
 
-    // 9. Determine what to generate based on delivery
-    const skillTemplates = shouldGenerateSkills ? getSkillTemplates(desiredWorkflows) : [];
-    const commandContents = shouldGenerateCommands ? getCommandContents(desiredWorkflows) : [];
+    // 9. Determine what to generate
+    const skillTemplates = getSkillTemplates(desiredWorkflows);
 
     // 10. Update tools (all if force, otherwise only those needing update)
     const toolsToUpdate = this.force ? configuredTools : [...toolsToUpdateSet];
     const updatedTools: string[] = [];
     const failedTools: Array<{ name: string; error: string }> = [];
     let removedCommandCount = 0;
-    let removedSkillCount = 0;
 
     for (const toolId of toolsToUpdate) {
       const tool = AI_TOOLS.find((t) => t.value === toolId);
@@ -292,45 +258,21 @@ export class UpdateCommand {
       try {
         const skillsDir = path.join(resolvedProjectPath, tool.skillsDir, 'skills');
 
-        // Generate skill files if delivery includes skills
-        if (shouldGenerateSkills) {
-          for (const { template, dirName } of skillTemplates) {
-            const skillDir = path.join(skillsDir, dirName);
-            const skillFile = path.join(skillDir, 'SKILL.md');
+        for (const { template, dirName } of skillTemplates) {
+          const skillDir = path.join(skillsDir, dirName);
+          const skillFile = path.join(skillDir, 'SKILL.md');
 
-            // Use hyphen-based command references for OpenCode
-            const transformer = (tool.value === 'opencode' || tool.value === 'pi') ? transformToHyphenCommands : undefined;
-            const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
-            await FileSystemUtils.writeFile(skillFile, skillContent);
-          }
-
-          // Refresh vendored helper skills (idempotent overwrite).
-          await installVendoredSkills(resolvedProjectPath, tool.skillsDir);
+          // Use hyphen-based command references for OpenCode
+          const transformer = (tool.value === 'opencode' || tool.value === 'pi') ? transformToHyphenCommands : undefined;
+          const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
+          await FileSystemUtils.writeFile(skillFile, skillContent);
         }
 
-        // Delete skill directories if delivery is commands-only
-        if (!shouldGenerateSkills) {
-          removedSkillCount += await this.removeSkillDirs(skillsDir);
-        }
+        // Refresh vendored helper skills (idempotent overwrite).
+        await installVendoredSkills(resolvedProjectPath, tool.skillsDir);
 
-        // Generate commands if delivery includes commands
-        if (shouldGenerateCommands) {
-          const adapter = CommandAdapterRegistry.get(tool.value);
-          if (adapter) {
-            const generatedCommands = generateCommands(commandContents, adapter);
-
-            for (const cmd of generatedCommands) {
-              const commandFile = path.isAbsolute(cmd.path) ? cmd.path : path.join(resolvedProjectPath, cmd.path);
-              await FileSystemUtils.writeFile(commandFile, cmd.fileContent);
-            }
-
-          }
-        }
-
-        // Delete command files if delivery is skills-only
-        if (!shouldGenerateCommands) {
-          removedCommandCount += await this.removeCommandFiles(resolvedProjectPath, toolId);
-        }
+        // Command wrappers are legacy/generated artifacts now.
+        removedCommandCount += await this.removeCommandFiles(resolvedProjectPath, toolId);
 
         spinner.succeed(`Updated ${tool.name}`);
         updatedTools.push(tool.name);
@@ -352,12 +294,8 @@ export class UpdateCommand {
       console.log(chalk.red(`✗ Failed: ${failedTools.map(f => `${f.name} (${f.error})`).join(', ')}`));
     }
     if (removedCommandCount > 0) {
-      console.log(chalk.dim(`Removed: ${removedCommandCount} command files (delivery: skills)`));
+      console.log(chalk.dim(`Removed: ${removedCommandCount} command files`));
     }
-    if (removedSkillCount > 0) {
-      console.log(chalk.dim(`Removed: ${removedSkillCount} skill directories (delivery: commands)`));
-    }
-
     // 12. Show onboarding message for newly configured tools from legacy upgrade
     if (newlyConfiguredTools.length > 0) {
       console.log();
@@ -456,29 +394,7 @@ export class UpdateCommand {
   }
 
   /**
-   * Removes skill directories for workflows when delivery changed to commands-only.
-   */
-  private async removeSkillDirs(skillsDir: string): Promise<number> {
-    let removed = 0;
-
-    for (const workflow of SPOK_WORKFLOWS) {
-      const dirName = WORKFLOW_TO_SKILL_DIR[workflow];
-      const skillDir = path.join(skillsDir, dirName);
-      try {
-        if (fs.existsSync(skillDir)) {
-          await fs.promises.rm(skillDir, { recursive: true, force: true });
-          removed++;
-        }
-      } catch {
-        // Ignore errors
-      }
-    }
-
-    return removed;
-  }
-
-  /**
-   * Removes command files for workflows when delivery changed to skills-only.
+   * Removes Spok-managed command files for workflows.
    */
   private async removeCommandFiles(projectPath: string, toolId: string): Promise<number> {
     let removed = 0;
@@ -486,9 +402,12 @@ export class UpdateCommand {
     const adapter = CommandAdapterRegistry.get(toolId);
     if (!adapter) return 0;
 
+    const commandDirs = new Set<string>();
+
     for (const workflow of SPOK_WORKFLOWS) {
       const cmdPath = adapter.getFilePath(workflow);
       const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
+      commandDirs.add(path.dirname(fullPath));
 
       try {
         if (fs.existsSync(fullPath)) {
@@ -497,6 +416,14 @@ export class UpdateCommand {
         }
       } catch {
         // Ignore errors
+      }
+    }
+
+    for (const commandDir of commandDirs) {
+      try {
+        await fs.promises.rmdir(commandDir);
+      } catch {
+        // Ignore non-empty or missing directories.
       }
     }
 
@@ -510,7 +437,6 @@ export class UpdateCommand {
    */
   private async handleLegacyCleanup(
     projectPath: string,
-    delivery: Delivery
   ): Promise<string[]> {
     // Detect legacy artifacts
     const detection = await detectLegacyArtifacts(projectPath);
@@ -530,7 +456,7 @@ export class UpdateCommand {
       // --force flag: proceed with cleanup automatically
       await this.performLegacyCleanup(projectPath, detection);
       // Then upgrade legacy tools to new skills
-      return this.upgradeLegacyTools(projectPath, detection, canPrompt, delivery);
+      return this.upgradeLegacyTools(projectPath, detection, canPrompt);
     }
 
     if (!canPrompt) {
@@ -551,7 +477,7 @@ export class UpdateCommand {
     if (shouldCleanup) {
       await this.performLegacyCleanup(projectPath, detection);
       // Then upgrade legacy tools to new skills
-      return this.upgradeLegacyTools(projectPath, detection, canPrompt, delivery);
+      return this.upgradeLegacyTools(projectPath, detection, canPrompt);
     } else {
       console.log(chalk.dim('Skipping legacy cleanup. Continuing with skill update...'));
       console.log();
@@ -585,8 +511,7 @@ export class UpdateCommand {
   private async upgradeLegacyTools(
     projectPath: string,
     detection: LegacyDetectionResult,
-    canPrompt: boolean,
-    delivery: Delivery
+    canPrompt: boolean
   ): Promise<string[]> {
     const desiredWorkflows = [...SPOK_WORKFLOWS];
     // Get tools that had legacy artifacts
@@ -657,12 +582,9 @@ export class UpdateCommand {
       }
     }
 
-    // Create skills/commands for selected tools using effective profile+delivery.
+    // Create skills for selected tools.
     const newlyConfigured: string[] = [];
-    const shouldGenerateSkills = delivery !== 'commands';
-    const shouldGenerateCommands = delivery !== 'skills';
-    const skillTemplates = shouldGenerateSkills ? getSkillTemplates(desiredWorkflows) : [];
-    const commandContents = shouldGenerateCommands ? getCommandContents(desiredWorkflows) : [];
+    const skillTemplates = getSkillTemplates(desiredWorkflows);
 
     for (const toolId of selectedTools) {
       const tool = AI_TOOLS.find((t) => t.value === toolId);
@@ -673,34 +595,21 @@ export class UpdateCommand {
       try {
         const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
 
-        // Create skill files when delivery includes skills
-        if (shouldGenerateSkills) {
-          for (const { template, dirName } of skillTemplates) {
-            const skillDir = path.join(skillsDir, dirName);
-            const skillFile = path.join(skillDir, 'SKILL.md');
+        for (const { template, dirName } of skillTemplates) {
+          const skillDir = path.join(skillsDir, dirName);
+          const skillFile = path.join(skillDir, 'SKILL.md');
 
-            // Use hyphen-based command references for OpenCode
-            const transformer = (tool.value === 'opencode' || tool.value === 'pi') ? transformToHyphenCommands : undefined;
-            const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
-            await FileSystemUtils.writeFile(skillFile, skillContent);
-          }
-
-          // Refresh vendored helper skills (idempotent overwrite).
-          await installVendoredSkills(projectPath, tool.skillsDir);
+          // Use hyphen-based command references for OpenCode
+          const transformer = (tool.value === 'opencode' || tool.value === 'pi') ? transformToHyphenCommands : undefined;
+          const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
+          await FileSystemUtils.writeFile(skillFile, skillContent);
         }
 
-        // Create commands when delivery includes commands
-        if (shouldGenerateCommands) {
-          const adapter = CommandAdapterRegistry.get(tool.value);
-          if (adapter) {
-            const generatedCommands = generateCommands(commandContents, adapter);
+        // Refresh vendored helper skills (idempotent overwrite).
+        await installVendoredSkills(projectPath, tool.skillsDir);
 
-            for (const cmd of generatedCommands) {
-              const commandFile = path.isAbsolute(cmd.path) ? cmd.path : path.join(projectPath, cmd.path);
-              await FileSystemUtils.writeFile(commandFile, cmd.fileContent);
-            }
-          }
-        }
+        // Remove old command wrappers for this tool if any remain after cleanup.
+        await this.removeCommandFiles(projectPath, toolId);
 
         spinner.succeed(`Setup complete for ${tool.name}`);
         newlyConfigured.push(toolId);

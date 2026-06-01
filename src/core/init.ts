@@ -1,7 +1,7 @@
 /**
  * Init Command
  *
- * Sets up Spok with 3-verb agent skills and optional tool-specific command files.
+ * Sets up Spok with 3-verb agent skills.
  * This is the unified setup command that replaces both the old init and experimental commands.
  */
 
@@ -20,10 +20,7 @@ import {
 import { PALETTE } from './styles/palette.js';
 import { isInteractive } from '../utils/interactive.js';
 import { serializeConfig } from './config-prompts.js';
-import {
-  generateCommands,
-  CommandAdapterRegistry,
-} from './command-generation/index.js';
+import { CommandAdapterRegistry } from './command-generation/index.js';
 import {
   detectLegacyArtifacts,
   cleanupLegacyArtifacts,
@@ -35,11 +32,9 @@ import {
   getToolsWithSkillsDir,
   getToolStates,
   getSkillTemplates,
-  getCommandContents,
   generateSkillContent,
   type ToolSkillStatus,
 } from './shared/index.js';
-import { getGlobalConfig, type Delivery } from './global-config.js';
 import { getAvailableTools } from './available-tools.js';
 import { installVendoredSkills } from './skill-vendor.js';
 import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
@@ -58,12 +53,6 @@ const DEFAULT_SCHEMA = 'spec-driven';
 const PROGRESS_SPINNER = {
   interval: 80,
   frames: ['░░░', '▒░░', '▒▒░', '▒▒▒', '▓▒▒', '▓▓▒', '▓▓▓', '▒▓▓', '░▒▓'],
-};
-
-const WORKFLOW_TO_SKILL_DIR: Record<string, string> = {
-  propose: 'spok-propose',
-  apply: 'spok-apply',
-  archive: 'spok-archive',
 };
 
 // -----------------------------------------------------------------------------
@@ -124,7 +113,7 @@ export class InitCommand {
     // Create directory structure and config
     await this.createDirectoryStructure(spokPath, extendMode);
 
-    // Generate skills and commands for each tool
+    // Generate skills for each tool and remove old command wrapper files
     const results = await this.generateSkillsAndCommands(projectPath, validatedTools);
 
     // Create config.yaml if needed
@@ -472,7 +461,7 @@ export class InitCommand {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // SKILL & COMMAND GENERATION
+  // SKILL GENERATION
   // ═══════════════════════════════════════════════════════════
 
   private async generateSkillsAndCommands(
@@ -482,78 +471,44 @@ export class InitCommand {
     createdTools: typeof tools;
     refreshedTools: typeof tools;
     failedTools: Array<{ name: string; error: Error }>;
-    commandsSkipped: string[];
     removedCommandCount: number;
-    removedSkillCount: number;
   }> {
     const createdTools: typeof tools = [];
     const refreshedTools: typeof tools = [];
     const failedTools: Array<{ name: string; error: Error }> = [];
-    const commandsSkipped: string[] = [];
     let removedCommandCount = 0;
-    let removedSkillCount = 0;
 
-    // Read global config for delivery settings
-    const globalConfig = getGlobalConfig();
-    const delivery: Delivery = globalConfig.delivery ?? 'both';
     const workflows = [...SPOK_WORKFLOWS];
-
-    // Get skill and command templates
-    const shouldGenerateSkills = delivery !== 'commands';
-    const shouldGenerateCommands = delivery !== 'skills';
-    const skillTemplates = shouldGenerateSkills ? getSkillTemplates(workflows) : [];
-    const commandContents = shouldGenerateCommands ? getCommandContents(workflows) : [];
+    const skillTemplates = getSkillTemplates(workflows);
 
     // Process each tool
     for (const tool of tools) {
       const spinner = ora(`Setting up ${tool.name}...`).start();
 
       try {
-        // Generate skill files if delivery includes skills
-        if (shouldGenerateSkills) {
-          // Use tool-specific skillsDir
-          const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
+        const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
 
-          // Create skill directories and SKILL.md files
-          for (const { template, dirName } of skillTemplates) {
-            const skillDir = path.join(skillsDir, dirName);
-            const skillFile = path.join(skillDir, 'SKILL.md');
+        // Create skill directories and SKILL.md files
+        for (const { template, dirName } of skillTemplates) {
+          const skillDir = path.join(skillsDir, dirName);
+          const skillFile = path.join(skillDir, 'SKILL.md');
 
-            // Generate SKILL.md content with YAML frontmatter including generatedBy
-            // Use hyphen-based command references for tools where filename = command name
-            const transformer = (tool.value === 'opencode' || tool.value === 'pi') ? transformToHyphenCommands : undefined;
-            const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
+          // Generate SKILL.md content with YAML frontmatter including generatedBy
+          // Use hyphen-based command references for tools where filename = command name
+          const transformer = (tool.value === 'opencode' || tool.value === 'pi') ? transformToHyphenCommands : undefined;
+          const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
 
-            // Write the skill file
-            await FileSystemUtils.writeFile(skillFile, skillContent);
-          }
-
-          // Copy vendored helper skills (spok-flow, spok-create-scoped-chunks,
-          // and their transitive helpers) into the same skills directory.
-          await installVendoredSkills(projectPath, tool.skillsDir);
-        }
-        if (!shouldGenerateSkills) {
-          const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
-          removedSkillCount += await this.removeSkillDirs(skillsDir);
+          // Write the skill file
+          await FileSystemUtils.writeFile(skillFile, skillContent);
         }
 
-        // Generate commands if delivery includes commands
-        if (shouldGenerateCommands) {
-          const adapter = CommandAdapterRegistry.get(tool.value);
-          if (adapter) {
-            const generatedCommands = generateCommands(commandContents, adapter);
+        // Copy vendored helper skills (spok-flow, spok-create-scoped-chunks,
+        // and their transitive helpers) into the same skills directory.
+        await installVendoredSkills(projectPath, tool.skillsDir);
 
-            for (const cmd of generatedCommands) {
-              const commandFile = path.isAbsolute(cmd.path) ? cmd.path : path.join(projectPath, cmd.path);
-              await FileSystemUtils.writeFile(commandFile, cmd.fileContent);
-            }
-          } else {
-            commandsSkipped.push(tool.value);
-          }
-        }
-        if (!shouldGenerateCommands) {
-          removedCommandCount += await this.removeCommandFiles(projectPath, tool.value);
-        }
+        // Command wrappers are legacy/generated artifacts now. Keep init idempotent
+        // by removing only Spok-managed wrappers for the selected tool.
+        removedCommandCount += await this.removeCommandFiles(projectPath, tool.value);
 
         spinner.succeed(`Setup complete for ${tool.name}`);
 
@@ -572,9 +527,7 @@ export class InitCommand {
       createdTools,
       refreshedTools,
       failedTools,
-      commandsSkipped,
       removedCommandCount,
-      removedSkillCount,
     };
   }
 
@@ -617,9 +570,7 @@ export class InitCommand {
       createdTools: typeof tools;
       refreshedTools: typeof tools;
       failedTools: Array<{ name: string; error: Error }>;
-      commandsSkipped: string[];
       removedCommandCount: number;
-      removedSkillCount: number;
     },
     configStatus: 'created' | 'exists' | 'skipped'
   ): void {
@@ -638,19 +589,10 @@ export class InitCommand {
     // Show counts
     const successfulTools = [...results.createdTools, ...results.refreshedTools];
     if (successfulTools.length > 0) {
-      const globalConfig = getGlobalConfig();
-      const delivery: Delivery = globalConfig.delivery ?? 'both';
       const workflows = [...SPOK_WORKFLOWS];
       const toolDirs = [...new Set(successfulTools.map((t) => t.skillsDir))].join(', ');
-      const skillCount = delivery !== 'commands' ? getSkillTemplates(workflows).length : 0;
-      const commandCount = delivery !== 'skills' ? getCommandContents(workflows).length : 0;
-      if (skillCount > 0 && commandCount > 0) {
-        console.log(`${skillCount} skills and ${commandCount} commands in ${toolDirs}/`);
-      } else if (skillCount > 0) {
-        console.log(`${skillCount} skills in ${toolDirs}/`);
-      } else if (commandCount > 0) {
-        console.log(`${commandCount} commands in ${toolDirs}/`);
-      }
+      const skillCount = getSkillTemplates(workflows).length;
+      console.log(`${skillCount} skills in ${toolDirs}/`);
     }
 
     // Show failures
@@ -658,15 +600,8 @@ export class InitCommand {
       console.log(chalk.red(`Failed: ${results.failedTools.map((f) => `${f.name} (${f.error.message})`).join(', ')}`));
     }
 
-    // Show skipped commands
-    if (results.commandsSkipped.length > 0) {
-      console.log(chalk.dim(`Commands skipped for: ${results.commandsSkipped.join(', ')} (no adapter)`));
-    }
     if (results.removedCommandCount > 0) {
-      console.log(chalk.dim(`Removed: ${results.removedCommandCount} command files (delivery: skills)`));
-    }
-    if (results.removedSkillCount > 0) {
-      console.log(chalk.dim(`Removed: ${results.removedSkillCount} skill directories (delivery: commands)`));
+      console.log(chalk.dim(`Removed: ${results.removedCommandCount} command files`));
     }
 
     // Config status
@@ -711,35 +646,17 @@ export class InitCommand {
     }).start();
   }
 
-  private async removeSkillDirs(skillsDir: string): Promise<number> {
-    let removed = 0;
-
-    for (const workflow of SPOK_WORKFLOWS) {
-      const dirName = WORKFLOW_TO_SKILL_DIR[workflow];
-      if (!dirName) continue;
-
-      const skillDir = path.join(skillsDir, dirName);
-      try {
-        if (fs.existsSync(skillDir)) {
-          await fs.promises.rm(skillDir, { recursive: true, force: true });
-          removed++;
-        }
-      } catch {
-        // Ignore errors
-      }
-    }
-
-    return removed;
-  }
-
   private async removeCommandFiles(projectPath: string, toolId: string): Promise<number> {
     let removed = 0;
     const adapter = CommandAdapterRegistry.get(toolId);
     if (!adapter) return 0;
 
+    const commandDirs = new Set<string>();
+
     for (const workflow of SPOK_WORKFLOWS) {
       const cmdPath = adapter.getFilePath(workflow);
       const fullPath = path.isAbsolute(cmdPath) ? cmdPath : path.join(projectPath, cmdPath);
+      commandDirs.add(path.dirname(fullPath));
 
       try {
         if (fs.existsSync(fullPath)) {
@@ -748,6 +665,14 @@ export class InitCommand {
         }
       } catch {
         // Ignore errors
+      }
+    }
+
+    for (const commandDir of commandDirs) {
+      try {
+        await fs.promises.rmdir(commandDir);
+      } catch {
+        // Ignore non-empty or missing directories.
       }
     }
 

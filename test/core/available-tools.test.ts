@@ -54,14 +54,14 @@ describe('available-tools', () => {
       expect(tools).toEqual([]);
     });
 
-    it('should only return tools that have a skillsDir property', async () => {
-      // .agents value has no skillsDir in AI_TOOLS config
-      // Create directories for both a valid and the agents case
+    it('should map .agents to Codex without exposing the placeholder agents tool', async () => {
       await fs.mkdir(path.join(testDir, '.claude'), { recursive: true });
+      await fs.mkdir(path.join(testDir, '.agents'), { recursive: true });
 
       const tools = getAvailableTools(testDir);
       const toolValues = tools.map((t) => t.value);
       expect(toolValues).toContain('claude');
+      expect(toolValues).toContain('codex');
       expect(toolValues).not.toContain('agents');
     });
 

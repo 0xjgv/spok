@@ -17,7 +17,7 @@ export const GlobalConfigSchema = z
     delivery: z
       .enum(['both', 'skills', 'commands'])
       .optional()
-      .default('both'),
+      .default('skills'),
     workflows: z
       .array(z.string())
       .optional(),
@@ -32,7 +32,7 @@ export type GlobalConfigType = z.infer<typeof GlobalConfigSchema>;
 export const DEFAULT_CONFIG: GlobalConfigType = {
   featureFlags: {},
   profile: 'core',
-  delivery: 'both',
+  delivery: 'skills',
 };
 
 const KNOWN_TOP_LEVEL_KEYS = new Set([...Object.keys(DEFAULT_CONFIG), 'workflows']);

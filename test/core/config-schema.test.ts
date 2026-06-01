@@ -336,5 +336,9 @@ describe('config-schema', () => {
     it('should have empty featureFlags', () => {
       expect(DEFAULT_CONFIG.featureFlags).toEqual({});
     });
+
+    it('should default to skills-only delivery', () => {
+      expect(DEFAULT_CONFIG.delivery).toBe('skills');
+    });
   });
 });

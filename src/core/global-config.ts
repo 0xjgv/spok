@@ -18,7 +18,7 @@ export interface GlobalConfig {
 
 const DEFAULT_CONFIG: GlobalConfig = {
   featureFlags: {},
-  delivery: 'both',
+  delivery: 'skills',
 };
 
 /**

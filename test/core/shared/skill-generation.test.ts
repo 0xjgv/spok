@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 import {
   getSkillTemplates,
   getCommandTemplates,
@@ -8,6 +9,11 @@ import {
 
 const EXPECTED_WORKFLOWS = ['propose', 'apply', 'archive'] as const;
 const EXPECTED_SKILL_DIRS = ['spok-propose', 'spok-apply', 'spok-archive'] as const;
+
+function extractFrontmatter(content: string): string {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  return match?.[1] ?? '';
+}
 
 describe('skill-generation', () => {
   describe('getSkillTemplates', () => {
@@ -188,6 +194,24 @@ describe('skill-generation', () => {
       expect(content).toContain('version: "2.0"');
       expect(content).toContain('generatedBy: "0.23.0"');
       expect(content).toContain('Test instructions');
+    });
+
+    it('should quote YAML scalars with special characters', () => {
+      const template = {
+        name: 'test-skill',
+        description: 'Fix: regression in "auth"',
+        instructions: 'Test instructions',
+        compatibility: 'Requires spok CLI: installed',
+      };
+
+      const content = generateSkillContent(template, '0.23.0');
+      const frontmatter = parseYaml(extractFrontmatter(content)) as {
+        description?: string;
+        compatibility?: string;
+      };
+
+      expect(frontmatter.description).toBe('Fix: regression in "auth"');
+      expect(frontmatter.compatibility).toBe('Requires spok CLI: installed');
     });
 
     it('should use default values for optional fields', () => {

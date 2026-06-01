@@ -161,6 +161,9 @@ opencode.json
 # Codex
 .codex/
 
+# Agents
+.agents/
+
 .humanlayer/
 spok/changes/
 
