@@ -1,4 +1,4 @@
-# CLAUDE
+# AGENTS
 
 ## Commands
 
@@ -25,16 +25,8 @@
 - **Exception — uniform mechanical edits**: a single change pattern (same edit, same shape) applied across N sibling files counts as 1 sub-task, not N. State the pattern, list the files, and proceed. Example: "Prepend `version: 0.1.0` frontmatter to 13 docs/*.md files."
 </important>
 
-<important>
-## Role
-
-- The human is the engineer. They own design, API shape, and merge authority. You propose, they dispose.
-- Do NOT run `git commit`, `git push`, or equivalent publishing commands unless the user's current prompt asked for it. The verbs `commit`, `push`, `ship`, `land`, `merge` in action context authorize that turn only.
-- If you decide on your own to "commit this and move on," the `PreToolUse` hook will deny the command. That is working as intended.
-</important>
-
 <important if="the task changes user-visible behavior">
-- Workflow: write or extend a `.feature` scenario → get human approval → write step definitions → write implementation.
+- Workflow: write or extend a `.feature` scenario → write step definitions → write implementation.
 - Refactors, typo fixes, dependency bumps, and internal cleanup are NOT user-visible behavior changes. You MAY proceed without a new `.feature`, but you MUST state in your first response that the change is non-behavioral and why.
 - If it is unclear whether a task changes user-visible behavior, ASK before editing source.
 </important>

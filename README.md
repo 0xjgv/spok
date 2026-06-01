@@ -5,7 +5,7 @@ version: 0.1.0
 # Spok
 
 <p align="center">
-  <a href="https://github.com/Fission-AI/Spok">
+  <a href="https://github.com/0xjgv/spok">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/spok_pixel_dark.svg">
       <img src="assets/spok_pixel_light.svg" alt="Spok logo" width="180">
@@ -14,7 +14,7 @@ version: 0.1.0
 </p>
 
 <p align="center">
-  <a href="https://github.com/Fission-AI/Spok/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Fission-AI/Spok/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/0xjgv/spok/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/0xjgv/spok/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://www.npmjs.com/package/spok"><img alt="npm version" src="https://img.shields.io/npm/v/spok?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" /></a>
   <a href="https://discord.gg/YctCnvvshC"><img alt="Discord" src="https://img.shields.io/discord/1411657095639601154?style=flat-square&logo=discord&logoColor=white&label=Discord&suffix=%20online" /></a>
