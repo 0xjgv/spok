@@ -5,7 +5,9 @@ Feature: Tool skill artifacts
     Given a new project
     When I initialize Spok for the tools "claude,codex"
     Then Spok creates skills under ".claude/skills"
+    And Spok creates the workflow skill "spok-explore" under ".claude/skills"
     And Spok creates skills under ".agents/skills"
+    And Spok creates the workflow skill "spok-explore" under ".agents/skills"
     And Spok does not create ".claude/commands"
     And Spok does not create ".codex"
     And Spok does not create command or prompt files for the selected tools

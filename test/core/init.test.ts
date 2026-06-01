@@ -59,7 +59,22 @@ describe('InitCommand', () => {
     }).execute(testDir);
 
     await expect(pathExists(path.join(testDir, '.claude', 'skills', 'spok-propose', 'SKILL.md'))).resolves.toBe(true);
+    await expect(pathExists(path.join(testDir, '.claude', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(testDir, '.agents', 'skills', 'spok-propose', 'SKILL.md'))).resolves.toBe(true);
+    await expect(pathExists(path.join(testDir, '.agents', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
+
+    const exploreSkill = await fs.readFile(
+      path.join(testDir, '.claude', 'skills', 'spok-explore', 'SKILL.md'),
+      'utf-8'
+    );
+    expect(exploreSkill).toContain('/spok-explore');
+    expect(exploreSkill).toContain('Explore mode is for thinking, not implementing');
+    expect(exploreSkill).toContain('must NOT write code or implement features');
+    expect(exploreSkill).toContain('spok list --json');
+    expect(exploreSkill).toContain('spok status --change "<name>" --json');
+    expect(exploreSkill).toContain('Do not auto-capture');
+    expect(exploreSkill).not.toContain('/opsx:explore');
+
     await expect(pathExists(path.join(testDir, '.claude', 'commands'))).resolves.toBe(false);
     await expect(pathExists(path.join(testDir, '.codex'))).resolves.toBe(false);
     await expect(pathExists(codexPromptDir)).resolves.toBe(false);

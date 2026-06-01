@@ -45,6 +45,18 @@ Then('Spok creates skills under {string}', async function (this: SkillArtifactWo
   );
 });
 
+Then('Spok creates the workflow skill {string} under {string}', async function (
+  this: SkillArtifactWorld,
+  skillName: string,
+  relativeDir: string
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.equal(
+    await pathExists(path.join(this.projectDir, relativeDir, skillName, 'SKILL.md')),
+    true
+  );
+});
+
 Then('Spok does not create {string}', async function (this: SkillArtifactWorld, relativePath: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.equal(await pathExists(path.join(this.projectDir, relativePath)), false);

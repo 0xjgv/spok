@@ -7,8 +7,8 @@ import {
   generateSkillContent,
 } from '../../../src/core/shared/skill-generation.js';
 
-const EXPECTED_WORKFLOWS = ['propose', 'apply', 'archive'] as const;
-const EXPECTED_SKILL_DIRS = ['spok-propose', 'spok-apply', 'spok-archive'] as const;
+const EXPECTED_WORKFLOWS = ['explore', 'propose', 'apply', 'archive'] as const;
+const EXPECTED_SKILL_DIRS = ['spok-explore', 'spok-propose', 'spok-apply', 'spok-archive'] as const;
 
 function extractFrontmatter(content: string): string {
   const match = content.match(/^---\n([\s\S]*?)\n---/);
@@ -17,9 +17,9 @@ function extractFrontmatter(content: string): string {
 
 describe('skill-generation', () => {
   describe('getSkillTemplates', () => {
-    it('should return all 3 skill templates', () => {
+    it('should return all 4 skill templates', () => {
       const templates = getSkillTemplates();
-      expect(templates).toHaveLength(3);
+      expect(templates).toHaveLength(4);
     });
 
     it('should have unique directory names', () => {
@@ -82,12 +82,28 @@ describe('skill-generation', () => {
       expect(filtered[0].workflowId).toBe('propose');
       expect(filtered[0].dirName).toBe('spok-propose');
     });
+
+    it('should include thinking-only explore guardrails', () => {
+      const filtered = getSkillTemplates(['explore']);
+      expect(filtered).toHaveLength(1);
+
+      const content = generateSkillContent(filtered[0].template, '1.3.1');
+
+      expect(filtered[0].dirName).toBe('spok-explore');
+      expect(content).toContain('/spok-explore');
+      expect(content).toContain('Explore mode is for thinking, not implementing');
+      expect(content).toContain('must NOT write code or implement features');
+      expect(content).toContain('spok list --json');
+      expect(content).toContain('spok status --change "<name>" --json');
+      expect(content).toContain('Do not auto-capture');
+      expect(content).not.toContain('/opsx:explore');
+    });
   });
 
   describe('getCommandTemplates', () => {
-    it('should return all 3 command templates', () => {
+    it('should return all 4 command templates', () => {
       const templates = getCommandTemplates();
-      expect(templates).toHaveLength(3);
+      expect(templates).toHaveLength(4);
     });
 
     it('should have unique IDs', () => {
@@ -127,9 +143,9 @@ describe('skill-generation', () => {
   });
 
   describe('getCommandContents', () => {
-    it('should return all 3 command contents', () => {
+    it('should return all 4 command contents', () => {
       const contents = getCommandContents();
-      expect(contents).toHaveLength(3);
+      expect(contents).toHaveLength(4);
     });
 
     it('should have valid content structure', () => {

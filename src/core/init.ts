@@ -1,7 +1,7 @@
 /**
  * Init Command
  *
- * Sets up Spok with 3-verb agent skills.
+ * Sets up Spok with workflow agent skills.
  * This is the unified setup command that replaces both the old init and experimental commands.
  */
 
@@ -39,7 +39,7 @@ import { getAvailableTools } from './available-tools.js';
 import { installVendoredSkills } from './skill-vendor.js';
 import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
 
-const SPOK_WORKFLOWS = ['propose', 'apply', 'archive'] as const;
+const SPOK_WORKFLOWS = ['explore', 'propose', 'apply', 'archive'] as const;
 
 const require = createRequire(import.meta.url);
 const { version: SPOK_VERSION } = require('../../package.json');

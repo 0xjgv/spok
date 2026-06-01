@@ -12,6 +12,7 @@ import { AI_TOOLS } from '../config.js';
  * Names of skill directories created by spok init.
  */
 export const SKILL_NAMES = [
+  'spok-explore',
   'spok-propose',
   'spok-apply',
   'spok-archive',
@@ -23,6 +24,7 @@ export type SkillName = (typeof SKILL_NAMES)[number];
  * IDs of command templates created by spok init.
  */
 export const COMMAND_IDS = [
+  'explore',
   'propose',
   'apply',
   'archive',

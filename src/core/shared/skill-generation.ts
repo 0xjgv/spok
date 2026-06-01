@@ -7,9 +7,11 @@
 import {
   getApplySkillTemplate,
   getArchiveSkillTemplate,
+  getExploreSkillTemplate,
   getOpsxProposeSkillTemplate,
   getOpsxApplyCommandTemplate,
   getOpsxArchiveCommandTemplate,
+  getExploreCommandTemplate,
   getOpsxProposeCommandTemplate,
   type SkillTemplate,
 } from '../templates/skill-templates.js';
@@ -49,6 +51,7 @@ function formatYamlScalar(value: string): string {
  */
 export function getSkillTemplates(workflowFilter?: readonly string[]): SkillTemplateEntry[] {
   const all: SkillTemplateEntry[] = [
+    { template: getExploreSkillTemplate(), dirName: 'spok-explore', workflowId: 'explore' },
     { template: getOpsxProposeSkillTemplate(), dirName: 'spok-propose', workflowId: 'propose' },
     { template: getApplySkillTemplate(), dirName: 'spok-apply', workflowId: 'apply' },
     { template: getArchiveSkillTemplate(), dirName: 'spok-archive', workflowId: 'archive' },
@@ -67,6 +70,7 @@ export function getSkillTemplates(workflowFilter?: readonly string[]): SkillTemp
  */
 export function getCommandTemplates(workflowFilter?: readonly string[]): CommandTemplateEntry[] {
   const all: CommandTemplateEntry[] = [
+    { template: getExploreCommandTemplate(), id: 'explore' },
     { template: getOpsxProposeCommandTemplate(), id: 'propose' },
     { template: getOpsxApplyCommandTemplate(), id: 'apply' },
     { template: getOpsxArchiveCommandTemplate(), id: 'archive' },

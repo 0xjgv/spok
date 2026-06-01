@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
 import {
+  COMMAND_IDS,
   SKILL_NAMES,
   getToolsWithSkillsDir,
   getToolSkillStatus,
@@ -28,10 +29,12 @@ describe('tool-detection', () => {
 
   describe('SKILL_NAMES', () => {
     it('should contain all skill names matching COMMAND_IDS', () => {
-      expect(SKILL_NAMES).toHaveLength(3);
+      expect(SKILL_NAMES).toHaveLength(4);
+      expect(SKILL_NAMES).toContain('spok-explore');
       expect(SKILL_NAMES).toContain('spok-propose');
       expect(SKILL_NAMES).toContain('spok-apply');
       expect(SKILL_NAMES).toContain('spok-archive');
+      expect(COMMAND_IDS).toEqual(['explore', 'propose', 'apply', 'archive']);
     });
   });
 
@@ -83,6 +86,19 @@ describe('tool-detection', () => {
       expect(status.configured).toBe(true);
       expect(status.fullyConfigured).toBe(true);
       expect(status.skillCount).toBe(SKILL_NAMES.length);
+    });
+
+    it('should require explore for full configuration', async () => {
+      for (const skillName of ['spok-propose', 'spok-apply', 'spok-archive']) {
+        const skillDir = path.join(testDir, '.claude', 'skills', skillName);
+        await fs.mkdir(skillDir, { recursive: true });
+        await fs.writeFile(path.join(skillDir, 'SKILL.md'), 'test content');
+      }
+
+      const status = getToolSkillStatus(testDir, 'claude');
+      expect(status.configured).toBe(true);
+      expect(status.fullyConfigured).toBe(false);
+      expect(status.skillCount).toBe(3);
     });
 
     it('should detect Codex skills under .agents', async () => {
