@@ -619,6 +619,7 @@ export class InitCommand {
 
     console.log();
     console.log(chalk.bold('Getting started:'));
+    console.log('  /spok-explore  Think through an idea');
     console.log('  /spok-propose  Start a new change');
     console.log('  /spok-apply    Ship the next chunk');
     console.log('  /spok-archive  Finalize the change');

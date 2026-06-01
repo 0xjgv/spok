@@ -4,7 +4,7 @@ version: 0.1.0
 
 # CLI Reference
 
-The Spok CLI (`spok`) is the terminal companion to the three slash commands. It has a small user-facing surface for setup and bookkeeping, plus a small set of internal plumbing verbs that the skills call into.
+The Spok CLI (`spok`) is the terminal companion to the four workflow slash commands. It has a small user-facing surface for setup and bookkeeping, plus a small set of internal plumbing verbs that the skills call into.
 
 For slash commands, see [Commands](commands.md). For workflow patterns, see [Workflows](workflows.md).
 
@@ -33,7 +33,7 @@ Spok also ships internal libraries (validation, artifact graphs, workflow schema
 
 ### `spok init`
 
-Initialize Spok in your project. Creates the folder structure, configures the AI tools you select, installs the three user-facing skills (`spok-propose`, `spok-apply`, `spok-archive`), and vendors the helper skill closure (`spok-flow`, `spok-create-scoped-chunks`, and the rest).
+Initialize Spok in your project. Creates the folder structure, configures the AI tools you select, installs the four user-facing skills (`spok-explore`, `spok-propose`, `spok-apply`, `spok-archive`), and vendors the helper skill closure (`spok-flow`, `spok-create-scoped-chunks`, and the rest).
 
 ```
 spok init [path] [options]
@@ -81,7 +81,8 @@ spok/
 ├── changes/            # Proposed changes
 └── config.yaml         # Project configuration
 
-.claude/skills/spok-propose/SKILL.md     # User-facing skills
+.claude/skills/spok-explore/SKILL.md     # User-facing skills
+.claude/skills/spok-propose/SKILL.md
 .claude/skills/spok-apply/SKILL.md
 .claude/skills/spok-archive/SKILL.md
 .claude/skills/spok-flow/                # Vendored helper skills
@@ -98,7 +99,7 @@ See [Supported Tools](supported-tools.md) for each tool's exact skills path.
 
 ### `spok update`
 
-Re-install the three user-facing skills and refresh the vendored helper skill closure. Run this after upgrading the `spok` package, or whenever you want to re-sync a project's skills with the installed CLI version.
+Re-install the four user-facing skills and refresh the vendored helper skill closure. Run this after upgrading the `spok` package, or whenever you want to re-sync a project's skills with the installed CLI version.
 
 ```
 spok update [path] [options]
@@ -398,7 +399,7 @@ spok instructions design --change add-dark-mode --json
 
 ## Related Documentation
 
-- [Commands](commands.md) — AI slash commands (`/spok-propose`, `/spok-apply`, `/spok-archive`)
+- [Commands](commands.md) — AI slash commands (`/spok-explore`, `/spok-propose`, `/spok-apply`, `/spok-archive`)
 - [Workflows](workflows.md) — Common patterns and when to use each
 - [Supported Tools](supported-tools.md) — Tool integrations and install paths
 - [Getting Started](getting-started.md) — First-time setup

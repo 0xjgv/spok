@@ -12,6 +12,7 @@ interface SkillArtifactWorld {
   codexHome?: string;
   originalCodexHome?: string;
   originalXdgConfigHome?: string;
+  setupGuidance?: string;
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -21,6 +22,22 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function captureConsoleLog(run: () => Promise<void>): Promise<string> {
+  const originalLog = console.log;
+  const lines: string[] = [];
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map(String).join(' '));
+  };
+
+  try {
+    await run();
+  } finally {
+    console.log = originalLog;
+  }
+
+  return lines.join('\n');
 }
 
 Given('a new project', async function (this: SkillArtifactWorld) {
@@ -54,12 +71,16 @@ Given(
 
 When('I initialize Spok for the tools {string}', async function (this: SkillArtifactWorld, tools: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
-  await new InitCommand({ tools, force: true, interactive: false }).execute(this.projectDir);
+  this.setupGuidance = await captureConsoleLog(async () => {
+    await new InitCommand({ tools, force: true, interactive: false }).execute(this.projectDir!);
+  });
 });
 
 When('I update Spok with force', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
-  await new UpdateCommand({ force: true }).execute(this.projectDir);
+  this.setupGuidance = await captureConsoleLog(async () => {
+    await new UpdateCommand({ force: true }).execute(this.projectDir!);
+  });
 });
 
 Then('Spok creates skills under {string}', async function (this: SkillArtifactWorld, relativeDir: string) {
@@ -92,6 +113,11 @@ Then('Spok does not create command or prompt files for the selected tools', asyn
   assert.ok(this.codexHome, 'codexHome must be set by Given a new project');
   assert.equal(await pathExists(path.join(this.projectDir, '.claude', 'commands')), false);
   assert.equal(await pathExists(path.join(this.codexHome, 'prompts')), false);
+});
+
+Then('setup guidance mentions {string}', function (this: SkillArtifactWorld, command: string) {
+  assert.ok(this.setupGuidance, 'setupGuidance must be set by a setup or update step');
+  assert.match(this.setupGuidance, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
 After(async function (this: SkillArtifactWorld) {

@@ -4,16 +4,16 @@ version: 0.1.0
 
 # Supported Tools
 
-Spok works with many AI coding assistants. `spok init` configures the tools you select by installing the three user-facing skills (`spok-propose`, `spok-apply`, `spok-archive`) plus the vendored helper skill closure (`spok-flow`, `spok-create-scoped-chunks`, and the rest) under each tool's skills directory.
+Spok works with many AI coding assistants. `spok init` configures the tools you select by installing the four user-facing skills (`spok-explore`, `spok-propose`, `spok-apply`, `spok-archive`) plus the vendored helper skill closure (`spok-flow`, `spok-create-scoped-chunks`, and the rest) under each tool's skills directory.
 
 ## How It Works
 
 For each selected tool, Spok installs:
 
-1. **User-facing skills**: `<tool-skills-dir>/skills/spok-propose/SKILL.md`, `spok-apply/SKILL.md`, `spok-archive/SKILL.md`.
+1. **User-facing skills**: `<tool-skills-dir>/skills/spok-explore/SKILL.md`, `spok-propose/SKILL.md`, `spok-apply/SKILL.md`, `spok-archive/SKILL.md`.
 2. **Vendored helper skills**: `<tool-skills-dir>/skills/spok-flow/`, `spok-create-scoped-chunks/`, `spok-create-research/`, `spok-create-research-questions/`, `spok-create-design-discussion/`, `spok-create-structure-outline/`, `spok-create-plan/`, `spok-implement-plan/`, `spok-code-review/`, `spok-validate-implementation/`, `spok-ci-commit/`.
 
-You invoke `/spok-propose`, `/spok-apply`, and `/spok-archive` directly in your AI tool. The user-facing skills delegate to the vendored helpers internally.
+You invoke `/spok-explore`, `/spok-propose`, `/spok-apply`, and `/spok-archive` directly in your AI tool. The implementation skills delegate to the vendored helpers internally.
 
 ## Tool Directory Reference
 
@@ -74,6 +74,7 @@ For every selected tool, Spok installs the same set of skill directories:
 
 **User-facing (invoked via `/spok-*` slash commands):**
 
+- `spok-explore`
 - `spok-propose`
 - `spok-apply`
 - `spok-archive`

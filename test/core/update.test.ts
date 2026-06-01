@@ -68,4 +68,16 @@ describe('UpdateCommand', () => {
     await expect(pathExists(path.join(testDir, '.codex'))).resolves.toBe(false);
     await expect(pathExists(codexPromptDir)).resolves.toBe(false);
   });
+
+  it('prints explore in onboarding when upgrading legacy command setup', async () => {
+    const claudeCommandDir = path.join(testDir, '.claude', 'commands');
+    await fs.mkdir(claudeCommandDir, { recursive: true });
+    await fs.writeFile(path.join(claudeCommandDir, 'spok-propose.md'), 'stale command');
+
+    await new UpdateCommand({ force: true }).execute(testDir);
+
+    await expect(pathExists(path.join(testDir, '.claude', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
+    expect(vi.mocked(console.log)).toHaveBeenCalledWith('  /spok-explore  Think through an idea');
+    expect(vi.mocked(console.log)).toHaveBeenCalledWith('  /spok-propose  Start a new change');
+  });
 });

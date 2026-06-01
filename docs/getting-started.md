@@ -13,9 +13,10 @@ Spok helps you and your AI coding assistant agree on what to build before any co
 The flow is the same every time:
 
 ```text
-/spok-propose  →  /spok-apply  →  ...  →  /spok-apply  →  /spok-archive
+/spok-explore  →  /spok-propose  →  /spok-apply  →  ...  →  /spok-apply  →  /spok-archive
 ```
 
+- `/spok-explore` is an optional thinking-only mode for exploring an idea before proposing work.
 - `/spok-propose` writes the planning artifacts (proposal, specs, design) plus a chunked `tasks.md`.
 - `/spok-apply` ships one chunk end-to-end and ticks its checkbox. Run it once per chunk.
 - `/spok-archive` applies any delta specs to the main specs and moves the change into the archive folder.
@@ -46,6 +47,7 @@ spok/
 Plus the skills under your AI tool's skills directory, for example for Claude Code:
 
 ```
+.claude/skills/spok-explore/SKILL.md
 .claude/skills/spok-propose/SKILL.md
 .claude/skills/spok-apply/SKILL.md
 .claude/skills/spok-archive/SKILL.md
@@ -283,5 +285,5 @@ See [CLI](cli.md) for the full reference.
 ## Next Steps
 
 - [Workflows](workflows.md) — Patterns for parallel changes, long-running changes, and editing chunks before applying
-- [Commands](commands.md) — Detailed reference for `/spok-propose`, `/spok-apply`, `/spok-archive`
+- [Commands](commands.md) — Detailed reference for `/spok-explore`, `/spok-propose`, `/spok-apply`, `/spok-archive`
 - [Concepts](concepts.md) — Deeper background on specs, changes, deltas, and chunks

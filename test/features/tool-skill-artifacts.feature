@@ -19,3 +19,9 @@ Feature: Tool skill artifacts
     Then Spok creates the workflow skill "spok-explore" under ".claude/skills"
     And Spok creates the workflow skill "spok-explore" under ".agents/skills"
     And Spok does not create command or prompt files for the selected tools
+
+  Scenario: Setup guidance presents explore before proposing a change
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then setup guidance mentions "/spok-explore"
+    And setup guidance mentions "/spok-propose"

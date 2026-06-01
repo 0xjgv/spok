@@ -25,6 +25,7 @@ export function getWelcomeText(): string[] {
     chalk.dim('  • Vendored helper skills (spok-flow, spok-create-scoped-chunks, …)'),
     '',
     chalk.white('Quick start after setup:'),
+    `  ${chalk.yellow('/spok-explore')}  ${chalk.dim('Think through an idea')}`,
     `  ${chalk.yellow('/spok-propose')}  ${chalk.dim('Start a new change')}`,
     `  ${chalk.yellow('/spok-apply')}    ${chalk.dim('Ship the next chunk')}`,
     `  ${chalk.yellow('/spok-archive')}  ${chalk.dim('Finalize the change')}`,

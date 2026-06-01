@@ -8,19 +8,21 @@ This is the reference for Spok's user-facing slash commands. These commands are 
 
 For workflow patterns, see [Workflows](workflows.md). For CLI commands, see [CLI](cli.md).
 
-## The three-verb surface
+## The workflow skill surface
 
-Spok exposes exactly three slash commands. Each one is backed by a skill of the same name (`spok-propose`, `spok-apply`, `spok-archive`). The skills are installed automatically by `spok init` and refreshed by `spok update`.
+Spok exposes four user-facing slash commands. Each one is backed by a skill of the same name (`spok-explore`, `spok-propose`, `spok-apply`, `spok-archive`). The skills are installed automatically by `spok init` and refreshed by `spok update`.
 
 | Command | Purpose |
 |---------|---------|
+| `/spok-explore` | Think through an idea, compare options, and inspect context without implementing |
 | `/spok-propose` | Scaffold a new change: proposal, specs, design, and a chunked `tasks.md` |
 | `/spok-apply` | Ship the next unchecked chunk from `tasks.md` end-to-end |
 | `/spok-archive` | Apply delta specs to main specs and move the change into the archive |
 
-A typical change follows the same loop every time:
+Use `/spok-explore` before proposing when the direction is still unclear. The shipping loop still follows the same order every time:
 
 ```text
+/spok-explore <topic>   # optional thinking-only exploration
 /spok-propose <description>
 /spok-apply        # chunk 1
 /spok-apply        # chunk 2
@@ -31,6 +33,39 @@ A typical change follows the same loop every time:
 ---
 
 ## Command Reference
+
+### `/spok-explore`
+
+Explore an idea before turning it into a proposed change. This is a thinking-only mode: the agent may read files, inspect Spok artifacts, compare options, and summarize findings, but it must not write implementation code or change source files.
+
+**Syntax:**
+```text
+/spok-explore [topic-or-change]
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `topic-or-change` | No | Idea, problem, active change name, comparison, or question to explore. If omitted, the skill asks what to investigate. |
+
+**What it does:**
+
+1. Clarifies what you want to understand.
+2. Reads existing Spok context when useful, including active changes and their artifacts.
+3. Searches and reads the codebase to ground the discussion.
+4. Compares options, trade-offs, risks, and open questions.
+5. Offers to capture decisions in artifacts only with your consent.
+
+**Example:**
+```text
+You: /spok-explore should settings live in localStorage or server state?
+
+AI:  Reads the current settings code, compares both options, and summarizes the trade-offs.
+     No files are changed.
+```
+
+---
 
 ### `/spok-propose`
 
@@ -198,12 +233,12 @@ Different AI tools surface slash commands slightly differently. The intent is th
 
 | Tool | How to invoke |
 |------|----------------|
-| Claude Code | `/spok-propose`, `/spok-apply`, `/spok-archive` |
-| Cursor | `/spok-propose`, `/spok-apply`, `/spok-archive` |
-| Windsurf | `/spok-propose`, `/spok-apply`, `/spok-archive` |
-| Copilot (IDE) | `/spok-propose`, `/spok-apply`, `/spok-archive` |
-| Kimi CLI | Skill-based invocations such as `/skill:spok-propose` |
-| Trae | Skill-based invocations such as `/spok-propose` |
+| Claude Code | `/spok-explore`, `/spok-propose`, `/spok-apply`, `/spok-archive` |
+| Cursor | `/spok-explore`, `/spok-propose`, `/spok-apply`, `/spok-archive` |
+| Windsurf | `/spok-explore`, `/spok-propose`, `/spok-apply`, `/spok-archive` |
+| Copilot (IDE) | `/spok-explore`, `/spok-propose`, `/spok-apply`, `/spok-archive` |
+| Kimi CLI | Skill-based invocations such as `/skill:spok-explore` |
+| Trae | Skill-based invocations such as `/spok-explore` |
 
 > **Note:** GitHub Copilot prompt files (`.github/prompts/*.prompt.md`) are only available in IDE extensions (VS Code, JetBrains, Visual Studio). GitHub Copilot CLI does not currently support custom prompt files — see [Supported Tools](supported-tools.md) for details and workarounds.
 

@@ -8,9 +8,12 @@ This guide covers common workflow patterns for Spok. For basic setup, see [Getti
 
 ## The core loop
 
-Spok exposes exactly three slash commands, and they always run in the same order:
+Spok exposes four user-facing workflow skills. `/spok-explore` is optional thinking before a proposal; the shipping loop still runs propose, apply, archive in order:
 
 ```text
+/spok-explore <topic>   ← optional thinking-only exploration
+     │
+     ▼
 /spok-propose <description>
      │
      ▼
@@ -20,11 +23,12 @@ Spok exposes exactly three slash commands, and they always run in the same order
 /spok-archive   ← when every chunk is shipped
 ```
 
+- **`/spok-explore`** helps investigate ideas, compare approaches, inspect Spok artifacts, and summarize findings without writing implementation code.
 - **`/spok-propose`** scaffolds the change folder, creates the planning artifacts (proposal, specs, design), and writes a `tasks.md` that is a list of chunks. A chunk is one thin, end-to-end-testable slice of work.
 - **`/spok-apply`** picks the first unchecked chunk, stages a ticket under `.flow/<chunk-slug>/`, runs research → design → plan → implement → review → commit on it via the vendored `spok-flow` skill, then flips the chunk's checkbox to `[x]`. One chunk per invocation.
 - **`/spok-archive`** applies any delta specs to the main specs and moves the change into `spok/changes/archive/YYYY-MM-DD-<name>/`. Sync is folded in — there is no separate sync step.
 
-That loop is the entire workflow. The patterns below are about how you sequence it across real-world situations.
+The patterns below are about how you sequence these skills across real-world situations.
 
 ---
 
@@ -233,6 +237,7 @@ For full command details and options, see [Commands](commands.md).
 
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
+| `/spok-explore` | Think through an idea without implementing | Before proposing unclear work |
 | `/spok-propose` | Create a change with chunked `tasks.md` | Start of every change |
 | `/spok-apply` | Ship the next unchecked chunk | Once per chunk, repeat until done |
 | `/spok-archive` | Apply delta specs and archive | Once at the end |

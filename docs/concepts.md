@@ -27,17 +27,18 @@ brownfield-first        — works with existing codebases, not just greenfield
 
 **Brownfield-first.** Most software work isn't building from scratch — it's modifying existing systems. Spok's delta-based approach makes it easy to specify changes to existing behavior, not just describe new systems.
 
-## The Three-Verb Surface
+## The Workflow Skill Surface
 
-Spok ships exactly three user-facing slash commands. Everything else is internal plumbing or vendored helper skills.
+Spok ships four user-facing slash commands. Everything else is internal plumbing or vendored helper skills.
 
 | Verb | Slash command | Skill name | Purpose |
 |------|---------------|------------|---------|
+| Explore | `/spok-explore` | `spok-explore` | Think through an idea, inspect context, and compare options without implementing |
 | Propose | `/spok-propose` | `spok-propose` | Scaffold a change with proposal, specs, design, and a chunked `tasks.md` |
 | Apply | `/spok-apply` | `spok-apply` | Ship one unchecked chunk from `tasks.md` end-to-end |
 | Archive | `/spok-archive` | `spok-archive` | Apply delta specs to main specs and move the change to `archive/` |
 
-These three skills delegate to a closure of vendored helper skills (`spok-flow`, `spok-create-scoped-chunks`, and others) that ship with the CLI and are installed automatically by `spok init` and refreshed by `spok update`.
+These four skills are installed automatically by `spok init` and refreshed by `spok update`. The propose and apply skills delegate to a closure of vendored helper skills (`spok-flow`, `spok-create-scoped-chunks`, and others) that ship with the CLI.
 
 ## The Big Picture
 
@@ -489,6 +490,12 @@ spok/
 │                                  SPOK FLOW                                   │
 │                                                                              │
 │   ┌────────────────┐                                                         │
+│   │  0. EXPLORE    │  /spok-explore <topic>                                  │
+│   │  (optional)    │  → thinking-only research before a proposal             │
+│   └───────┬────────┘                                                         │
+│           │                                                                  │
+│           ▼                                                                  │
+│   ┌────────────────┐                                                         │
 │   │  1. PROPOSE    │  /spok-propose <description>                            │
 │   │                │  → proposal + specs + design + chunked tasks.md         │
 │   └───────┬────────┘                                                         │
@@ -515,11 +522,12 @@ spok/
 **The virtuous cycle:**
 
 1. Specs describe current behavior.
-2. Changes propose modifications (as deltas) and slice the work into chunks.
-3. `/spok-apply` ships chunks one at a time.
-4. `/spok-archive` merges deltas into specs.
-5. Specs now describe the new behavior.
-6. The next change builds on the updated specs.
+2. `/spok-explore` can clarify unclear ideas without changing code.
+3. Changes propose modifications (as deltas) and slice the work into chunks.
+4. `/spok-apply` ships chunks one at a time.
+5. `/spok-archive` merges deltas into specs.
+6. Specs now describe the new behavior.
+7. The next change builds on the updated specs.
 
 ## Glossary
 

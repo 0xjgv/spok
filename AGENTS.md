@@ -1,4 +1,4 @@
-# AGENTS
+# CLAUDE
 
 ## Commands
 

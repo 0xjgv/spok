@@ -4,7 +4,7 @@ version: 0.1.0
 
 # Customization
 
-Spok 1.0 ships with a fixed three-verb surface (`/spok-propose`, `/spok-apply`, `/spok-archive`) and one built-in workflow schema (`spec-driven`). The customization surface that remains is project-level configuration: telling Spok about your project so the artifacts it generates fit your conventions.
+Spok 1.0 ships with a fixed four-skill surface (`/spok-explore`, `/spok-propose`, `/spok-apply`, `/spok-archive`) and one built-in workflow schema (`spec-driven`). The customization surface that remains is project-level configuration: telling Spok about your project so the artifacts it generates fit your conventions.
 
 For commands, see [Commands](commands.md). For the CLI, see [CLI](cli.md).
 
@@ -111,7 +111,7 @@ context: |
 
 If you used previous versions of Spok, several customization knobs no longer exist:
 
-- **Workflow profiles (`core`, `custom`)** — Removed. The three-verb surface is fixed.
+- **Workflow profiles (`core`, `custom`)** — Removed. The four-skill surface is fixed.
 - **Custom schemas (`spok schema init`, `spok schema fork`, `spok schema validate`, `spok schema which`, `spok schemas`)** — Removed. `spec-driven` is the only schema and it's a CLI internal.
 - **Workspace commands (`spok workspace …`)** — Removed. Existing `.spok-workspace/` layouts may still resolve for `spok status` and `spok instructions`, but `/spok-apply` and `/spok-archive` require repo-local mode.
 - **Browsing/inspection (`spok view`, `spok show`, `spok validate`, `spok feedback`, `spok completion`, `spok templates`)** — Removed.

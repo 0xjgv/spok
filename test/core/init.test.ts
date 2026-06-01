@@ -74,6 +74,8 @@ describe('InitCommand', () => {
     expect(exploreSkill).toContain('spok status --change "<name>" --json');
     expect(exploreSkill).toContain('Do not auto-capture');
     expect(exploreSkill).not.toContain('/opsx:explore');
+    expect(vi.mocked(console.log)).toHaveBeenCalledWith('  /spok-explore  Think through an idea');
+    expect(vi.mocked(console.log)).toHaveBeenCalledWith('  /spok-propose  Start a new change');
 
     await expect(pathExists(path.join(testDir, '.claude', 'commands'))).resolves.toBe(false);
     await expect(pathExists(path.join(testDir, '.codex'))).resolves.toBe(false);

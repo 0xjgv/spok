@@ -22,13 +22,13 @@ version: 0.1.0
 
 **Lightweight spec-driven development for AI coding agents.** Spok helps you and your agent agree on what to build, ship one thin slice at a time, and fold the final behavior back into living specs.
 
-Spok is built around three slash commands you give your AI coding assistant:
+Spok is built around four workflow skills you give your AI coding assistant:
 
 ```text
-/spok-propose  ->  /spok-apply  ->  /spok-archive
+/spok-explore  ->  /spok-propose  ->  /spok-apply  ->  /spok-archive
 ```
 
-That's the whole surface. Propose creates a change with a chunked tasks list, apply ships one chunk end-to-end at a time, and archive folds your delta specs into the main specs.
+That's the whole surface. Explore is a thinking-only mode for investigating ideas before a proposal. Propose creates a change with a chunked tasks list, apply ships one chunk end-to-end at a time, and archive folds your delta specs into the main specs.
 
 <p align="center">
   Follow <a href="https://x.com/0xTab">@0xTab on X</a> for updates · Join the <a href="https://discord.gg/YctCnvvshC">Spok Discord</a> for help and questions.
@@ -57,7 +57,9 @@ Now tell your AI coding assistant:
 /spok-propose <what-you-want-to-build>
 ```
 
-`spok init` configures your AI coding assistants, installs the three workflow skills (`spok-propose`, `spok-apply`, `spok-archive`), and vendors the helper skills they call (`spok-flow`, `spok-create-scoped-chunks`, and the rest of the closure).
+Use `/spok-explore <topic>` first when you want to think through an idea before proposing work.
+
+`spok init` configures your AI coding assistants, installs the four workflow skills (`spok-explore`, `spok-propose`, `spok-apply`, `spok-archive`), and vendors the helper skills they call (`spok-flow`, `spok-create-scoped-chunks`, and the rest of the closure).
 
 > [!NOTE]
 > Not sure if your tool is supported? [View the full list](docs/supported-tools.md). Spok supports 25+ tools and growing.
@@ -67,6 +69,9 @@ Now tell your AI coding assistant:
 ## See It In Action
 
 ```text
+You: /spok-explore should we add dark mode?
+AI:  Investigates the existing UI and summarizes options without changing files.
+
 You: /spok-propose add-dark-mode
 AI:  Created spok/changes/add-dark-mode/
      + proposal.md - why we're doing this, what's changing
@@ -117,6 +122,7 @@ AI coding assistants are powerful, but they get unpredictable when requirements 
 
 - **Agree before you build** - capture intent, requirements, and design before code changes.
 - **Stay organized** - keep every proposed change in its own folder with specs, design, and tasks.
+- **Explore before proposing** - use `/spok-explore` as a thinking-only mode when the direction is still unclear.
 - **Ship one chunk at a time** - `/spok-apply` runs a full research -> design -> plan -> implement -> review -> commit loop for one chunk, then stops.
 - **Use your tools** - Spok works with 25+ AI coding tools and does not lock you into one IDE or model.
 

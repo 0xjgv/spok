@@ -3,10 +3,11 @@ import { getWelcomeText } from '../../src/ui/welcome-screen.js';
 
 describe('welcome-screen', () => {
   describe('getWelcomeText', () => {
-    it('advertises the 3-verb workflow, not retired opsx commands', () => {
+    it('advertises the workflow skills, not retired opsx commands', () => {
       const lines = getWelcomeText();
       const text = lines.join('\n');
 
+      expect(text).toContain('/spok-explore');
       expect(text).toContain('/spok-propose');
       expect(text).toContain('/spok-apply');
       expect(text).toContain('/spok-archive');

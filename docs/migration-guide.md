@@ -4,21 +4,22 @@ version: 0.1.0
 
 # Migration Guide: Spok 0.x → 1.0
 
-Spok 1.0 is a major breaking release. The surface area shrank from 17 CLI subcommands + 11 workflow skills down to a fixed three-verb workflow plus a small CLI for setup and bookkeeping. This guide is for projects upgrading from an earlier version of Spok.
+Spok 1.0 is a major breaking release. The surface area shrank from 17 CLI subcommands + 11 workflow skills down to four workflow skills plus a small CLI for setup and bookkeeping. This guide is for projects upgrading from an earlier version of Spok.
 
 If you're starting fresh, you can skip this and go directly to [Getting Started](getting-started.md).
 
 ## The headline change
 
-The entire workflow is now three slash commands:
+The user-facing workflow now has four slash commands. Exploration is optional; shipping still runs propose, apply, archive:
 
 ```text
+/spok-explore <topic>   # optional exploration before proposing
 /spok-propose <description>
 /spok-apply          # one chunk per invocation, repeat until done
 /spok-archive
 ```
 
-`/spok-propose` writes `proposal.md`, `specs/`, `design.md`, and a chunked `tasks.md`. `/spok-apply` ships one unchecked chunk end-to-end through a vendored research → design → plan → implement → review → commit flow, then ticks the box. `/spok-archive` applies your delta specs and moves the change to `spok/changes/archive/`.
+`/spok-explore` investigates ideas without implementing. `/spok-propose` writes `proposal.md`, `specs/`, `design.md`, and a chunked `tasks.md`. `/spok-apply` ships one unchecked chunk end-to-end through a vendored research → design → plan → implement → review → commit flow, then ticks the box. `/spok-archive` applies your delta specs and moves the change to `spok/changes/archive/`.
 
 There is no `/opsx:*` namespace anymore. There is no profile system. There is no separate sync step.
 
@@ -34,7 +35,7 @@ Everything in the `/opsx:*` namespace was removed. The workflow skills below als
 | `/opsx:apply` | `/spok-apply` |
 | `/opsx:archive` | `/spok-archive` |
 | `/opsx:sync` | Folded into `/spok-archive` (sync is unconditional) |
-| `/opsx:explore` | No replacement — start with `/spok-propose` and iterate the artifacts |
+| `/opsx:explore` | `/spok-explore` |
 | `/opsx:new` | Internal, now `spok new change` (called by `/spok-propose`) |
 | `/opsx:continue` | No replacement — the chunked `tasks.md` from `/spok-propose` replaces incremental artifact creation |
 | `/opsx:ff` | Folded into `/spok-propose` |
@@ -44,7 +45,6 @@ Everything in the `/opsx:*` namespace was removed. The workflow skills below als
 
 Retired skill directories that `spok init`/`spok update` will clean up:
 
-- `spok-explore`
 - `spok-new-change`
 - `spok-continue-change`
 - `spok-ff-change`
@@ -83,7 +83,7 @@ If you still have a `.spok-workspace/` layout from an earlier version, Spok can 
 
 ### Profiles and `--profile`
 
-Previous Spok versions exposed a `core` profile and a `custom` profile selected via `spok config profile` and a global `--profile` flag. Both are gone. The three-verb surface is fixed; there is no longer anything to select. Any `--profile` flag in your scripts should be removed.
+Previous Spok versions exposed a `core` profile and a `custom` profile selected via `spok config profile` and a global `--profile` flag. Both are gone. The four-skill surface is fixed; there is no longer anything to select. Any `--profile` flag in your scripts should be removed.
 
 ## The new `tasks.md` format
 
@@ -159,8 +159,8 @@ spok update --force
 
 This:
 
-1. Removes retired skill directories (`spok-explore`, `spok-new-change`, etc.) under each tool's skills root.
-2. Installs the three new user-facing skills (`spok-propose`, `spok-apply`, `spok-archive`).
+1. Removes retired skill directories (`spok-new-change`, `spok-continue-change`, etc.) under each tool's skills root.
+2. Installs the four user-facing skills (`spok-explore`, `spok-propose`, `spok-apply`, `spok-archive`).
 3. Vendors the helper skill closure (`spok-flow`, `spok-create-scoped-chunks`, and the rest).
 
 ## Updated `config.yaml` shape
