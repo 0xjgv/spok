@@ -94,7 +94,6 @@ export const LEGACY_SLASH_COMMAND_PATHS: Record<string, LegacySlashCommandPatter
 export const RETIRED_SKILL_DIRS = [
   'spok-apply-change',
   'spok-archive-change',
-  'spok-explore',
   'spok-new-change',
   'spok-continue-change',
   'spok-ff-change',
@@ -134,7 +133,7 @@ export interface LegacyDetectionResult {
   hasProjectMd: boolean;
   /** Whether root AGENTS.md has Spok markers */
   hasRootAgentsWithMarkers: boolean;
-  /** Retired skill directories detected under tool skill roots (e.g. .claude/skills/spok-explore) */
+  /** Retired skill directories detected under tool skill roots (e.g. .claude/skills/spok-sync-specs) */
   retiredSkillDirs: string[];
   /** Whether any legacy artifacts were found */
   hasLegacyArtifacts: boolean;

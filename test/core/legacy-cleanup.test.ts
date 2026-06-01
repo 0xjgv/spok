@@ -1179,7 +1179,7 @@ ${SPOK_MARKERS.end}`);
     });
 
     it('should include workflows retired in the 3-verb collapse', () => {
-      expect(RETIRED_SKILL_DIRS).toContain('spok-explore');
+      expect(RETIRED_SKILL_DIRS).not.toContain('spok-explore');
       expect(RETIRED_SKILL_DIRS).toContain('spok-new-change');
       expect(RETIRED_SKILL_DIRS).toContain('spok-continue-change');
       expect(RETIRED_SKILL_DIRS).toContain('spok-sync-specs');
@@ -1212,14 +1212,14 @@ ${SPOK_MARKERS.end}`);
       expect(found).not.toContain('.claude/skills/spok-apply');
     });
 
-    it('finds retired dirs across multiple tools', async () => {
-      const claudeRetired = path.join(testDir, '.claude', 'skills', 'spok-explore');
+    it('finds retired dirs across multiple tools while preserving explore', async () => {
+      const claudeCurrent = path.join(testDir, '.claude', 'skills', 'spok-explore');
       const cursorRetired = path.join(testDir, '.cursor', 'skills', 'spok-sync-specs');
-      await fs.mkdir(claudeRetired, { recursive: true });
+      await fs.mkdir(claudeCurrent, { recursive: true });
       await fs.mkdir(cursorRetired, { recursive: true });
 
       const found = await detectRetiredSkillDirs(testDir);
-      expect(found).toContain('.claude/skills/spok-explore');
+      expect(found).not.toContain('.claude/skills/spok-explore');
       expect(found).toContain('.cursor/skills/spok-sync-specs');
     });
   });

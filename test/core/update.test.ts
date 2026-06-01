@@ -54,12 +54,15 @@ describe('UpdateCommand', () => {
     const codexPromptDir = path.join(process.env.CODEX_HOME!, 'prompts');
     await fs.mkdir(claudeCommandDir, { recursive: true });
     await fs.writeFile(path.join(claudeCommandDir, 'spok-propose.md'), 'stale command');
+    await fs.writeFile(path.join(claudeCommandDir, 'spok-explore.md'), 'stale command');
     await fs.mkdir(codexPromptDir, { recursive: true });
     await fs.writeFile(path.join(codexPromptDir, 'spok-propose.md'), 'stale prompt');
 
     await new UpdateCommand({ force: true }).execute(testDir);
 
+    await expect(pathExists(path.join(testDir, '.claude', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(testDir, '.claude', 'skills', 'spok-archive', 'SKILL.md'))).resolves.toBe(true);
+    await expect(pathExists(path.join(testDir, '.agents', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(testDir, '.agents', 'skills', 'spok-archive', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(testDir, '.claude', 'commands'))).resolves.toBe(false);
     await expect(pathExists(path.join(testDir, '.codex'))).resolves.toBe(false);

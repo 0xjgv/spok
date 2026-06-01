@@ -33,10 +33,11 @@ import { getAvailableTools } from './available-tools.js';
 import { installVendoredSkills } from './skill-vendor.js';
 import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
 
-const SPOK_WORKFLOWS = ['propose', 'apply', 'archive'] as const;
+const SPOK_WORKFLOWS = ['explore', 'propose', 'apply', 'archive'] as const;
 type SpokWorkflow = (typeof SPOK_WORKFLOWS)[number];
 
 const WORKFLOW_TO_SKILL_DIR: Record<SpokWorkflow, string> = {
+  explore: 'spok-explore',
   propose: 'spok-propose',
   apply: 'spok-apply',
   archive: 'spok-archive',
