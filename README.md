@@ -15,9 +15,8 @@ version: 0.1.0
 
 <p align="center">
   <a href="https://github.com/0xjgv/spok/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/0xjgv/spok/actions/workflows/ci.yml/badge.svg" /></a>
-  <a href="https://www.npmjs.com/package/spok"><img alt="npm version" src="https://img.shields.io/npm/v/spok?style=flat-square" /></a>
+  <!-- <a href="https://www.npmjs.com/package/spok"><img alt="npm version" src="https://img.shields.io/npm/v/spok?style=flat-square" /></a> -->
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" /></a>
-  <a href="https://discord.gg/YctCnvvshC"><img alt="Discord" src="https://img.shields.io/discord/1411657095639601154?style=flat-square&logo=discord&logoColor=white&label=Discord&suffix=%20online" /></a>
 </p>
 
 **Lightweight spec-driven development for AI coding agents.** Spok helps you and your agent agree on what to build, ship one thin slice at a time, and fold the final behavior back into living specs.
@@ -31,7 +30,7 @@ Spok is built around four workflow skills you give your AI coding assistant:
 That's the whole surface. Explore is a thinking-only mode for investigating ideas before a proposal. Propose creates a change with a chunked tasks list, apply ships one chunk end-to-end at a time, and archive folds your delta specs into the main specs.
 
 <p align="center">
-  Follow <a href="https://x.com/0xTab">@0xTab on X</a> for updates · Join the <a href="https://discord.gg/YctCnvvshC">Spok Discord</a> for help and questions.
+  Follow <a href="https://x.com/0xjgv">@0xjgv on X</a> for updates.
 </p>
 
 ## Quick Start
