@@ -21,6 +21,14 @@
 const SRC_DIR = 'src';
 const TEST_DIR = 'test';
 const ROOT = import.meta.dir;
+const COMPLEXITY_BASELINE = 'complexity-baseline.json';
+
+const COMPLEXITY_LIMITS = {
+  nloc: 1_000_000,
+  ccn: 15,
+  params: 7,
+  length: 100,
+} as const;
 
 // ── Output ──────────────────────────────────────────────────────────
 
@@ -37,6 +45,14 @@ const VERBOSE = process.argv.includes('--verbose');
 interface RunResult {
   ok: boolean;
   output: string;
+}
+
+interface ComplexityOffender {
+  location: string;
+  nloc: number;
+  ccn: number;
+  params: number;
+  length: number;
 }
 
 async function run(
@@ -474,21 +490,101 @@ async function cmdCrap(): Promise<void> {
   if (enforce) process.exit(1);
 }
 
+function parseLizardComplexityOffenders(output: string): ComplexityOffender[] {
+  const locRe = /"([^"@]*)@(\d+)-(\d+)@([^"]+)"/;
+  const offenders: ComplexityOffender[] = [];
+
+  for (const row of output.split('\n')) {
+    const cols = row.split(',');
+    if (cols.length < 11) continue;
+
+    const nloc = Number(cols[0]);
+    const ccn = Number(cols[1]);
+    const params = Number(cols[3]);
+    const length = Number(cols[4]);
+    if (![nloc, ccn, params, length].every(Number.isFinite)) continue;
+
+    const isOffender =
+      nloc > COMPLEXITY_LIMITS.nloc ||
+      ccn > COMPLEXITY_LIMITS.ccn ||
+      params > COMPLEXITY_LIMITS.params ||
+      length > COMPLEXITY_LIMITS.length;
+    if (!isOffender) continue;
+
+    const match = locRe.exec(row);
+    if (!match) continue;
+
+    const [, name, start, end, file] = match;
+    offenders.push({
+      location: `${name}@${start}-${end}@${file}`,
+      nloc,
+      ccn,
+      params,
+      length,
+    });
+  }
+
+  return offenders.sort((a, b) => a.location.localeCompare(b.location));
+}
+
+async function readComplexityBaseline(): Promise<Set<string>> {
+  const { readFile } = await import('node:fs/promises');
+  const raw = await readFile(`${ROOT}/${COMPLEXITY_BASELINE}`, 'utf8').catch(() => null);
+  if (raw == null) return new Set();
+
+  const parsed = JSON.parse(raw) as { offenders?: unknown };
+  if (!Array.isArray(parsed.offenders)) {
+    throw new Error(`${COMPLEXITY_BASELINE} must contain an offenders array`);
+  }
+
+  return new Set(parsed.offenders.filter((entry): entry is string => typeof entry === 'string'));
+}
+
+function printComplexityOffender(offender: ComplexityOffender): void {
+  console.log(
+    `    CCN=${String(offender.ccn).padStart(3)}  PARAM=${String(offender.params).padStart(2)}  ` +
+      `LEN=${String(offender.length).padStart(4)}  ${offender.location}`,
+  );
+}
+
 async function cmdComplexity(): Promise<void> {
-  await run('Complexity (lizard)', [
-    'uvx',
-    'lizard@1.22.2',
-    SRC_DIR,
-    TEST_DIR,
-    '-C',
-    '15',
-    '-a',
-    '7',
-    '-L',
-    '100',
-    '-i',
-    '0',
+  const lz = Bun.spawn(['uvx', 'lizard@1.22.2', SRC_DIR, TEST_DIR, '--csv'], {
+    cwd: ROOT,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(lz.stdout).text(),
+    new Response(lz.stderr).text(),
+    lz.exited,
   ]);
+
+  if (code !== 0) {
+    console.log(`  ${RED}✗${RESET} Complexity (lizard)`);
+    if (stderr.trim()) console.log(stderr.trim());
+    process.exit(code);
+  }
+
+  const baseline = await readComplexityBaseline();
+  const offenders = parseLizardComplexityOffenders(stdout);
+  const unbaselined = offenders.filter((offender) => !baseline.has(offender.location));
+
+  if (unbaselined.length === 0) {
+    const suffix = offenders.length === 0 ? '' : ` ${DIM}(${offenders.length} baseline)${RESET}`;
+    console.log(`  ${GREEN}✓${RESET} Complexity (lizard)${suffix}`);
+    return;
+  }
+
+  console.log(
+    `  ${RED}✗${RESET} Complexity (lizard): ${unbaselined.length} unbaselined offender(s)`,
+  );
+  for (const offender of unbaselined.slice(0, 20)) {
+    printComplexityOffender(offender);
+  }
+  if (unbaselined.length > 20) {
+    console.log(`    ... ${unbaselined.length - 20} more`);
+  }
+  process.exit(1);
 }
 
 async function cmdPostEdit(): Promise<void> {
