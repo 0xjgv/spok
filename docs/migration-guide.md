@@ -208,5 +208,5 @@ Telemetry settings (`SPOK_TELEMETRY`, `DO_NOT_TRACK`) are unchanged.
 ## Where to get help
 
 - **Discord**: [discord.gg/YctCnvvshC](https://discord.gg/YctCnvvshC)
-- **GitHub Issues**: [github.com/Fission-AI/Spok/issues](https://github.com/Fission-AI/Spok/issues)
+- **GitHub Issues**: [github.com/0xjgv/spok/issues](https://github.com/0xjgv/spok/issues)
 - **Docs**: [Getting Started](getting-started.md), [Commands](commands.md), [CLI](cli.md), [Concepts](concepts.md)

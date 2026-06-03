@@ -306,7 +306,7 @@ export class UpdateCommand {
       console.log('  /spok-apply    Implement the next chunk');
       console.log('  /spok-archive  Finalize the change');
       console.log();
-      console.log(`Learn more: ${chalk.cyan('https://github.com/Fission-AI/Spok')}`);
+      console.log(`Learn more: ${chalk.cyan('https://github.com/0xjgv/spok')}`);
     }
 
     const configuredAndNewTools = [...new Set([...configuredTools, ...newlyConfiguredTools])];
