@@ -25,3 +25,9 @@ Feature: Tool skill artifacts
     When I initialize Spok for the tools "claude"
     Then setup guidance mentions "/spok-explore"
     And setup guidance mentions "/spok-propose"
+
+  Scenario: Apply delegates inner flow sequencing to deterministic flow commands
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow complete"

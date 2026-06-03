@@ -68,6 +68,14 @@ When prompted, repeat this workflow for the next phase.
 
 ## Special Instructions
 
+### Inner spok-flow Mode
+If the task directory contains `workflow-state.json`, this skill is running inside the deterministic `spok-flow` sequence.
+
+In that mode:
+- Do not create commits. The final commit is owned by the `commit` step in `spok-flow`.
+- Do not ask for human approval between phases unless a required manual validation step blocks further automated work.
+- Return a concise implementation summary so `spok-flow` can record the `implement` step with `spok flow complete --summary`.
+
 ### Resuming Work
 If resuming work on a partially completed plan:
 - First check the plan file for existing checkmarks (- [x])

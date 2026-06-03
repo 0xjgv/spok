@@ -1,0 +1,590 @@
+import path from 'node:path';
+import { promises as fs } from 'node:fs';
+
+export const WORKFLOW_STATE_FILE = 'workflow-state.json';
+
+export type FlowRunState = 'ready' | 'blocked' | 'complete';
+export type FlowStepStatus = 'pending' | 'ready' | 'completed' | 'blocked';
+export type FlowCompletionKind = 'file' | 'summary' | 'commit';
+
+export interface FlowStepResult {
+  output?: string;
+  summary?: string;
+  commit?: string;
+  completedAt: string;
+}
+
+export interface FlowStep {
+  id: string;
+  skill: string;
+  argument: string;
+  expectedOutput?: string;
+  status: FlowStepStatus;
+  result?: FlowStepResult;
+}
+
+export interface WorkflowState {
+  version: 1;
+  taskDir: string;
+  status: FlowRunState;
+  steps: FlowStep[];
+  createdAt: string;
+  updatedAt: string;
+  block?: {
+    step?: string;
+    reason: string;
+    blockedAt: string;
+  };
+}
+
+export interface FlowResponse {
+  state: FlowRunState;
+  taskDir: string;
+  statePath: string;
+  steps: FlowStep[];
+  nextStep?: FlowStep;
+  step?: FlowStep;
+  completedStep?: FlowStep;
+  reason?: string;
+  block?: WorkflowState['block'];
+}
+
+export interface FlowCompleteInput {
+  step: string;
+  output?: string;
+  summary?: string;
+  commit?: string;
+}
+
+export interface FlowCommandOptions {
+  json?: boolean;
+}
+
+export interface FlowCompleteCommandOptions extends FlowCommandOptions, FlowCompleteInput {}
+
+interface StepDefinition {
+  id: string;
+  skill: string;
+  argument: string;
+  expectedOutput?: string;
+  completionKind: FlowCompletionKind;
+}
+
+interface LoadResult {
+  taskDir: string;
+  statePath: string;
+  state?: WorkflowState;
+  reason?: string;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function resolveTaskDir(taskDir: string): string {
+  return path.resolve(taskDir);
+}
+
+function getStatePath(taskDir: string): string {
+  return path.join(taskDir, WORKFLOW_STATE_FILE);
+}
+
+function buildStepDefinitions(taskDir: string): StepDefinition[] {
+  const ticket = path.join(taskDir, 'ticket.md');
+  const researchQuestions = path.join(taskDir, 'research-questions.md');
+  const research = path.join(taskDir, 'research.md');
+  const designDiscussion = path.join(taskDir, 'design-discussion.md');
+  const structureOutline = path.join(taskDir, 'structure-outline.md');
+  const plan = path.join(taskDir, 'plan.md');
+  const validation = path.join(taskDir, 'validation.md');
+
+  return [
+    {
+      id: 'research-questions',
+      skill: 'spok-create-research-questions',
+      argument: ticket,
+      expectedOutput: researchQuestions,
+      completionKind: 'file',
+    },
+    {
+      id: 'research',
+      skill: 'spok-create-research',
+      argument: researchQuestions,
+      expectedOutput: research,
+      completionKind: 'file',
+    },
+    {
+      id: 'design-discussion',
+      skill: 'spok-create-design-discussion',
+      argument: taskDir,
+      expectedOutput: designDiscussion,
+      completionKind: 'file',
+    },
+    {
+      id: 'structure-outline',
+      skill: 'spok-create-structure-outline',
+      argument: taskDir,
+      expectedOutput: structureOutline,
+      completionKind: 'file',
+    },
+    {
+      id: 'plan',
+      skill: 'spok-create-plan',
+      argument: taskDir,
+      expectedOutput: plan,
+      completionKind: 'file',
+    },
+    {
+      id: 'implement',
+      skill: 'spok-implement-plan',
+      argument: taskDir,
+      completionKind: 'summary',
+    },
+    {
+      id: 'simplify',
+      skill: 'spok-simplify',
+      argument: taskDir,
+      completionKind: 'summary',
+    },
+    {
+      id: 'validate',
+      skill: 'spok-validate-implementation',
+      argument: taskDir,
+      expectedOutput: validation,
+      completionKind: 'file',
+    },
+    {
+      id: 'commit',
+      skill: 'spok-ci-commit',
+      argument: taskDir,
+      completionKind: 'commit',
+    },
+  ];
+}
+
+function stepFromDefinition(
+  definition: StepDefinition,
+  status: FlowStepStatus,
+  result?: FlowStepResult
+): FlowStep {
+  return {
+    id: definition.id,
+    skill: definition.skill,
+    argument: definition.argument,
+    expectedOutput: definition.expectedOutput,
+    status,
+    result,
+  };
+}
+
+function createInitialState(taskDir: string): WorkflowState {
+  const timestamp = nowIso();
+  const definitions = buildStepDefinitions(taskDir);
+  return {
+    version: 1,
+    taskDir,
+    status: 'ready',
+    steps: definitions.map((definition, index) =>
+      stepFromDefinition(definition, index === 0 ? 'ready' : 'pending')
+    ),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function isCompletedStep(step: unknown): step is FlowStep {
+  if (!step || typeof step !== 'object') return false;
+  const candidate = step as Partial<FlowStep>;
+  return typeof candidate.id === 'string' && candidate.status === 'completed';
+}
+
+function normalizeState(taskDir: string, stored: unknown): WorkflowState {
+  const initial = createInitialState(taskDir);
+  if (!stored || typeof stored !== 'object') return initial;
+
+  const candidate = stored as Partial<WorkflowState>;
+  const storedSteps = Array.isArray(candidate.steps) ? candidate.steps : [];
+  const completedById = new Map<string, FlowStep>();
+  for (const step of storedSteps) {
+    if (isCompletedStep(step)) {
+      completedById.set(step.id, step);
+    }
+  }
+
+  const definitions = buildStepDefinitions(taskDir);
+  const steps = definitions.map((definition) => {
+    const completed = completedById.get(definition.id);
+    return stepFromDefinition(definition, completed ? 'completed' : 'pending', completed?.result);
+  });
+
+  const state: WorkflowState = {
+    version: 1,
+    taskDir,
+    status: 'ready',
+    steps,
+    createdAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
+    updatedAt: initial.updatedAt,
+  };
+
+  markNextStepReady(state);
+  return state;
+}
+
+function markNextStepReady(state: WorkflowState): void {
+  let readySet = false;
+
+  for (const step of state.steps) {
+    if (step.status === 'completed') continue;
+
+    if (!readySet) {
+      step.status = 'ready';
+      readySet = true;
+    } else {
+      step.status = 'pending';
+    }
+  }
+
+  state.status = readySet ? 'ready' : 'complete';
+  state.block = undefined;
+}
+
+function markBlocked(state: WorkflowState, reason: string, stepId?: string): void {
+  for (const step of state.steps) {
+    if (step.id === stepId) {
+      step.status = 'blocked';
+    } else if (step.status !== 'completed') {
+      step.status = 'pending';
+    }
+  }
+  state.status = 'blocked';
+  state.block = {
+    step: stepId,
+    reason,
+    blockedAt: nowIso(),
+  };
+}
+
+async function pathIsFile(targetPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(targetPath);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function pathIsDirectory(targetPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(targetPath);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function writeState(state: WorkflowState): Promise<void> {
+  state.updatedAt = nowIso();
+  await fs.writeFile(getStatePath(state.taskDir), `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+}
+
+async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
+  const taskDir = resolveTaskDir(taskDirInput);
+  const statePath = getStatePath(taskDir);
+
+  if (!(await pathIsDirectory(taskDir))) {
+    return {
+      taskDir,
+      statePath,
+      reason: `Task directory does not exist: ${taskDir}`,
+    };
+  }
+
+  const ticketPath = path.join(taskDir, 'ticket.md');
+  if (!(await pathIsFile(ticketPath))) {
+    return {
+      taskDir,
+      statePath,
+      reason: `Missing required ticket file: ${ticketPath}`,
+    };
+  }
+
+  try {
+    const raw = await fs.readFile(statePath, 'utf-8');
+    return {
+      taskDir,
+      statePath,
+      state: normalizeState(taskDir, JSON.parse(raw)),
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return {
+        taskDir,
+        statePath,
+        state: createInitialState(taskDir),
+      };
+    }
+
+    if (error instanceof SyntaxError) {
+      return {
+        taskDir,
+        statePath,
+        reason: `Invalid workflow state JSON: ${statePath}`,
+      };
+    }
+
+    throw error;
+  }
+}
+
+function getDefinitionById(taskDir: string, stepId: string): StepDefinition | undefined {
+  return buildStepDefinitions(taskDir).find((definition) => definition.id === stepId);
+}
+
+function getCurrentStep(state: WorkflowState): FlowStep | undefined {
+  return state.steps.find((step) => step.status === 'ready');
+}
+
+function buildResponse(
+  state: WorkflowState,
+  extra: Pick<FlowResponse, 'step' | 'completedStep' | 'reason'> = {}
+): FlowResponse {
+  const nextStep = getCurrentStep(state);
+  return {
+    state: state.status,
+    taskDir: state.taskDir,
+    statePath: getStatePath(state.taskDir),
+    steps: state.steps,
+    nextStep,
+    step: extra.step,
+    completedStep: extra.completedStep,
+    reason: extra.reason ?? state.block?.reason,
+    block: state.block,
+  };
+}
+
+function buildBlockedResponse(taskDir: string, statePath: string, reason: string): FlowResponse {
+  return {
+    state: 'blocked',
+    taskDir,
+    statePath,
+    steps: [],
+    reason,
+  };
+}
+
+async function validateCompletedArtifacts(state: WorkflowState): Promise<string | undefined> {
+  for (const step of state.steps) {
+    if (step.status !== 'completed') continue;
+
+    const definition = getDefinitionById(state.taskDir, step.id);
+    if (definition?.completionKind !== 'file' || !definition.expectedOutput) continue;
+
+    if (!(await pathIsFile(definition.expectedOutput))) {
+      return `Missing completed artifact for step ${step.id}: ${definition.expectedOutput}`;
+    }
+  }
+}
+
+async function saveBlockedState(
+  state: WorkflowState,
+  reason: string,
+  stepId?: string
+): Promise<FlowResponse> {
+  markBlocked(state, reason, stepId);
+  await writeState(state);
+  return buildResponse(state, { reason });
+}
+
+function normalizeOutputPath(output: string): string {
+  return path.normalize(path.resolve(output));
+}
+
+function validateFileCompletion(
+  definition: StepDefinition,
+  input: FlowCompleteInput
+): string | undefined {
+  if (!definition.expectedOutput) {
+    return `Step ${definition.id} does not declare an expected output path.`;
+  }
+
+  if (!input.output) {
+    return `Step ${definition.id} must provide --output ${definition.expectedOutput}.`;
+  }
+
+  const expected = path.normalize(definition.expectedOutput);
+  const actual = normalizeOutputPath(input.output);
+  if (actual !== expected) {
+    return `Expected output path ${definition.expectedOutput} for step ${definition.id}, got ${path.resolve(input.output)}.`;
+  }
+}
+
+async function completeStepResult(
+  definition: StepDefinition,
+  input: FlowCompleteInput
+): Promise<FlowStepResult | string> {
+  if (definition.completionKind === 'file') {
+    const validationError = validateFileCompletion(definition, input);
+    if (validationError) return validationError;
+
+    if (!(await pathIsFile(definition.expectedOutput!))) {
+      return `Expected output file does not exist for step ${definition.id}: ${definition.expectedOutput}`;
+    }
+
+    return {
+      output: definition.expectedOutput,
+      completedAt: nowIso(),
+    };
+  }
+
+  if (definition.completionKind === 'summary') {
+    const summary = input.summary?.trim();
+    if (!summary) {
+      return `Step ${definition.id} must provide a non-empty --summary.`;
+    }
+
+    return {
+      summary,
+      completedAt: nowIso(),
+    };
+  }
+
+  const commit = input.commit?.trim();
+  if (!commit) {
+    return `Step ${definition.id} must provide a commit SHA with --commit.`;
+  }
+
+  return {
+    commit,
+    summary: input.summary?.trim() || undefined,
+    completedAt: nowIso(),
+  };
+}
+
+export async function getFlowStatus(taskDirInput: string): Promise<FlowResponse> {
+  const loaded = await loadOrCreateState(taskDirInput);
+  if (!loaded.state) {
+    return buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+  }
+
+  const missingArtifact = await validateCompletedArtifacts(loaded.state);
+  if (missingArtifact) {
+    markBlocked(loaded.state, missingArtifact);
+  } else {
+    markNextStepReady(loaded.state);
+  }
+
+  await writeState(loaded.state);
+  return buildResponse(loaded.state);
+}
+
+export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
+  const status = await getFlowStatus(taskDirInput);
+  return {
+    ...status,
+    step: status.nextStep,
+  };
+}
+
+export async function completeFlowStep(
+  taskDirInput: string,
+  input: FlowCompleteInput
+): Promise<FlowResponse> {
+  const loaded = await loadOrCreateState(taskDirInput);
+  if (!loaded.state) {
+    return buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+  }
+
+  const priorArtifactError = await validateCompletedArtifacts(loaded.state);
+  if (priorArtifactError) {
+    return saveBlockedState(loaded.state, priorArtifactError);
+  }
+
+  const currentStep = getCurrentStep(loaded.state);
+  if (!currentStep) {
+    markNextStepReady(loaded.state);
+    await writeState(loaded.state);
+    return buildResponse(loaded.state);
+  }
+
+  if (input.step !== currentStep.id) {
+    return saveBlockedState(
+      loaded.state,
+      `Expected step ${currentStep.id}, got ${input.step}.`,
+      currentStep.id
+    );
+  }
+
+  const definition = getDefinitionById(loaded.state.taskDir, currentStep.id);
+  if (!definition) {
+    return saveBlockedState(
+      loaded.state,
+      `Unknown workflow step: ${currentStep.id}.`,
+      currentStep.id
+    );
+  }
+
+  const result = await completeStepResult(definition, input);
+  if (typeof result === 'string') {
+    return saveBlockedState(loaded.state, result, currentStep.id);
+  }
+
+  currentStep.status = 'completed';
+  currentStep.result = result;
+  markNextStepReady(loaded.state);
+  await writeState(loaded.state);
+
+  return buildResponse(loaded.state, {
+    completedStep: currentStep,
+  });
+}
+
+export async function flowStatusCommand(
+  taskDir: string,
+  options: FlowCommandOptions = {}
+): Promise<void> {
+  printFlowResponse(await getFlowStatus(taskDir), options);
+}
+
+export async function flowNextCommand(
+  taskDir: string,
+  options: FlowCommandOptions = {}
+): Promise<void> {
+  printFlowResponse(await getFlowNext(taskDir), options);
+}
+
+export async function flowCompleteCommand(
+  taskDir: string,
+  options: FlowCompleteCommandOptions
+): Promise<void> {
+  printFlowResponse(await completeFlowStep(taskDir, options), options);
+}
+
+function printFlowResponse(response: FlowResponse, options: FlowCommandOptions): void {
+  if (options.json) {
+    console.log(JSON.stringify(response, null, 2));
+    return;
+  }
+
+  if (response.state === 'blocked') {
+    console.log(`Blocked: ${response.reason ?? 'Unknown workflow blocker'}`);
+    return;
+  }
+
+  if (response.state === 'complete') {
+    console.log(`Flow complete: ${response.taskDir}`);
+    return;
+  }
+
+  const step = response.step ?? response.nextStep;
+  if (!step) {
+    console.log(`No ready workflow step: ${response.taskDir}`);
+    return;
+  }
+
+  console.log(`Next step: ${step.id}`);
+  console.log(`Skill: ${step.skill}`);
+  console.log(`Argument: ${step.argument}`);
+  if (step.expectedOutput) {
+    console.log(`Expected output: ${step.expectedOutput}`);
+  }
+}

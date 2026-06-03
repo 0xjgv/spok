@@ -120,6 +120,16 @@ Then('setup guidance mentions {string}', function (this: SkillArtifactWorld, com
   assert.match(this.setupGuidance, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
+Then(
+  'the workflow skill {string} under {string} mentions {string}',
+  async function (this: SkillArtifactWorld, skillName: string, relativeDir: string, expectedText: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    const skillPath = path.join(this.projectDir, relativeDir, skillName, 'SKILL.md');
+    const skill = await fs.readFile(skillPath, 'utf-8');
+    assert.match(skill, new RegExp(expectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+);
+
 After(async function (this: SkillArtifactWorld) {
   if (this.originalCodexHome === undefined) {
     delete process.env.CODEX_HOME;

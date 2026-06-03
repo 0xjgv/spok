@@ -2,7 +2,7 @@
 name: spok-flow
 description: end-to-end research → design → plan → implement → review → commit workflow for a single chunk. Driven by spok-apply.
 argument-hint: <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
-version: 0.3.0
+version: 0.4.0
 ---
 # Flow Instructions
 
@@ -14,80 +14,77 @@ version: 0.3.0
 
 If `ticket.md` is missing, halt and report back — `spok-apply` is responsible for staging it.
 
-## Agent convention
+## 1. Deterministic Control Loop
 
-For each workflow step below, launch the named agent with the **Agent** tool and `subagent_type: general-purpose`.
-Run steps **sequentially in the foreground** because each step depends on the previous step's returned path.
+The `spok` CLI owns the inner flow sequence and resume state. Do not choose, skip, reorder, or rename steps yourself.
 
-## 1. Create Research Questions
+Run:
 
-Launch `lead-researcher-questions`.
+```bash
+spok flow status "<task-dir>" --json
+```
 
-> Call the `spok-create-research-questions` skill with the path to our ticket file as the argument using the **Skill** tool.
-> When complete, return the **absolute path** of the research questions document that was created.
+If it returns `state: "blocked"`, halt and report the `reason` exactly.
 
-## 2. Create Research Document
+Then repeat this loop until the CLI returns `state: "complete"`:
 
-Launch `lead-researcher`. Pass the absolute path of the research questions document returned by step 1.
+1. Run:
 
-> Call the `spok-create-research` skill with the path to our **research questions document only** as the argument using the **Skill** tool.
-> When complete, return the **absolute path** of the research document that was created.
+   ```bash
+   spok flow next "<task-dir>" --json
+   ```
 
-## 3. Create Design Discussion
+2. If `next` returns `state: "blocked"`, halt and report the `reason` exactly. If it returns `state: "complete"`, return success to `spok-apply`.
 
-Launch `lead-design-discussion`.
+3. Read the returned `step` object:
+   - `id` is the workflow step id.
+   - `skill` is the exact skill to invoke.
+   - `argument` is the exact argument to pass to that skill.
+   - `expectedOutput` is present for file-producing steps.
 
-> Call the `spok-create-design-discussion` skill with the path to our task directory as the argument using the **Skill** tool.
-> When complete, return the **absolute path** of the design discussion document that was created.
+4. Invoke `step.skill` with `step.argument` using the **Skill** tool.
 
-## 4. Create Structure Outline
+5. Record completion with the CLI:
+   - File-producing steps:
 
-Launch `lead-structure-outline`.
+     ```bash
+     spok flow complete "<task-dir>" --step "<id>" --output "<absolute-output-path>" --json
+     ```
 
-> Call the `spok-create-structure-outline` skill with the path to our task directory as the argument using the **Skill** tool.
-> When complete, return the **absolute path** of the structure outline document that was created.
+   - `implement` and `simplify`:
 
-## 5. Create Plan
+     ```bash
+     spok flow complete "<task-dir>" --step "<id>" --summary "<summary>" --json
+     ```
 
-Launch `lead-plan`.
+   - `commit`:
 
-> Call the `spok-create-plan` skill with the path to our task directory as the argument using the **Skill** tool.
-> When complete, return the **absolute path** of the plan document that was created.
+     ```bash
+     spok flow complete "<task-dir>" --step "commit" --commit "<commit-sha>" --summary "<summary>" --json
+     ```
 
-## 6. Implement Plan
+6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly.
 
-Launch `lead-implementer`.
+The deterministic step order is:
 
-> Call the `spok-implement-plan` skill with the path to our task directory as the argument using the **Skill** tool.
-> When complete, return the summary of the implementation.
+1. `research-questions` → `spok-create-research-questions`
+2. `research` → `spok-create-research`
+3. `design-discussion` → `spok-create-design-discussion`
+4. `structure-outline` → `spok-create-structure-outline`
+5. `plan` → `spok-create-plan`
+6. `implement` → `spok-implement-plan`
+7. `simplify` → `spok-simplify`
+8. `validate` → `spok-validate-implementation`
+9. `commit` → `spok-ci-commit`
 
-## 7. Simplify Implementation
-
-Launch `lead-simplifier`.
-
-> Call the `spok-simplify` skill using the **Skill** tool.
-> When complete, return the summary of the simplification.
-
-## 8. Validate Implementation
-
-Launch `lead-validator`.
-
-> Call the `spok-validate-implementation` skill with the path to our task directory as the argument using the **Skill** tool.
-> When complete, return the validation summary and recommendations.
-
-## 9. Commit
-
-Launch `lead-committer`.
-
-> Call the `spok-ci-commit` skill using the **Skill** tool.
-> When complete, return the commit hashes and summary.
+For `implement`, tell `spok-implement-plan` that it is running inside `spok-flow`: it must implement and verify the plan, return a summary, and must not create commits. The final commit belongs only to the `commit` step.
 
 <guidance>
 ## Important guidelines
 
 - Raise questions or concerns about objectives, design, or plan to the user at any time using the **AskUserQuestion** tool.
-- Run steps **sequentially in the foreground** because each step depends on the previous step's returned path.
-- For each workflow step below, launch the named agent with the **Agent** tool.
+- Run steps **sequentially in the foreground** because each step depends on the previous step's validated artifact or recorded result.
+- Let `spok flow next` choose the next step. Let `spok flow complete` validate step completion.
 - Use a **TaskList** to track the steps and their status.
 
 </guidance>

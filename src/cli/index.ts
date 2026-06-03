@@ -12,10 +12,15 @@ import {
   instructionsCommand,
   applyInstructionsCommand,
   newChangeCommand,
+  flowCompleteCommand,
+  flowNextCommand,
+  flowStatusCommand,
   DEFAULT_SCHEMA,
   type StatusOptions,
   type InstructionsOptions,
   type NewChangeOptions,
+  type FlowCommandOptions,
+  type FlowCompleteCommandOptions,
 } from '../commands/workflow/index.js';
 import { maybeShowTelemetryNotice, trackCommand, shutdown } from '../telemetry/index.js';
 
@@ -194,6 +199,56 @@ program
       } else {
         await instructionsCommand(artifactId, options);
       }
+    } catch (error) {
+      console.log();
+      ora().fail(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+const flowCmd = program
+  .command('flow')
+  .description('Internal deterministic flow control for spok-flow');
+
+flowCmd
+  .command('status <task-dir>')
+  .description('Show deterministic workflow state for a task directory')
+  .option('--json', 'Output as JSON')
+  .action(async (taskDir: string, options: FlowCommandOptions) => {
+    try {
+      await flowStatusCommand(taskDir, options);
+    } catch (error) {
+      console.log();
+      ora().fail(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+flowCmd
+  .command('next <task-dir>')
+  .description('Show the next deterministic workflow step for a task directory')
+  .option('--json', 'Output as JSON')
+  .action(async (taskDir: string, options: FlowCommandOptions) => {
+    try {
+      await flowNextCommand(taskDir, options);
+    } catch (error) {
+      console.log();
+      ora().fail(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+flowCmd
+  .command('complete <task-dir>')
+  .description('Record completion for a deterministic workflow step')
+  .requiredOption('--step <id>', 'Workflow step id to complete')
+  .option('--output <path>', 'Artifact output path for file-producing steps')
+  .option('--summary <text>', 'Completion summary for no-file steps')
+  .option('--commit <sha>', 'Commit SHA for the commit step')
+  .option('--json', 'Output as JSON')
+  .action(async (taskDir: string, options: FlowCompleteCommandOptions) => {
+    try {
+      await flowCompleteCommand(taskDir, options);
     } catch (error) {
       console.log();
       ora().fail(`Error: ${(error as Error).message}`);
