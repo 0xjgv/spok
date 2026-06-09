@@ -153,6 +153,21 @@ export function resolveSchema(name: string, projectRoot?: string): SchemaYaml {
 }
 
 /**
+ * Yields the names of schema directories (those containing a `schema.yaml`)
+ * directly under the given directory. Yields nothing if the directory is absent.
+ */
+function* schemaEntryNames(dir: string): Generator<string> {
+  if (!fs.existsSync(dir)) {
+    return;
+  }
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, 'schema.yaml'))) {
+      yield entry.name;
+    }
+  }
+}
+
+/**
  * Lists all available schema names.
  * Combines project-local, user override, and package built-in schemas.
  *
@@ -161,44 +176,14 @@ export function resolveSchema(name: string, projectRoot?: string): SchemaYaml {
 export function listSchemas(projectRoot?: string): string[] {
   const schemas = new Set<string>();
 
-  // Add package built-in schemas
-  const packageDir = getPackageSchemasDir();
-  if (fs.existsSync(packageDir)) {
-    for (const entry of fs.readdirSync(packageDir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        const schemaPath = path.join(packageDir, entry.name, 'schema.yaml');
-        if (fs.existsSync(schemaPath)) {
-          schemas.add(entry.name);
-        }
-      }
-    }
-  }
-
-  // Add user override schemas (may override package schemas)
-  const userDir = getUserSchemasDir();
-  if (fs.existsSync(userDir)) {
-    for (const entry of fs.readdirSync(userDir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        const schemaPath = path.join(userDir, entry.name, 'schema.yaml');
-        if (fs.existsSync(schemaPath)) {
-          schemas.add(entry.name);
-        }
-      }
-    }
-  }
-
-  // Add project-local schemas (if projectRoot provided)
+  const dirs = [getPackageSchemasDir(), getUserSchemasDir()];
   if (projectRoot) {
-    const projectDir = getProjectSchemasDir(projectRoot);
-    if (fs.existsSync(projectDir)) {
-      for (const entry of fs.readdirSync(projectDir, { withFileTypes: true })) {
-        if (entry.isDirectory()) {
-          const schemaPath = path.join(projectDir, entry.name, 'schema.yaml');
-          if (fs.existsSync(schemaPath)) {
-            schemas.add(entry.name);
-          }
-        }
-      }
+    dirs.push(getProjectSchemasDir(projectRoot));
+  }
+
+  for (const dir of dirs) {
+    for (const name of schemaEntryNames(dir)) {
+      schemas.add(name);
     }
   }
 
@@ -216,6 +201,31 @@ export interface SchemaInfo {
 }
 
 /**
+ * Reads and parses the schema in `dir/<name>`, returning its info, or null if
+ * the schema is invalid (parse failure) and should be skipped.
+ */
+function readSchemaInfo(
+  dir: string,
+  name: string,
+  source: SchemaInfo['source']
+): SchemaInfo | null {
+  try {
+    const schema = parseSchema(
+      fs.readFileSync(path.join(dir, name, 'schema.yaml'), 'utf-8')
+    );
+    return {
+      name,
+      description: schema.description || '',
+      artifacts: schema.artifacts.map((a) => a.id),
+      source,
+    };
+  } catch {
+    // Skip invalid schemas
+    return null;
+  }
+}
+
+/**
  * Lists all available schemas with their descriptions and artifact lists.
  * Useful for agent skills to present schema selection to users.
  *
@@ -225,75 +235,23 @@ export function listSchemasWithInfo(projectRoot?: string): SchemaInfo[] {
   const schemas: SchemaInfo[] = [];
   const seenNames = new Set<string>();
 
-  // Add project-local schemas first (highest priority, if projectRoot provided)
+  // Sources in priority order: project-local overrides user, which overrides package.
+  const sources: Array<{ dir: string; source: SchemaInfo['source'] }> = [];
   if (projectRoot) {
-    const projectDir = getProjectSchemasDir(projectRoot);
-    if (fs.existsSync(projectDir)) {
-      for (const entry of fs.readdirSync(projectDir, { withFileTypes: true })) {
-        if (entry.isDirectory()) {
-          const schemaPath = path.join(projectDir, entry.name, 'schema.yaml');
-          if (fs.existsSync(schemaPath)) {
-            try {
-              const schema = parseSchema(fs.readFileSync(schemaPath, 'utf-8'));
-              schemas.push({
-                name: entry.name,
-                description: schema.description || '',
-                artifacts: schema.artifacts.map((a) => a.id),
-                source: 'project',
-              });
-              seenNames.add(entry.name);
-            } catch {
-              // Skip invalid schemas
-            }
-          }
-        }
-      }
-    }
+    sources.push({ dir: getProjectSchemasDir(projectRoot), source: 'project' });
   }
+  sources.push({ dir: getUserSchemasDir(), source: 'user' });
+  sources.push({ dir: getPackageSchemasDir(), source: 'package' });
 
-  // Add user override schemas (if not overridden by project)
-  const userDir = getUserSchemasDir();
-  if (fs.existsSync(userDir)) {
-    for (const entry of fs.readdirSync(userDir, { withFileTypes: true })) {
-      if (entry.isDirectory() && !seenNames.has(entry.name)) {
-        const schemaPath = path.join(userDir, entry.name, 'schema.yaml');
-        if (fs.existsSync(schemaPath)) {
-          try {
-            const schema = parseSchema(fs.readFileSync(schemaPath, 'utf-8'));
-            schemas.push({
-              name: entry.name,
-              description: schema.description || '',
-              artifacts: schema.artifacts.map((a) => a.id),
-              source: 'user',
-            });
-            seenNames.add(entry.name);
-          } catch {
-            // Skip invalid schemas
-          }
-        }
+  for (const { dir, source } of sources) {
+    for (const name of schemaEntryNames(dir)) {
+      if (seenNames.has(name)) {
+        continue;
       }
-    }
-  }
-
-  // Add package built-in schemas (if not overridden by project or user)
-  const packageDir = getPackageSchemasDir();
-  if (fs.existsSync(packageDir)) {
-    for (const entry of fs.readdirSync(packageDir, { withFileTypes: true })) {
-      if (entry.isDirectory() && !seenNames.has(entry.name)) {
-        const schemaPath = path.join(packageDir, entry.name, 'schema.yaml');
-        if (fs.existsSync(schemaPath)) {
-          try {
-            const schema = parseSchema(fs.readFileSync(schemaPath, 'utf-8'));
-            schemas.push({
-              name: entry.name,
-              description: schema.description || '',
-              artifacts: schema.artifacts.map((a) => a.id),
-              source: 'package',
-            });
-          } catch {
-            // Skip invalid schemas
-          }
-        }
+      const info = readSchemaInfo(dir, name, source);
+      if (info) {
+        schemas.push(info);
+        seenNames.add(name);
       }
     }
   }

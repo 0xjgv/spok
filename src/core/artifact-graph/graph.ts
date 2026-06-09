@@ -73,13 +73,11 @@ export class ArtifactGraph {
     const inDegree = new Map<string, number>();
     const dependents = new Map<string, string[]>();
 
-    // Initialize all artifacts
+    // Initialize in-degree and reverse adjacency (who depends on whom)
     for (const artifact of this.artifacts.values()) {
       inDegree.set(artifact.id, artifact.requires.length);
       dependents.set(artifact.id, []);
     }
-
-    // Build reverse adjacency (who depends on whom)
     for (const artifact of this.artifacts.values()) {
       for (const req of artifact.requires) {
         dependents.get(req)!.push(artifact.id);
@@ -97,7 +95,7 @@ export class ArtifactGraph {
       const current = queue.shift()!;
       result.push(current);
 
-      // Collect newly ready artifacts, then sort before adding
+      // Decrement dependents, collect newly ready artifacts, then sort before adding
       const newlyReady: string[] = [];
       for (const dep of dependents.get(current)!) {
         const newDegree = inDegree.get(dep)! - 1;
@@ -113,18 +111,24 @@ export class ArtifactGraph {
   }
 
   /**
+   * Yields artifacts that have not yet been completed.
+   */
+  private *pendingArtifacts(completed: CompletedSet): Iterable<Artifact> {
+    for (const artifact of this.artifacts.values()) {
+      if (!completed.has(artifact.id)) {
+        yield artifact;
+      }
+    }
+  }
+
+  /**
    * Gets artifacts that are ready to be created (all dependencies completed).
    */
   getNextArtifacts(completed: CompletedSet): string[] {
     const ready: string[] = [];
 
-    for (const artifact of this.artifacts.values()) {
-      if (completed.has(artifact.id)) {
-        continue; // Already completed
-      }
-
-      const allDepsCompleted = artifact.requires.every(req => completed.has(req));
-      if (allDepsCompleted) {
+    for (const artifact of this.pendingArtifacts(completed)) {
+      if (artifact.requires.every(req => completed.has(req))) {
         ready.push(artifact.id);
       }
     }
@@ -151,11 +155,7 @@ export class ArtifactGraph {
   getBlocked(completed: CompletedSet): BlockedArtifacts {
     const blocked: BlockedArtifacts = {};
 
-    for (const artifact of this.artifacts.values()) {
-      if (completed.has(artifact.id)) {
-        continue; // Already completed
-      }
-
+    for (const artifact of this.pendingArtifacts(completed)) {
       const unmetDeps = artifact.requires.filter(req => !completed.has(req));
       if (unmetDeps.length > 0) {
         blocked[artifact.id] = unmetDeps.sort();

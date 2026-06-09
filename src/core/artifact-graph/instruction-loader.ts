@@ -288,33 +288,10 @@ export function generateInstructions(
 
   // Use projectRoot from context if not explicitly provided
   const effectiveProjectRoot = projectRoot ?? context.projectRoot;
+  const projectConfig = readProjectConfigSafely(effectiveProjectRoot);
 
-  // Try to read project config for context and rules
-  let projectConfig = null;
-  if (effectiveProjectRoot) {
-    try {
-      projectConfig = readProjectConfig(effectiveProjectRoot);
-    } catch {
-      // If config read fails, continue without config
-    }
-  }
-
-  // Validate rules artifact IDs if config has rules (only once per session)
   if (projectConfig?.rules) {
-    const validArtifactIds = new Set(context.graph.getAllArtifacts().map((a) => a.id));
-    const warnings = validateConfigRules(
-      projectConfig.rules,
-      validArtifactIds,
-      context.schemaName
-    );
-
-    // Show each unique warning only once per session
-    for (const warning of warnings) {
-      if (!shownWarnings.has(warning)) {
-        console.warn(warning);
-        shownWarnings.add(warning);
-      }
-    }
+    warnOnInvalidConfigRules(projectConfig.rules, context);
   }
 
   // Extract context and rules as separate fields (not prepended to template)
@@ -373,6 +350,67 @@ function getUnlockedArtifacts(graph: ArtifactGraph, artifactId: string): string[
   }
 
   return unlocks.sort();
+}
+
+/**
+ * Reads project config, returning null if absent or unreadable.
+ */
+function readProjectConfigSafely(
+  projectRoot: string | undefined
+): ReturnType<typeof readProjectConfig> {
+  if (!projectRoot) {
+    return null;
+  }
+
+  try {
+    return readProjectConfig(projectRoot);
+  } catch {
+    // If config read fails, continue without config
+    return null;
+  }
+}
+
+/**
+ * Warns once per session about config rules referencing unknown artifact IDs.
+ */
+function warnOnInvalidConfigRules(
+  rules: Record<string, string[]>,
+  context: ChangeContext
+): void {
+  const validArtifactIds = new Set(context.graph.getAllArtifacts().map((a) => a.id));
+  const warnings = validateConfigRules(rules, validArtifactIds, context.schemaName);
+
+  for (const warning of warnings) {
+    if (!shownWarnings.has(warning)) {
+      console.warn(warning);
+      shownWarnings.add(warning);
+    }
+  }
+}
+
+/**
+ * Classifies an artifact as done, ready, or blocked for status reporting.
+ */
+function toArtifactStatus(
+  artifact: Artifact,
+  completed: CompletedSet,
+  ready: Set<string>,
+  blocked: ReturnType<ArtifactGraph['getBlocked']>
+): ArtifactStatus {
+  if (completed.has(artifact.id)) {
+    return { id: artifact.id, outputPath: artifact.generates, status: 'done' };
+  }
+
+  if (ready.has(artifact.id)) {
+    return { id: artifact.id, outputPath: artifact.generates, status: 'ready' };
+  }
+
+  return {
+    id: artifact.id,
+    outputPath: artifact.generates,
+    status: 'blocked',
+    missingDeps: blocked[artifact.id] ?? [],
+  };
 }
 
 function summarizePlanningHome(planningHome: PlanningHome | undefined): PlanningHomeSummary | undefined {
@@ -495,36 +533,17 @@ export function formatChangeStatus(context: ChangeContext): ChangeStatus {
   const blocked = context.graph.getBlocked(context.completed);
 
   const artifactPaths: Record<string, ArtifactPathSummary> = {};
-  const artifactStatuses: ArtifactStatus[] = artifacts.map(artifact => {
+  for (const artifact of artifacts) {
     artifactPaths[artifact.id] = {
       outputPath: artifact.generates,
       resolvedOutputPath: path.join(context.changeDir, artifact.generates),
       existingOutputPaths: resolveArtifactOutputs(context.changeDir, artifact.generates),
     };
+  }
 
-    if (context.completed.has(artifact.id)) {
-      return {
-        id: artifact.id,
-        outputPath: artifact.generates,
-        status: 'done' as const,
-      };
-    }
-
-    if (ready.has(artifact.id)) {
-      return {
-        id: artifact.id,
-        outputPath: artifact.generates,
-        status: 'ready' as const,
-      };
-    }
-
-    return {
-      id: artifact.id,
-      outputPath: artifact.generates,
-      status: 'blocked' as const,
-      missingDeps: blocked[artifact.id] ?? [],
-    };
-  });
+  const artifactStatuses = artifacts.map(artifact =>
+    toArtifactStatus(artifact, context.completed, ready, blocked)
+  );
 
   // Sort by build order for consistent output
   const buildOrder = context.graph.getBuildOrder();

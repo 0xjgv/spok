@@ -226,25 +226,109 @@ export function printInstructionsText(instructions: ArtifactInstructions, isBloc
  */
 function parseTasksFile(content: string): TaskItem[] {
   const tasks: TaskItem[] = [];
-  const lines = content.split('\n');
-  let taskIndex = 0;
 
-  for (const line of lines) {
+  for (const line of content.split('\n')) {
     // Match checkbox patterns: - [ ] or - [x] or - [X]
     const checkboxMatch = line.match(/^[-*]\s*\[([ xX])\]\s*(.+)\s*$/);
-    if (checkboxMatch) {
-      taskIndex++;
-      const done = checkboxMatch[1].toLowerCase() === 'x';
-      const description = checkboxMatch[2].trim();
-      tasks.push({
-        id: `${taskIndex}`,
-        description,
-        done,
-      });
-    }
+    if (!checkboxMatch) continue;
+
+    tasks.push({
+      id: `${tasks.length + 1}`,
+      description: checkboxMatch[2].trim(),
+      done: checkboxMatch[1].toLowerCase() === 'x',
+    });
   }
 
   return tasks;
+}
+
+/**
+ * Loads and parses tasks from the tracking file, if one is configured and present.
+ */
+async function loadTasks(
+  changeDir: string,
+  tracksFile: string | null
+): Promise<{ tasks: TaskItem[]; tracksFileExists: boolean }> {
+  if (!tracksFile) {
+    return { tasks: [], tracksFileExists: false };
+  }
+
+  const tracksPath = path.join(changeDir, tracksFile);
+  const tracksFileExists = fs.existsSync(tracksPath);
+  if (!tracksFileExists) {
+    return { tasks: [], tracksFileExists: false };
+  }
+
+  const tasksContent = await fs.promises.readFile(tracksPath, 'utf-8');
+  return { tasks: parseTasksFile(tasksContent), tracksFileExists: true };
+}
+
+interface ApplyStateInputs {
+  missingArtifacts: string[];
+  tracksFile: string | null;
+  tracksFileExists: boolean;
+  total: number;
+  remaining: number;
+  schemaInstruction: string | null;
+}
+
+/**
+ * Determines the apply state and the instruction message that goes with it.
+ */
+function resolveApplyState(inputs: ApplyStateInputs): {
+  state: ApplyInstructions['state'];
+  instruction: string;
+} {
+  const { missingArtifacts, tracksFile, tracksFileExists, total, remaining, schemaInstruction } =
+    inputs;
+
+  if (missingArtifacts.length > 0) {
+    return {
+      state: 'blocked',
+      instruction: `Cannot apply this change yet. Missing artifacts: ${missingArtifacts.join(', ')}.\nUse spok-propose to (re)scaffold the missing artifacts first.`,
+    };
+  }
+
+  if (tracksFile && !tracksFileExists) {
+    // Tracking file configured but doesn't exist yet
+    const tracksFilename = path.basename(tracksFile);
+    return {
+      state: 'blocked',
+      instruction: `The ${tracksFilename} file is missing and must be created.\nRun spok-propose so it can invoke spok-create-scoped-chunks to write ${tracksFilename}.`,
+    };
+  }
+
+  if (tracksFile && tracksFileExists && total === 0) {
+    // Tracking file exists but contains no chunks
+    const tracksFilename = path.basename(tracksFile);
+    return {
+      state: 'blocked',
+      instruction: `The ${tracksFilename} file exists but contains no chunks.\nRe-run spok-propose (it invokes spok-create-scoped-chunks) to regenerate ${tracksFilename}.`,
+    };
+  }
+
+  if (tracksFile && remaining === 0 && total > 0) {
+    return {
+      state: 'all_done',
+      instruction:
+        'All tasks are complete! This change is ready to be archived.\nConsider running tests and reviewing the changes before archiving.',
+    };
+  }
+
+  if (!tracksFile) {
+    // No tracking file configured in schema - ready to apply
+    return {
+      state: 'ready',
+      instruction: schemaInstruction?.trim() ?? 'All required artifacts complete. Proceed with implementation.',
+    };
+  }
+
+  return {
+    state: 'ready',
+    instruction:
+      schemaInstruction?.trim() ??
+      'Read context files, work through pending tasks, mark complete as you go.\nPause if you hit blockers or need clarification.',
+  };
 }
 
 /**
@@ -276,13 +360,10 @@ export async function generateApplyInstructions(
   const schemaInstruction = applyConfig?.instruction ?? null;
 
   // Check which required artifacts are missing
-  const missingArtifacts: string[] = [];
-  for (const artifactId of requiredArtifactIds) {
+  const missingArtifacts = requiredArtifactIds.filter((artifactId) => {
     const artifact = schema.artifacts.find((a) => a.id === artifactId);
-    if (artifact && resolveArtifactOutputs(changeDir, artifact.generates).length === 0) {
-      missingArtifacts.push(artifactId);
-    }
-  }
+    return artifact !== undefined && resolveArtifactOutputs(changeDir, artifact.generates).length === 0;
+  });
 
   // Build context files from all existing artifacts in schema
   const contextFiles: Record<string, string[]> = {};
@@ -294,50 +375,21 @@ export async function generateApplyInstructions(
   }
 
   // Parse tasks if tracking file exists
-  let tasks: TaskItem[] = [];
-  let tracksFileExists = false;
-  if (tracksFile) {
-    const tracksPath = path.join(changeDir, tracksFile);
-    tracksFileExists = fs.existsSync(tracksPath);
-    if (tracksFileExists) {
-      const tasksContent = await fs.promises.readFile(tracksPath, 'utf-8');
-      tasks = parseTasksFile(tasksContent);
-    }
-  }
+  const { tasks, tracksFileExists } = await loadTasks(changeDir, tracksFile);
 
   // Calculate progress
   const total = tasks.length;
   const complete = tasks.filter((t) => t.done).length;
   const remaining = total - complete;
 
-  // Determine state and instruction
-  let state: ApplyInstructions['state'];
-  let instruction: string;
-
-  if (missingArtifacts.length > 0) {
-    state = 'blocked';
-    instruction = `Cannot apply this change yet. Missing artifacts: ${missingArtifacts.join(', ')}.\nUse spok-propose to (re)scaffold the missing artifacts first.`;
-  } else if (tracksFile && !tracksFileExists) {
-    // Tracking file configured but doesn't exist yet
-    const tracksFilename = path.basename(tracksFile);
-    state = 'blocked';
-    instruction = `The ${tracksFilename} file is missing and must be created.\nRun spok-propose so it can invoke spok-create-scoped-chunks to write ${tracksFilename}.`;
-  } else if (tracksFile && tracksFileExists && total === 0) {
-    // Tracking file exists but contains no chunks
-    const tracksFilename = path.basename(tracksFile);
-    state = 'blocked';
-    instruction = `The ${tracksFilename} file exists but contains no chunks.\nRe-run spok-propose (it invokes spok-create-scoped-chunks) to regenerate ${tracksFilename}.`;
-  } else if (tracksFile && remaining === 0 && total > 0) {
-    state = 'all_done';
-    instruction = 'All tasks are complete! This change is ready to be archived.\nConsider running tests and reviewing the changes before archiving.';
-  } else if (!tracksFile) {
-    // No tracking file configured in schema - ready to apply
-    state = 'ready';
-    instruction = schemaInstruction?.trim() ?? 'All required artifacts complete. Proceed with implementation.';
-  } else {
-    state = 'ready';
-    instruction = schemaInstruction?.trim() ?? 'Read context files, work through pending tasks, mark complete as you go.\nPause if you hit blockers or need clarification.';
-  }
+  const { state, instruction } = resolveApplyState({
+    missingArtifacts,
+    tracksFile,
+    tracksFileExists,
+    total,
+    remaining,
+    schemaInstruction,
+  });
 
   return {
     changeName,

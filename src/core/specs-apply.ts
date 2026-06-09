@@ -13,6 +13,7 @@ import {
   parseDeltaSpec,
   normalizeRequirementName,
   type RequirementBlock,
+  type DeltaPlan,
 } from './parsers/requirement-blocks.js';
 import { findMainSpecStructureIssues } from './parsers/spec-structure.js';
 import { Validator } from './validation/validator.js';
@@ -46,6 +47,8 @@ export interface SpecsApplyOutput {
   };
   noChanges: boolean;
 }
+
+type Counts = { added: number; modified: number; removed: number; renamed: number };
 
 // -----------------------------------------------------------------------------
 // Public API
@@ -96,80 +99,50 @@ export async function findSpecUpdates(changeDir: string, mainSpecsDir: string): 
 }
 
 /**
- * Build an updated spec by applying delta operations.
- * Returns the rebuilt content and counts of operations.
+ * Reject duplicate requirements within a delta section and conflicts across
+ * sections (e.g. the same requirement appearing in both MODIFIED and REMOVED).
  */
-export async function buildUpdatedSpec(
-  update: SpecUpdate,
-  changeName: string
-): Promise<{ rebuilt: string; counts: { added: number; modified: number; removed: number; renamed: number } }> {
-  // Read change spec content (delta-format expected)
-  const changeContent = await fs.readFile(update.source, 'utf-8');
+function validateDeltaPlan(plan: DeltaPlan, specName: string): void {
+  const addedNames = collectUniqueNames(plan.added.map(a => a.name), name =>
+    `${specName} validation failed - duplicate requirement in ADDED for header "### Requirement: ${name}"`
+  );
+  const modifiedNames = collectUniqueNames(plan.modified.map(m => m.name), name =>
+    `${specName} validation failed - duplicate requirement in MODIFIED for header "### Requirement: ${name}"`
+  );
+  const removedNames = collectUniqueNames(plan.removed, name =>
+    `${specName} validation failed - duplicate requirement in REMOVED for header "### Requirement: ${name}"`
+  );
 
-  // Parse deltas from the change spec file
-  const plan = parseDeltaSpec(changeContent);
-  const specName = path.basename(path.dirname(update.target));
-
-  // Pre-validate duplicates within sections
-  const addedNames = new Set<string>();
-  for (const add of plan.added) {
-    const name = normalizeRequirementName(add.name);
-    if (addedNames.has(name)) {
-      throw new Error(
-        `${specName} validation failed - duplicate requirement in ADDED for header "### Requirement: ${add.name}"`
-      );
-    }
-    addedNames.add(name);
-  }
-  const modifiedNames = new Set<string>();
-  for (const mod of plan.modified) {
-    const name = normalizeRequirementName(mod.name);
-    if (modifiedNames.has(name)) {
-      throw new Error(
-        `${specName} validation failed - duplicate requirement in MODIFIED for header "### Requirement: ${mod.name}"`
-      );
-    }
-    modifiedNames.add(name);
-  }
-  const removedNamesSet = new Set<string>();
-  for (const rem of plan.removed) {
-    const name = normalizeRequirementName(rem);
-    if (removedNamesSet.has(name)) {
-      throw new Error(
-        `${specName} validation failed - duplicate requirement in REMOVED for header "### Requirement: ${rem}"`
-      );
-    }
-    removedNamesSet.add(name);
-  }
-  const renamedFromSet = new Set<string>();
-  const renamedToSet = new Set<string>();
+  const renamedFrom = new Set<string>();
+  const renamedTo = new Set<string>();
   for (const { from, to } of plan.renamed) {
     const fromNorm = normalizeRequirementName(from);
     const toNorm = normalizeRequirementName(to);
-    if (renamedFromSet.has(fromNorm)) {
+    if (renamedFrom.has(fromNorm)) {
       throw new Error(
         `${specName} validation failed - duplicate FROM in RENAMED for header "### Requirement: ${from}"`
       );
     }
-    if (renamedToSet.has(toNorm)) {
+    if (renamedTo.has(toNorm)) {
       throw new Error(
         `${specName} validation failed - duplicate TO in RENAMED for header "### Requirement: ${to}"`
       );
     }
-    renamedFromSet.add(fromNorm);
-    renamedToSet.add(toNorm);
+    renamedFrom.add(fromNorm);
+    renamedTo.add(toNorm);
   }
 
-  // Pre-validate cross-section conflicts
+  // Cross-section conflicts: the same requirement appearing in two sections.
   const conflicts: Array<{ name: string; a: string; b: string }> = [];
   for (const n of modifiedNames) {
-    if (removedNamesSet.has(n)) conflicts.push({ name: n, a: 'MODIFIED', b: 'REMOVED' });
+    if (removedNames.has(n)) conflicts.push({ name: n, a: 'MODIFIED', b: 'REMOVED' });
     if (addedNames.has(n)) conflicts.push({ name: n, a: 'MODIFIED', b: 'ADDED' });
   }
   for (const n of addedNames) {
-    if (removedNamesSet.has(n)) conflicts.push({ name: n, a: 'ADDED', b: 'REMOVED' });
+    if (removedNames.has(n)) conflicts.push({ name: n, a: 'ADDED', b: 'REMOVED' });
   }
-  // Renamed interplay: MODIFIED must reference the NEW header, not FROM
+
+  // Renamed interplay: MODIFIED must reference the NEW header, not FROM.
   for (const { from, to } of plan.renamed) {
     const fromNorm = normalizeRequirementName(from);
     const toNorm = normalizeRequirementName(to);
@@ -178,41 +151,56 @@ export async function buildUpdatedSpec(
         `${specName} validation failed - when a rename exists, MODIFIED must reference the NEW header "### Requirement: ${to}"`
       );
     }
-    // Detect ADDED colliding with a RENAMED TO
     if (addedNames.has(toNorm)) {
       throw new Error(
         `${specName} validation failed - RENAMED TO header collides with ADDED for "### Requirement: ${to}"`
       );
     }
   }
+
   if (conflicts.length > 0) {
     const c = conflicts[0];
     throw new Error(
       `${specName} validation failed - requirement present in multiple sections (${c.a} and ${c.b}) for header "### Requirement: ${c.name}"`
     );
   }
-  const hasAnyDelta = plan.added.length + plan.modified.length + plan.removed.length + plan.renamed.length > 0;
-  if (!hasAnyDelta) {
-    throw new Error(
-      `Delta parsing found no operations for ${path.basename(path.dirname(update.source))}. ` +
-        `Provide ADDED/MODIFIED/REMOVED/RENAMED sections in change spec.`
-    );
-  }
+}
 
-  // Load or create base target content
-  let targetContent: string;
-  let isNewSpec = false;
+/**
+ * Normalize and collect names into a Set, throwing on the first duplicate.
+ * The error message is produced by `onDuplicate`, called with the original name.
+ */
+function collectUniqueNames(names: string[], onDuplicate: (name: string) => string): Set<string> {
+  const seen = new Set<string>();
+  for (const name of names) {
+    const norm = normalizeRequirementName(name);
+    if (seen.has(norm)) {
+      throw new Error(onDuplicate(name));
+    }
+    seen.add(norm);
+  }
+  return seen;
+}
+
+/**
+ * Read the existing target spec, or synthesize a skeleton for a new spec.
+ * MODIFIED/RENAMED require an existing spec; REMOVED is warned and ignored.
+ */
+async function loadOrCreateTargetContent(
+  update: SpecUpdate,
+  specName: string,
+  changeName: string,
+  plan: DeltaPlan
+): Promise<{ targetContent: string; isNewSpec: boolean }> {
   try {
-    targetContent = await fs.readFile(update.target, 'utf-8');
+    return { targetContent: await fs.readFile(update.target, 'utf-8'), isNewSpec: false };
   } catch {
-    // Target spec does not exist; MODIFIED and RENAMED are not allowed for new specs
-    // REMOVED will be ignored with a warning since there's nothing to remove
+    // Target spec does not exist; only ADDED is meaningful for a new spec.
     if (plan.modified.length > 0 || plan.renamed.length > 0) {
       throw new Error(
         `${specName}: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.`
       );
     }
-    // Warn about REMOVED requirements being ignored for new specs
     if (plan.removed.length > 0) {
       console.log(
         chalk.yellow(
@@ -220,29 +208,20 @@ export async function buildUpdatedSpec(
         )
       );
     }
-    isNewSpec = true;
-    targetContent = buildSpecSkeleton(specName, changeName);
+    return { targetContent: buildSpecSkeleton(specName, changeName), isNewSpec: true };
   }
+}
 
-  const structureIssues = findMainSpecStructureIssues(targetContent);
-  if (structureIssues.length > 0) {
-    const details = structureIssues
-      .map(issue => `line ${issue.line}: ${issue.message}`)
-      .join('\n');
-    throw new Error(
-      `${specName}: target spec is structurally invalid and cannot be updated until fixed:\n${details}`
-    );
-  }
-
-  // Extract requirements section and build name->block map
-  const parts = extractRequirementsSection(targetContent);
-  const nameToBlock = new Map<string, RequirementBlock>();
-  for (const block of parts.bodyBlocks) {
-    nameToBlock.set(normalizeRequirementName(block.name), block);
-  }
-
-  // Apply operations in order: RENAMED → REMOVED → MODIFIED → ADDED
-  // RENAMED
+/**
+ * Apply the delta operations to a name->block map in order:
+ * RENAMED → REMOVED → MODIFIED → ADDED, mutating the map in place.
+ */
+function applyDeltaOperations(
+  nameToBlock: Map<string, RequirementBlock>,
+  plan: DeltaPlan,
+  specName: string,
+  isNewSpec: boolean
+): void {
   for (const r of plan.renamed) {
     const from = normalizeRequirementName(r.from);
     const to = normalizeRequirementName(r.to);
@@ -256,37 +235,29 @@ export async function buildUpdatedSpec(
     const newHeader = `### Requirement: ${to}`;
     const rawLines = block.raw.split('\n');
     rawLines[0] = newHeader;
-    const renamedBlock: RequirementBlock = {
-      headerLine: newHeader,
-      name: to,
-      raw: rawLines.join('\n'),
-    };
     nameToBlock.delete(from);
-    nameToBlock.set(to, renamedBlock);
+    nameToBlock.set(to, { headerLine: newHeader, name: to, raw: rawLines.join('\n') });
   }
 
-  // REMOVED
   for (const name of plan.removed) {
     const key = normalizeRequirementName(name);
     if (!nameToBlock.has(key)) {
-      // For new specs, REMOVED requirements are already warned about and ignored
-      // For existing specs, missing requirements are an error
+      // New specs already warned about and ignore missing REMOVED requirements;
+      // existing specs treat a missing requirement as an error.
       if (!isNewSpec) {
         throw new Error(`${specName} REMOVED failed for header "### Requirement: ${name}" - not found`);
       }
-      // Skip removal for new specs (already warned above)
       continue;
     }
     nameToBlock.delete(key);
   }
 
-  // MODIFIED
   for (const mod of plan.modified) {
     const key = normalizeRequirementName(mod.name);
     if (!nameToBlock.has(key)) {
       throw new Error(`${specName} MODIFIED failed for header "### Requirement: ${mod.name}" - not found`);
     }
-    // Replace block with provided raw (ensure header line matches key)
+    // The provided block's header must match the requirement being modified.
     const modHeaderMatch = mod.raw.split('\n')[0].match(/^###\s*Requirement:\s*(.+)\s*$/i);
     if (!modHeaderMatch || normalizeRequirementName(modHeaderMatch[1]) !== key) {
       throw new Error(
@@ -296,7 +267,6 @@ export async function buildUpdatedSpec(
     nameToBlock.set(key, mod);
   }
 
-  // ADDED
   for (const add of plan.added) {
     const key = normalizeRequirementName(add.name);
     if (nameToBlock.has(key)) {
@@ -304,40 +274,86 @@ export async function buildUpdatedSpec(
     }
     nameToBlock.set(key, add);
   }
+}
 
-  // Duplicates within resulting map are implicitly prevented by key uniqueness.
-
-  // Recompose requirements section preserving original ordering where possible
-  const keptOrder: RequirementBlock[] = [];
+/**
+ * Recompose the requirements section, preserving the original block order and
+ * appending any newly added blocks at the end.
+ */
+function recomposeSpec(
+  parts: ReturnType<typeof extractRequirementsSection>,
+  nameToBlock: Map<string, RequirementBlock>
+): string {
+  const orderedBlocks: RequirementBlock[] = [];
   const seen = new Set<string>();
   for (const block of parts.bodyBlocks) {
     const key = normalizeRequirementName(block.name);
     const replacement = nameToBlock.get(key);
     if (replacement) {
-      keptOrder.push(replacement);
+      orderedBlocks.push(replacement);
       seen.add(key);
     }
   }
-  // Append any newly added that were not in original order
   for (const [key, block] of nameToBlock.entries()) {
     if (!seen.has(key)) {
-      keptOrder.push(block);
+      orderedBlocks.push(block);
     }
   }
 
   const reqBody = [parts.preamble && parts.preamble.trim() ? parts.preamble.trimEnd() : '']
     .filter(Boolean)
-    .concat(keptOrder.map((b) => b.raw))
+    .concat(orderedBlocks.map(b => b.raw))
     .join('\n\n')
     .trimEnd();
 
-  const rebuilt = [parts.before.trimEnd(), parts.headerLine, reqBody, parts.after]
+  return [parts.before.trimEnd(), parts.headerLine, reqBody, parts.after]
     .filter((s, idx) => !(idx === 0 && s === ''))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n');
+}
+
+/**
+ * Build an updated spec by applying delta operations.
+ * Returns the rebuilt content and counts of operations.
+ */
+export async function buildUpdatedSpec(
+  update: SpecUpdate,
+  changeName: string
+): Promise<{ rebuilt: string; counts: Counts }> {
+  const changeContent = await fs.readFile(update.source, 'utf-8');
+  const plan = parseDeltaSpec(changeContent);
+  const specName = path.basename(path.dirname(update.target));
+
+  validateDeltaPlan(plan, specName);
+
+  const hasAnyDelta = plan.added.length + plan.modified.length + plan.removed.length + plan.renamed.length > 0;
+  if (!hasAnyDelta) {
+    throw new Error(
+      `Delta parsing found no operations for ${path.basename(path.dirname(update.source))}. ` +
+        `Provide ADDED/MODIFIED/REMOVED/RENAMED sections in change spec.`
+    );
+  }
+
+  const { targetContent, isNewSpec } = await loadOrCreateTargetContent(update, specName, changeName, plan);
+
+  const structureIssues = findMainSpecStructureIssues(targetContent);
+  if (structureIssues.length > 0) {
+    const details = structureIssues.map(issue => `line ${issue.line}: ${issue.message}`).join('\n');
+    throw new Error(
+      `${specName}: target spec is structurally invalid and cannot be updated until fixed:\n${details}`
+    );
+  }
+
+  const parts = extractRequirementsSection(targetContent);
+  const nameToBlock = new Map<string, RequirementBlock>();
+  for (const block of parts.bodyBlocks) {
+    nameToBlock.set(normalizeRequirementName(block.name), block);
+  }
+
+  applyDeltaOperations(nameToBlock, plan, specName, isNewSpec);
 
   return {
-    rebuilt,
+    rebuilt: recomposeSpec(parts, nameToBlock),
     counts: {
       added: plan.added.length,
       modified: plan.modified.length,
@@ -353,7 +369,7 @@ export async function buildUpdatedSpec(
 export async function writeUpdatedSpec(
   update: SpecUpdate,
   rebuilt: string,
-  counts: { added: number; modified: number; removed: number; renamed: number }
+  counts: Counts
 ): Promise<void> {
   // Create target directory if needed
   const targetDir = path.dirname(update.target);
@@ -362,6 +378,13 @@ export async function writeUpdatedSpec(
 
   const specName = path.basename(path.dirname(update.target));
   console.log(`Applying changes to spok/specs/${specName}/spec.md:`);
+  logCounts(counts);
+}
+
+/**
+ * Print the non-zero operation counts beneath a "(Would) apply changes" line.
+ */
+function logCounts(counts: Counts): void {
   if (counts.added) console.log(`  + ${counts.added} added`);
   if (counts.modified) console.log(`  ~ ${counts.modified} modified`);
   if (counts.removed) console.log(`  - ${counts.removed} removed`);
@@ -419,11 +442,7 @@ export async function applySpecs(
   }
 
   // Prepare all updates first (validation pass, no writes)
-  const prepared: Array<{
-    update: SpecUpdate;
-    rebuilt: string;
-    counts: { added: number; modified: number; removed: number; renamed: number };
-  }> = [];
+  const prepared: Array<{ update: SpecUpdate; rebuilt: string; counts: Counts }> = [];
 
   for (const update of specUpdates) {
     const built = await buildUpdatedSpec(update, changeName);
@@ -458,20 +477,12 @@ export async function applySpecs(
       const targetDir = path.dirname(p.update.target);
       await fs.mkdir(targetDir, { recursive: true });
       await fs.writeFile(p.update.target, p.rebuilt);
+    }
 
-      if (!options.silent) {
-        console.log(`Applying changes to spok/specs/${capability}/spec.md:`);
-        if (p.counts.added) console.log(`  + ${p.counts.added} added`);
-        if (p.counts.modified) console.log(`  ~ ${p.counts.modified} modified`);
-        if (p.counts.removed) console.log(`  - ${p.counts.removed} removed`);
-        if (p.counts.renamed) console.log(`  → ${p.counts.renamed} renamed`);
-      }
-    } else if (!options.silent) {
-      console.log(`Would apply changes to spok/specs/${capability}/spec.md:`);
-      if (p.counts.added) console.log(`  + ${p.counts.added} added`);
-      if (p.counts.modified) console.log(`  ~ ${p.counts.modified} modified`);
-      if (p.counts.removed) console.log(`  - ${p.counts.removed} removed`);
-      if (p.counts.renamed) console.log(`  → ${p.counts.renamed} renamed`);
+    if (!options.silent) {
+      const verb = options.dryRun ? 'Would apply' : 'Applying';
+      console.log(`${verb} changes to spok/specs/${capability}/spec.md:`);
+      logCounts(p.counts);
     }
 
     capabilities.push({

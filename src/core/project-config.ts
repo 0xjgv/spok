@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -45,6 +45,114 @@ export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 const MAX_CONTEXT_SIZE = 50 * 1024; // 50KB hard limit
 
 /**
+ * Resolve the config file path, preferring `.yaml` over `.yml`.
+ * Returns null if neither file exists (no config is OK).
+ */
+function resolveConfigPath(projectRoot: string): string | null {
+  const yamlPath = path.join(projectRoot, 'spok', 'config.yaml');
+  if (existsSync(yamlPath)) {
+    return yamlPath;
+  }
+
+  const ymlPath = path.join(projectRoot, 'spok', 'config.yml');
+  if (existsSync(ymlPath)) {
+    return ymlPath;
+  }
+
+  return null;
+}
+
+/**
+ * Validate the `schema` field. Returns the value when valid, or undefined.
+ * Warns only when the field is present but invalid.
+ */
+function parseSchemaField(rawSchema: unknown): string | undefined {
+  const result = z.string().min(1).safeParse(rawSchema);
+  if (result.success) {
+    return result.data;
+  }
+
+  if (rawSchema !== undefined) {
+    console.warn(`Invalid 'schema' field in config (must be non-empty string)`);
+  }
+  return undefined;
+}
+
+/**
+ * Validate the `context` field, enforcing the size limit.
+ * Returns the value when valid and within limit, or undefined (with warnings).
+ */
+function parseContextField(rawContext: unknown): string | undefined {
+  if (rawContext === undefined) {
+    return undefined;
+  }
+
+  const result = z.string().safeParse(rawContext);
+  if (!result.success) {
+    console.warn(`Invalid 'context' field in config (must be string)`);
+    return undefined;
+  }
+
+  const contextSize = Buffer.byteLength(result.data, 'utf-8');
+  if (contextSize > MAX_CONTEXT_SIZE) {
+    console.warn(
+      `Context too large (${(contextSize / 1024).toFixed(1)}KB, limit: ${MAX_CONTEXT_SIZE / 1024}KB)`
+    );
+    console.warn(`Ignoring context field`);
+    return undefined;
+  }
+
+  return result.data;
+}
+
+/**
+ * Validate the rules for a single artifact, filtering out empty strings.
+ * Returns the non-empty rules, or null when the entry is invalid or fully empty.
+ */
+function parseArtifactRules(artifactId: string, rules: unknown): string[] | null {
+  const result = z.array(z.string()).safeParse(rules);
+  if (!result.success) {
+    console.warn(
+      `Rules for '${artifactId}' must be an array of strings, ignoring this artifact's rules`
+    );
+    return null;
+  }
+
+  const validRules = result.data.filter((r) => r.length > 0);
+  if (validRules.length < result.data.length) {
+    console.warn(`Some rules for '${artifactId}' are empty strings, ignoring them`);
+  }
+
+  return validRules.length > 0 ? validRules : null;
+}
+
+/**
+ * Validate the `rules` field. Returns the parsed rules when at least one
+ * artifact has valid rules, or undefined (with warnings).
+ */
+function parseRulesField(rawRules: unknown): Record<string, string[]> | undefined {
+  if (rawRules === undefined) {
+    return undefined;
+  }
+
+  // Guard against null since typeof null === 'object', and against arrays.
+  if (typeof rawRules !== 'object' || rawRules === null || Array.isArray(rawRules)) {
+    console.warn(`Invalid 'rules' field in config (must be object)`);
+    return undefined;
+  }
+
+  const parsedRules: Record<string, string[]> = {};
+  for (const [artifactId, rules] of Object.entries(rawRules)) {
+    const validRules = parseArtifactRules(artifactId, rules);
+    if (validRules) {
+      parsedRules[artifactId] = validRules;
+    }
+  }
+
+  return Object.keys(parsedRules).length > 0 ? parsedRules : undefined;
+}
+
+/**
  * Read and parse spok/config.yaml from project root.
  * Uses resilient parsing - validates each field independently using Zod safeParse.
  * Returns null if file doesn't exist.
@@ -64,95 +172,39 @@ const MAX_CONTEXT_SIZE = 50 * 1024; // 50KB hard limit
  * @returns Parsed config or null if file doesn't exist
  */
 export function readProjectConfig(projectRoot: string): ProjectConfig | null {
-  // Try both .yaml and .yml, prefer .yaml
-  let configPath = path.join(projectRoot, 'spok', 'config.yaml');
-  if (!existsSync(configPath)) {
-    configPath = path.join(projectRoot, 'spok', 'config.yml');
-    if (!existsSync(configPath)) {
-      return null; // No config is OK
-    }
+  const configPath = resolveConfigPath(projectRoot);
+  if (configPath === null) {
+    return null; // No config is OK
   }
 
   try {
-    const content = readFileSync(configPath, 'utf-8');
-    const raw = parseYaml(content);
+    const raw = parseYaml(readFileSync(configPath, 'utf-8'));
 
     if (!raw || typeof raw !== 'object') {
       console.warn(`spok/config.yaml is not a valid YAML object`);
       return null;
     }
 
+    // Validate each field independently so a single bad field never discards
+    // the rest of the config (resilient, field-by-field parsing). Only fields
+    // that validate successfully are set on the returned config.
     const config: Partial<ProjectConfig> = {};
 
-    // Parse schema field using Zod
-    const schemaField = z.string().min(1);
-    const schemaResult = schemaField.safeParse(raw.schema);
-    if (schemaResult.success) {
-      config.schema = schemaResult.data;
-    } else if (raw.schema !== undefined) {
-      console.warn(`Invalid 'schema' field in config (must be non-empty string)`);
+    const schema = parseSchemaField(raw.schema);
+    if (schema !== undefined) {
+      config.schema = schema;
     }
 
-    // Parse context field with size limit
-    if (raw.context !== undefined) {
-      const contextField = z.string();
-      const contextResult = contextField.safeParse(raw.context);
-
-      if (contextResult.success) {
-        const contextSize = Buffer.byteLength(contextResult.data, 'utf-8');
-        if (contextSize > MAX_CONTEXT_SIZE) {
-          console.warn(
-            `Context too large (${(contextSize / 1024).toFixed(1)}KB, limit: ${MAX_CONTEXT_SIZE / 1024}KB)`
-          );
-          console.warn(`Ignoring context field`);
-        } else {
-          config.context = contextResult.data;
-        }
-      } else {
-        console.warn(`Invalid 'context' field in config (must be string)`);
-      }
+    const context = parseContextField(raw.context);
+    if (context !== undefined) {
+      config.context = context;
     }
 
-    // Parse rules field using Zod
-    if (raw.rules !== undefined) {
-      const rulesField = z.record(z.string(), z.array(z.string()));
-
-      // First check if it's an object structure (guard against null since typeof null === 'object')
-      if (typeof raw.rules === 'object' && raw.rules !== null && !Array.isArray(raw.rules)) {
-        const parsedRules: Record<string, string[]> = {};
-        let hasValidRules = false;
-
-        for (const [artifactId, rules] of Object.entries(raw.rules)) {
-          const rulesArrayResult = z.array(z.string()).safeParse(rules);
-
-          if (rulesArrayResult.success) {
-            // Filter out empty strings
-            const validRules = rulesArrayResult.data.filter((r) => r.length > 0);
-            if (validRules.length > 0) {
-              parsedRules[artifactId] = validRules;
-              hasValidRules = true;
-            }
-            if (validRules.length < rulesArrayResult.data.length) {
-              console.warn(
-                `Some rules for '${artifactId}' are empty strings, ignoring them`
-              );
-            }
-          } else {
-            console.warn(
-              `Rules for '${artifactId}' must be an array of strings, ignoring this artifact's rules`
-            );
-          }
-        }
-
-        if (hasValidRules) {
-          config.rules = parsedRules;
-        }
-      } else {
-        console.warn(`Invalid 'rules' field in config (must be object)`);
-      }
+    const rules = parseRulesField(raw.rules);
+    if (rules !== undefined) {
+      config.rules = rules;
     }
 
-    // Return partial config even if some fields failed
     return Object.keys(config).length > 0 ? (config as ProjectConfig) : null;
   } catch (error) {
     console.warn(`Failed to parse spok/config.yaml:`, error);

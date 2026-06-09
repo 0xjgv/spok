@@ -44,6 +44,24 @@ function findMarkerIndex(
   return -1;
 }
 
+/** Index of the first character on the line containing `index`. */
+function findLineStart(content: string, index: number): number {
+  let lineStart = index;
+  while (lineStart > 0 && content[lineStart - 1] !== '\n') {
+    lineStart--;
+  }
+  return lineStart;
+}
+
+/** Index just past the line containing `index`, including its trailing newline if present. */
+function findLineEndInclusive(content: string, index: number): number {
+  let lineEnd = index;
+  while (lineEnd < content.length && content[lineEnd] !== '\n') {
+    lineEnd++;
+  }
+  return lineEnd < content.length ? lineEnd + 1 : lineEnd;
+}
+
 export class FileSystemUtils {
   /**
    * Converts a path to use forward slashes (POSIX style).
@@ -313,28 +331,14 @@ export function removeMarkerBlock(
     return content;
   }
 
-  // Find the start of the line containing the start marker
-  let lineStart = startIndex;
-  while (lineStart > 0 && content[lineStart - 1] !== '\n') {
-    lineStart--;
-  }
-
-  // Find the end of the line containing the end marker
-  let lineEnd = endIndex + endMarker.length;
-  while (lineEnd < content.length && content[lineEnd] !== '\n') {
-    lineEnd++;
-  }
-  // Include the trailing newline if present
-  if (lineEnd < content.length && content[lineEnd] === '\n') {
-    lineEnd++;
-  }
+  const lineStart = findLineStart(content, startIndex);
+  const lineEnd = findLineEndInclusive(content, endIndex + endMarker.length);
 
   const before = content.substring(0, lineStart);
   const after = content.substring(lineEnd);
 
   // Clean up double blank lines (handle both Unix \n and Windows \r\n)
-  let result = before + after;
-  result = result.replace(/(\r?\n){3,}/g, '\n\n');
+  const result = (before + after).replace(/(\r?\n){3,}/g, '\n\n');
 
   // Trim trailing whitespace but preserve leading whitespace and original newline style
   if (result.trimEnd() === '') {

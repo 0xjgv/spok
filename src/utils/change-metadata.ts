@@ -6,6 +6,7 @@ import { listSchemas } from '../core/artifact-graph/resolver.js';
 import { readProjectConfig } from '../core/project-config.js';
 
 const METADATA_FILENAME = '.spok.yaml';
+const DEFAULT_SCHEMA = 'spec-driven';
 
 /**
  * Error thrown when change metadata validation fails.
@@ -21,6 +22,23 @@ export class ChangeMetadataError extends Error {
   }
 }
 
+/** Normalize an unknown caught value into an Error. */
+function toError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+/**
+ * Check whether a schema name exists in the available schemas.
+ * Returns an error message when it does not, or null when it is valid.
+ */
+function checkSchemaName(schemaName: string, projectRoot?: string): string | null {
+  const availableSchemas = listSchemas(projectRoot);
+  if (availableSchemas.includes(schemaName)) {
+    return null;
+  }
+  return `Unknown schema '${schemaName}'. Available: ${availableSchemas.join(', ')}`;
+}
+
 /**
  * Validates that a schema name is valid (exists in available schemas).
  *
@@ -33,11 +51,9 @@ export function validateSchemaName(
   schemaName: string,
   projectRoot?: string
 ): string {
-  const availableSchemas = listSchemas(projectRoot);
-  if (!availableSchemas.includes(schemaName)) {
-    throw new Error(
-      `Unknown schema '${schemaName}'. Available: ${availableSchemas.join(', ')}`
-    );
+  const error = checkSchemaName(schemaName, projectRoot);
+  if (error) {
+    throw new Error(error);
   }
   return schemaName;
 }
@@ -74,7 +90,7 @@ export function writeChangeMetadata(
   try {
     fs.writeFileSync(metaPath, content, 'utf-8');
   } catch (err) {
-    const ioError = err instanceof Error ? err : new Error(String(err));
+    const ioError = toError(err);
     throw new ChangeMetadataError(
       `Failed to write metadata: ${ioError.message}`,
       metaPath,
@@ -105,7 +121,7 @@ export function readChangeMetadata(
   try {
     content = fs.readFileSync(metaPath, 'utf-8');
   } catch (err) {
-    const ioError = err instanceof Error ? err : new Error(String(err));
+    const ioError = toError(err);
     throw new ChangeMetadataError(
       `Failed to read metadata: ${ioError.message}`,
       metaPath,
@@ -117,7 +133,7 @@ export function readChangeMetadata(
   try {
     parsed = yaml.parse(content);
   } catch (err) {
-    const parseError = err instanceof Error ? err : new Error(String(err));
+    const parseError = toError(err);
     throw new ChangeMetadataError(
       `Invalid YAML in metadata file: ${parseError.message}`,
       metaPath,
@@ -135,12 +151,9 @@ export function readChangeMetadata(
   }
 
   // Validate that the schema exists
-  const availableSchemas = listSchemas(projectRoot);
-  if (!availableSchemas.includes(parseResult.data.schema)) {
-    throw new ChangeMetadataError(
-      `Unknown schema '${parseResult.data.schema}'. Available: ${availableSchemas.join(', ')}`,
-      metaPath
-    );
+  const schemaError = checkSchemaName(parseResult.data.schema, projectRoot);
+  if (schemaError) {
+    throw new ChangeMetadataError(schemaError, metaPath);
   }
 
   return parseResult.data;
@@ -172,26 +185,23 @@ export function resolveSchemaForChange(
     return explicitSchema;
   }
 
-  // 2. Try reading from metadata
-  try {
-    const metadata = readChangeMetadata(changeDir, projectRoot);
-    if (metadata?.schema) {
-      return metadata.schema;
-    }
-  } catch {
-    // If metadata read fails, continue to next option
-  }
+  // 2. Schema from change metadata, then 3. from project config.
+  // A failing read is non-fatal: fall through to the next source.
+  return (
+    readSchemaSafely(() => readChangeMetadata(changeDir, projectRoot)?.schema) ??
+    readSchemaSafely(() => readProjectConfig(projectRoot)?.schema) ??
+    DEFAULT_SCHEMA
+  );
+}
 
-  // 3. Try reading from project config
+/**
+ * Read a schema name from a source, returning undefined if the source is
+ * absent, has no schema, or throws.
+ */
+function readSchemaSafely(read: () => string | undefined): string | undefined {
   try {
-    const config = readProjectConfig(projectRoot);
-    if (config?.schema) {
-      return config.schema;
-    }
+    return read() || undefined;
   } catch {
-    // If config read fails, fall back to default
+    return undefined;
   }
-
-  // 4. Default
-  return 'spec-driven';
 }

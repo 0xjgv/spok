@@ -94,9 +94,8 @@ export async function getAvailableChanges(
   projectRoot: string,
   changesDir = path.join(projectRoot, 'spok', 'changes')
 ): Promise<string[]> {
-  const changesPath = changesDir;
   try {
-    const entries = await fs.promises.readdir(changesPath, { withFileTypes: true });
+    const entries = await fs.promises.readdir(changesDir, { withFileTypes: true });
     return entries
       .filter((e) => e.isDirectory() && e.name !== 'archive' && !e.name.startsWith('.'))
       .map((e) => e.name);
@@ -131,23 +130,21 @@ export async function validateChangeExists(
     throw new Error(`Invalid change name '${changeName}': ${nameValidation.error}`);
   }
 
-  // Check directory existence directly
+  // Check directory existence directly to support scaffolded changes (without proposal.md)
   const changePath = path.join(changesDir, changeName);
-  const exists = fs.existsSync(changePath) && fs.statSync(changePath).isDirectory();
-
-  if (!exists) {
-    const available = await getAvailableChanges(projectRoot, changesDir);
-    if (available.length === 0) {
-      throw new Error(
-        `Change '${changeName}' not found. No changes exist. Create one with: spok new change <name>`
-      );
-    }
-    throw new Error(
-      `Change '${changeName}' not found. Available changes:\n  ${available.join('\n  ')}`
-    );
+  if (fs.existsSync(changePath) && fs.statSync(changePath).isDirectory()) {
+    return changeName;
   }
 
-  return changeName;
+  const available = await getAvailableChanges(projectRoot, changesDir);
+  if (available.length === 0) {
+    throw new Error(
+      `Change '${changeName}' not found. No changes exist. Create one with: spok new change <name>`
+    );
+  }
+  throw new Error(
+    `Change '${changeName}' not found. Available changes:\n  ${available.join('\n  ')}`
+  );
 }
 
 /**

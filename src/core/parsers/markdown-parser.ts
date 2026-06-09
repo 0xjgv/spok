@@ -7,6 +7,17 @@ export interface Section {
   children: Section[];
 }
 
+interface ActiveFence {
+  marker: '`' | '~';
+  length: number;
+}
+
+const HEADER = /^(#{1,6})\s+(.+)$/;
+const HEADER_PREFIX = /^(#{1,6})\s+/;
+const FENCE_OPEN = /^\s*(`{3,}|~{3,})/;
+const FENCE_CLOSE = /^\s*(`{3,}|~{3,})\s*$/;
+const DELTA_LINE = /^\s*-\s*\*\*([^*:]+)(?::\*\*|\*\*:)\s*(.+)$/;
+
 export class MarkdownParser {
   private lines: string[];
   private codeFenceLineMask: boolean[];
@@ -25,14 +36,12 @@ export class MarkdownParser {
 
   protected static buildCodeFenceMask(lines: string[]): boolean[] {
     const mask = new Array(lines.length).fill(false);
-    let activeFence: { marker: '`' | '~'; length: number } | null = null;
+    let activeFence: ActiveFence | null = null;
 
     for (let i = 0; i < lines.length; i++) {
-      const fence = MarkdownParser.getFenceMarker(lines[i]);
-
       if (!activeFence) {
-        if (fence) {
-          activeFence = fence;
+        activeFence = MarkdownParser.getFenceMarker(lines[i]);
+        if (activeFence) {
           mask[i] = true;
         }
         continue;
@@ -47,8 +56,8 @@ export class MarkdownParser {
     return mask;
   }
 
-  private static getFenceMarker(line: string): { marker: '`' | '~'; length: number } | null {
-    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+  private static getFenceMarker(line: string): ActiveFence | null {
+    const fenceMatch = line.match(FENCE_OPEN);
     if (!fenceMatch) {
       return null;
     }
@@ -59,11 +68,8 @@ export class MarkdownParser {
     };
   }
 
-  private static isClosingFence(
-    line: string,
-    activeFence: { marker: '`' | '~'; length: number }
-  ): boolean {
-    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})\s*$/);
+  private static isClosingFence(line: string, activeFence: ActiveFence): boolean {
+    const fenceMatch = line.match(FENCE_CLOSE);
     return Boolean(
       fenceMatch &&
       fenceMatch[1][0] === activeFence.marker &&
@@ -74,23 +80,19 @@ export class MarkdownParser {
   parseSpec(name: string): Spec {
     const sections = this.parseSections();
     const purpose = this.findSection(sections, 'Purpose')?.content || '';
-    
-    const requirementsSection = this.findSection(sections, 'Requirements');
-    
     if (!purpose) {
       throw new Error('Spec must have a Purpose section');
     }
-    
+
+    const requirementsSection = this.findSection(sections, 'Requirements');
     if (!requirementsSection) {
       throw new Error('Spec must have a Requirements section');
     }
 
-    const requirements = this.parseRequirements(requirementsSection);
-
     return {
       name,
       overview: purpose.trim(),
-      requirements,
+      requirements: this.parseRequirements(requirementsSection),
       metadata: {
         version: '1.0.0',
         format: 'spok',
@@ -101,23 +103,20 @@ export class MarkdownParser {
   parseChange(name: string): Change {
     const sections = this.parseSections();
     const why = this.findSection(sections, 'Why')?.content || '';
-    const whatChanges = this.findSection(sections, 'What Changes')?.content || '';
-    
     if (!why) {
       throw new Error('Change must have a Why section');
     }
-    
+
+    const whatChanges = this.findSection(sections, 'What Changes')?.content || '';
     if (!whatChanges) {
       throw new Error('Change must have a What Changes section');
     }
-
-    const deltas = this.parseDeltas(whatChanges);
 
     return {
       name,
       why: why.trim(),
       whatChanges: whatChanges.trim(),
-      deltas,
+      deltas: this.parseDeltas(whatChanges),
       metadata: {
         version: '1.0.0',
         format: 'spok-change',
@@ -128,57 +127,59 @@ export class MarkdownParser {
   protected parseSections(): Section[] {
     const sections: Section[] = [];
     const stack: Section[] = [];
-    
+
     for (let i = 0; i < this.lines.length; i++) {
-      const line = this.lines[i];
       if (this.codeFenceLineMask[i]) {
         continue;
       }
-      const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
-      
-      if (headerMatch) {
-        const level = headerMatch[1].length;
-        const title = headerMatch[2].trim();
-        const content = this.getContentUntilNextHeader(i + 1, level);
-        
-        const section: Section = {
-          level,
-          title,
-          content,
-          children: [],
-        };
 
-        while (stack.length > 0 && stack[stack.length - 1].level >= level) {
-          stack.pop();
-        }
-
-        if (stack.length === 0) {
-          sections.push(section);
-        } else {
-          stack[stack.length - 1].children.push(section);
-        }
-        
-        stack.push(section);
+      const headerMatch = this.lines[i].match(HEADER);
+      if (!headerMatch) {
+        continue;
       }
+
+      const level = headerMatch[1].length;
+      const section: Section = {
+        level,
+        title: headerMatch[2].trim(),
+        content: this.getContentUntilNextHeader(i + 1, level),
+        children: [],
+      };
+
+      MarkdownParser.attachSection(section, sections, stack);
     }
-    
+
     return sections;
+  }
+
+  private static attachSection(section: Section, sections: Section[], stack: Section[]): void {
+    while (stack.length > 0 && stack[stack.length - 1].level >= section.level) {
+      stack.pop();
+    }
+
+    if (stack.length === 0) {
+      sections.push(section);
+    } else {
+      stack[stack.length - 1].children.push(section);
+    }
+
+    stack.push(section);
   }
 
   protected getContentUntilNextHeader(startLine: number, currentLevel: number): string {
     const contentLines: string[] = [];
-    
+
     for (let i = startLine; i < this.lines.length; i++) {
       const line = this.lines[i];
-      const headerMatch = this.codeFenceLineMask[i] ? null : line.match(/^(#{1,6})\s+/);
-      
+      const headerMatch = this.codeFenceLineMask[i] ? null : line.match(HEADER_PREFIX);
+
       if (headerMatch && headerMatch[1].length <= currentLevel) {
         break;
       }
-      
+
       contentLines.push(line);
     }
-    
+
     return contentLines.join('\n').trim();
   }
 
@@ -196,95 +197,77 @@ export class MarkdownParser {
   }
 
   protected parseRequirements(section: Section): Requirement[] {
-    const requirements: Requirement[] = [];
-    
-    for (const child of section.children) {
-      // Extract requirement text from first non-empty content line, fall back to heading
-      let text = child.title;
-      
-      // Get content before any child sections (scenarios)
-      if (child.content.trim()) {
-        // Split content into lines and find content before any child headers
-        const lines = child.content.split('\n');
-        const contentBeforeChildren: string[] = [];
-        
-        for (const line of lines) {
-          // Stop at child headers (scenarios start with ####)
-          if (line.trim().startsWith('#')) {
-            break;
-          }
-          contentBeforeChildren.push(line);
-        }
-        
-        // Find first non-empty line
-        const directContent = contentBeforeChildren.join('\n').trim();
-        if (directContent) {
-          const firstLine = directContent.split('\n').find(l => l.trim());
-          if (firstLine) {
-            text = firstLine.trim();
-          }
-        }
-      }
-      
-      const scenarios = this.parseScenarios(child);
-      
-      requirements.push({
-        text,
-        scenarios,
-      });
+    return section.children.map(child => ({
+      text: MarkdownParser.requirementText(child),
+      scenarios: this.parseScenarios(child),
+    }));
+  }
+
+  // Requirement text is the first non-empty content line before any child
+  // section (scenario), falling back to the heading when there is none.
+  private static requirementText(child: Section): string {
+    if (!child.content.trim()) {
+      return child.title;
     }
-    
-    return requirements;
+
+    const contentBeforeChildren: string[] = [];
+    for (const line of child.content.split('\n')) {
+      if (line.trim().startsWith('#')) {
+        break;
+      }
+      contentBeforeChildren.push(line);
+    }
+
+    const directContent = contentBeforeChildren.join('\n').trim();
+    if (!directContent) {
+      return child.title;
+    }
+
+    const firstLine = directContent.split('\n').find(l => l.trim());
+    return firstLine ? firstLine.trim() : child.title;
   }
 
   protected parseScenarios(requirementSection: Section): Scenario[] {
-    const scenarios: Scenario[] = [];
-    
-    for (const scenarioSection of requirementSection.children) {
-      // Store the raw text content of the scenario section
-      if (scenarioSection.content.trim()) {
-        scenarios.push({
-          rawText: scenarioSection.content
-        });
-      }
-    }
-    
-    return scenarios;
+    return requirementSection.children
+      .filter(scenario => scenario.content.trim())
+      .map(scenario => ({ rawText: scenario.content }));
   }
-
 
   protected parseDeltas(content: string): Delta[] {
     const deltas: Delta[] = [];
-    const lines = content.split('\n');
-    
-    for (const line of lines) {
+
+    for (const line of content.split('\n')) {
       // Match both formats: **spec:** and **spec**:
-      const deltaMatch = line.match(/^\s*-\s*\*\*([^*:]+)(?::\*\*|\*\*:)\s*(.+)$/);
-      if (deltaMatch) {
-        const specName = deltaMatch[1].trim();
-        const description = deltaMatch[2].trim();
-        
-        let operation: DeltaOperation = 'MODIFIED';
-        const lowerDesc = description.toLowerCase();
-        
-        // Use word boundaries to avoid false matches (e.g., "address" matching "add")
-        // Check RENAMED first since it's more specific than patterns containing "new"
-        if (/\brename(s|d|ing)?\b/.test(lowerDesc) || /\brenamed\s+(to|from)\b/.test(lowerDesc)) {
-          operation = 'RENAMED';
-        } else if (/\badd(s|ed|ing)?\b/.test(lowerDesc) || /\bcreate(s|d|ing)?\b/.test(lowerDesc) || /\bnew\b/.test(lowerDesc)) {
-          operation = 'ADDED';
-        } else if (/\bremove(s|d|ing)?\b/.test(lowerDesc) || /\bdelete(s|d|ing)?\b/.test(lowerDesc)) {
-          operation = 'REMOVED';
-        }
-        
-        deltas.push({
-          spec: specName,
-          operation,
-          description,
-        });
+      const deltaMatch = line.match(DELTA_LINE);
+      if (!deltaMatch) {
+        continue;
       }
+
+      const description = deltaMatch[2].trim();
+      deltas.push({
+        spec: deltaMatch[1].trim(),
+        operation: MarkdownParser.classifyDeltaOperation(description),
+        description,
+      });
     }
-    
+
     return deltas;
+  }
+
+  private static classifyDeltaOperation(description: string): DeltaOperation {
+    const lowerDesc = description.toLowerCase();
+
+    // Use word boundaries to avoid false matches (e.g., "address" matching "add").
+    // Check RENAMED first since it's more specific than patterns containing "new".
+    if (/\brename(s|d|ing)?\b/.test(lowerDesc) || /\brenamed\s+(to|from)\b/.test(lowerDesc)) {
+      return 'RENAMED';
+    }
+    if (/\badd(s|ed|ing)?\b/.test(lowerDesc) || /\bcreate(s|d|ing)?\b/.test(lowerDesc) || /\bnew\b/.test(lowerDesc)) {
+      return 'ADDED';
+    }
+    if (/\bremove(s|d|ing)?\b/.test(lowerDesc) || /\bdelete(s|d|ing)?\b/.test(lowerDesc)) {
+      return 'REMOVED';
+    }
+    return 'MODIFIED';
   }
 }

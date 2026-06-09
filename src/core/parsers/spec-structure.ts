@@ -14,19 +14,8 @@ export function findMainSpecStructureIssues(content: string): MainSpecStructureI
   const normalized = content.replace(/\r\n?/g, '\n');
   const stripped = stripFencedCodeBlocksPreservingLines(normalized);
   const lines = stripped.split('\n');
+  const requirements = findRequirementsSectionRange(lines);
   const issues: MainSpecStructureIssue[] = [];
-
-  const requirementsHeaderIndex = lines.findIndex(line => REQUIREMENTS_SECTION_HEADER.test(line));
-  let requirementsEndIndex = lines.length;
-
-  if (requirementsHeaderIndex !== -1) {
-    for (let i = requirementsHeaderIndex + 1; i < lines.length; i++) {
-      if (TOP_LEVEL_SECTION_HEADER.test(lines[i])) {
-        requirementsEndIndex = i;
-        break;
-      }
-    }
-  }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -48,17 +37,11 @@ export function findMainSpecStructureIssues(content: string): MainSpecStructureI
       continue;
     }
 
-    const requirementMatch = line.match(REQUIREMENT_HEADER);
-    if (!requirementMatch) {
+    if (!REQUIREMENT_HEADER.test(line)) {
       continue;
     }
 
-    const insideRequirements =
-      requirementsHeaderIndex !== -1 &&
-      i > requirementsHeaderIndex &&
-      i < requirementsEndIndex;
-
-    if (!insideRequirements) {
+    if (!requirements.contains(i)) {
       issues.push({
         kind: 'requirement-outside-requirements',
         line: i + 1,
@@ -73,29 +56,46 @@ export function findMainSpecStructureIssues(content: string): MainSpecStructureI
   return issues;
 }
 
+interface RequirementsSectionRange {
+  /** Whether the given line index falls strictly inside the ## Requirements section body. */
+  contains(lineIndex: number): boolean;
+}
+
+function findRequirementsSectionRange(lines: string[]): RequirementsSectionRange {
+  const headerIndex = lines.findIndex(line => REQUIREMENTS_SECTION_HEADER.test(line));
+  if (headerIndex === -1) {
+    return { contains: () => false };
+  }
+
+  let endIndex = lines.length;
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    if (TOP_LEVEL_SECTION_HEADER.test(lines[i])) {
+      endIndex = i;
+      break;
+    }
+  }
+
+  return { contains: lineIndex => lineIndex > headerIndex && lineIndex < endIndex };
+}
+
+interface Fence {
+  marker: '`' | '~';
+  length: number;
+}
+
 export function stripFencedCodeBlocksPreservingLines(content: string): string {
   const lines = content.split('\n');
   const output: string[] = [];
-  let activeFence: { marker: '`' | '~'; length: number } | null = null;
+  let activeFence: Fence | null = null;
 
   for (const line of lines) {
-    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
-
     if (!activeFence) {
-      if (fenceMatch) {
-        activeFence = {
-          marker: fenceMatch[1][0] as '`' | '~',
-          length: fenceMatch[1].length,
-        };
-        output.push('');
-      } else {
-        output.push(line);
-      }
+      activeFence = parseOpeningFence(line);
+      output.push(activeFence ? '' : line);
       continue;
     }
 
     output.push('');
-
     if (isClosingFence(line, activeFence)) {
       activeFence = null;
     }
@@ -104,14 +104,19 @@ export function stripFencedCodeBlocksPreservingLines(content: string): string {
   return output.join('\n');
 }
 
-function isClosingFence(
-  line: string,
-  activeFence: { marker: '`' | '~'; length: number }
-): boolean {
-  const fenceMatch = line.match(/^\s*(`{3,}|~{3,})\s*$/);
+function parseOpeningFence(line: string): Fence | null {
+  const match = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+  if (!match) {
+    return null;
+  }
+  return { marker: match[1][0] as '`' | '~', length: match[1].length };
+}
+
+function isClosingFence(line: string, activeFence: Fence): boolean {
+  const match = line.match(/^\s*(`{3,}|~{3,})\s*$/);
   return Boolean(
-    fenceMatch &&
-    fenceMatch[1][0] === activeFence.marker &&
-    fenceMatch[1].length >= activeFence.length
+    match &&
+    match[1][0] === activeFence.marker &&
+    match[1].length >= activeFence.length
   );
 }
