@@ -73,6 +73,13 @@ program.hook('postAction', async () => {
   await shutdown();
 });
 
+program
+  .command('version')
+  .description('Print Spok version')
+  .action(() => {
+    console.log(version);
+  });
+
 const availableToolIds = AI_TOOLS.filter((tool) => tool.skillsDir).map((tool) => tool.value);
 const toolsOptionDescription = `Configure AI tools non-interactively. Use "all", "none", or a comma-separated list of: ${availableToolIds.join(', ')}`;
 
