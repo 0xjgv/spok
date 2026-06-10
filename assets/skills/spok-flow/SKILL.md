@@ -42,13 +42,18 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    - `argument` is the exact argument to pass to that skill.
    - `expectedOutput` is present for file-producing steps.
 
-4. Invoke `step.skill` with `step.argument` using the **Skill** tool.
+4. Launch a subagent for the step with the **Agent** tool and `subagent_type: general-purpose`:
+
+   > Call the `<step.skill>` skill with `<step.argument>` as the argument using the **Skill** tool.
+   > When complete, return the **absolute path** of the document that was created (file-producing steps) or a concise summary (other steps).
+
+   Run subagents **sequentially in the foreground** — each step depends on the previous step's validated artifact or recorded result. Do not invoke the step skill inline: the subagent keeps each step's context isolated.
 
 5. Record completion with the CLI:
-   - File-producing steps:
+   - File-producing steps (the CLI verifies `expectedOutput` exists and is non-empty):
 
      ```bash
-     spok flow complete "<task-dir>" --step "<id>" --output "<absolute-output-path>" --json
+     spok flow complete "<task-dir>" --step "<id>" --json
      ```
 
    - `implement` and `simplify`:
@@ -65,17 +70,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 
 6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly.
 
-The deterministic step order is:
-
-1. `research-questions` → `spok-create-research-questions`
-2. `research` → `spok-create-research`
-3. `design-discussion` → `spok-create-design-discussion`
-4. `structure-outline` → `spok-create-structure-outline`
-5. `plan` → `spok-create-plan`
-6. `implement` → `spok-implement-plan`
-7. `simplify` → `spok-simplify`
-8. `validate` → `spok-validate-implementation`
-9. `commit` → `spok-ci-commit`
+Do not restate or assume the step order — `spok flow next` is the only source of truth.
 
 For `implement`, tell `spok-implement-plan` that it is running inside `spok-flow`: it must implement and verify the plan, return a summary, and must not create commits. The final commit belongs only to the `commit` step.
 
@@ -83,7 +78,7 @@ For `implement`, tell `spok-implement-plan` that it is running inside `spok-flow
 ## Important guidelines
 
 - Raise questions or concerns about objectives, design, or plan to the user at any time using the **AskUserQuestion** tool.
-- Run steps **sequentially in the foreground** because each step depends on the previous step's validated artifact or recorded result.
+- Run step subagents **sequentially in the foreground** because each step depends on the previous step's validated artifact or recorded result.
 - Let `spok flow next` choose the next step. Let `spok flow complete` validate step completion.
 - Use a **TaskList** to track the steps and their status.
 

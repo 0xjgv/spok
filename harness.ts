@@ -12,6 +12,7 @@
  *   bun harness.ts coverage --min=N # tests with coverage threshold
  *   bun harness.ts mutation         # Stryker mutation testing (advisory)
  *   bun harness.ts crap --max=N     # CRAP complexity x coverage (advisory)
+ *   bun harness.ts complexity [--update-baseline] # lizard gate; flag regenerates complexity-baseline.json
  *   bun harness.ts arch             # dependency-cruiser arch checks
  *   bun harness.ts --verbose        # show all output
  */
@@ -514,9 +515,11 @@ function parseLizardComplexityOffenders(output: string): ComplexityOffender[] {
     const match = locRe.exec(row);
     if (!match) continue;
 
-    const [, name, start, end, file] = match;
+    // Key on name@file (no line range) so refactors that shift lines
+    // do not invalidate baseline entries.
+    const [, name, , , file] = match;
     offenders.push({
-      location: `${name}@${start}-${end}@${file}`,
+      location: `${name}@${file}`,
       nloc,
       ccn,
       params,
@@ -565,8 +568,20 @@ async function cmdComplexity(): Promise<void> {
     process.exit(code);
   }
 
-  const baseline = await readComplexityBaseline();
   const offenders = parseLizardComplexityOffenders(stdout);
+
+  if (process.argv.includes('--update-baseline')) {
+    const { writeFile } = await import('node:fs/promises');
+    const keys = [...new Set(offenders.map((offender) => offender.location))];
+    const json = JSON.stringify({ version: 1, offenders: keys }, null, 2);
+    await writeFile(`${ROOT}/${COMPLEXITY_BASELINE}`, `${json}\n`, 'utf8');
+    console.log(
+      `  ${GREEN}✓${RESET} Complexity baseline updated ${DIM}(${keys.length} offender(s))${RESET}`,
+    );
+    return;
+  }
+
+  const baseline = await readComplexityBaseline();
   const unbaselined = offenders.filter((offender) => !baseline.has(offender.location));
 
   if (unbaselined.length === 0) {

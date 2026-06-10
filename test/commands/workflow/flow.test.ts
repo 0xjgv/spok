@@ -90,6 +90,25 @@ describe('deterministic workflow step state', () => {
     await expect(fs.stat(path.join(flow.taskDir, WORKFLOW_STATE_FILE))).resolves.toBeTruthy();
   });
 
+  it('does not create the state file on a status query', async () => {
+    const result = await getFlowStatus(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.nextStep?.id).toBe('research-questions');
+    await expect(fs.stat(path.join(flow.taskDir, WORKFLOW_STATE_FILE))).rejects.toThrow();
+  });
+
+  it('completes a file step without --output when the expected file exists', async () => {
+    await getFlowNext(flow.taskDir);
+    await fs.writeFile(path.join(flow.taskDir, 'research-questions.md'), '# RQ\n', 'utf-8');
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+
+    expect(result.state).toBe('ready');
+    expect(result.completedStep?.status).toBe('completed');
+    expect(result.nextStep?.id).toBe('research');
+  });
+
   it('validates the expected output before advancing to the next step', async () => {
     await getFlowNext(flow.taskDir);
     const output = path.join(flow.taskDir, 'research-questions.md');
@@ -153,6 +172,30 @@ describe('deterministic workflow blockers', () => {
     expect(result.reason).toContain('Expected step research-questions');
   });
 
+  it('blocks completion when the expected output file is empty', async () => {
+    await getFlowNext(flow.taskDir);
+    await fs.writeFile(path.join(flow.taskDir, 'research-questions.md'), '', 'utf-8');
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('missing or empty');
+  });
+
+  it('leaves the state file unchanged by a blocked completion and recovers', async () => {
+    await getFlowNext(flow.taskDir);
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const before = await fs.readFile(statePath, 'utf-8');
+
+    const blocked = await completeFlowStep(flow.taskDir, { step: 'research' });
+    expect(blocked.state).toBe('blocked');
+    await expect(fs.readFile(statePath, 'utf-8')).resolves.toBe(before);
+
+    const recovered = await getFlowNext(flow.taskDir);
+    expect(recovered.state).toBe('ready');
+    expect(recovered.step?.id).toBe('research-questions');
+  });
+
   it('blocks completion for a wrong output path', async () => {
     await getFlowNext(flow.taskDir);
     const wrongOutput = path.join(flow.taskDir, 'wrong.md');
@@ -196,6 +239,7 @@ describe('flow command output', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    process.exitCode = 0;
   });
 
   it('prints text details for the next ready step', async () => {
@@ -218,6 +262,14 @@ describe('flow command output', () => {
     });
 
     expect(logs).toEqual(['Blocked: Expected step research-questions, got research.']);
+  });
+
+  it('sets a nonzero exit code for blocked outcomes', async () => {
+    await getFlowNext(flow.taskDir);
+
+    await flowCompleteCommand(flow.taskDir, { step: 'research' });
+
+    expect(process.exitCode).toBe(1);
   });
 
   it('prints completion in text mode', async () => {

@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 
 export type FlowRunState = 'ready' | 'blocked' | 'complete';
-export type FlowStepStatus = 'pending' | 'ready' | 'completed' | 'blocked';
+export type FlowStepStatus = 'pending' | 'ready' | 'completed';
 export type FlowCompletionKind = 'file' | 'summary' | 'commit';
 
 export interface FlowStepResult {
@@ -30,11 +30,6 @@ export interface WorkflowState {
   steps: FlowStep[];
   createdAt: string;
   updatedAt: string;
-  block?: {
-    step?: string;
-    reason: string;
-    blockedAt: string;
-  };
 }
 
 export interface FlowResponse {
@@ -46,7 +41,6 @@ export interface FlowResponse {
   step?: FlowStep;
   completedStep?: FlowStep;
   reason?: string;
-  block?: WorkflowState['block'];
 }
 
 export interface FlowCompleteInput {
@@ -245,29 +239,21 @@ function markNextStepReady(state: WorkflowState): void {
   }
 
   state.status = readySet ? 'ready' : 'complete';
-  state.block = undefined;
-}
-
-function markBlocked(state: WorkflowState, reason: string, stepId?: string): void {
-  for (const step of state.steps) {
-    if (step.id === stepId) {
-      step.status = 'blocked';
-    } else if (step.status !== 'completed') {
-      step.status = 'pending';
-    }
-  }
-  state.status = 'blocked';
-  state.block = {
-    step: stepId,
-    reason,
-    blockedAt: nowIso(),
-  };
 }
 
 async function pathIsFile(targetPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(targetPath);
     return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function pathIsNonEmptyFile(targetPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(targetPath);
+    return stat.isFile() && stat.size > 0;
   } catch {
     return false;
   }
@@ -357,8 +343,7 @@ function buildResponse(
     nextStep,
     step: extra.step,
     completedStep: extra.completedStep,
-    reason: extra.reason ?? state.block?.reason,
-    block: state.block,
+    reason: extra.reason,
   };
 }
 
@@ -379,20 +364,25 @@ async function validateCompletedArtifacts(state: WorkflowState): Promise<string 
     const definition = getDefinitionById(state.taskDir, step.id);
     if (definition?.completionKind !== 'file' || !definition.expectedOutput) continue;
 
-    if (!(await pathIsFile(definition.expectedOutput))) {
+    if (!(await pathIsNonEmptyFile(definition.expectedOutput))) {
       return `Missing completed artifact for step ${step.id}: ${definition.expectedOutput}`;
     }
   }
 }
 
-async function saveBlockedState(
-  state: WorkflowState,
-  reason: string,
-  stepId?: string
-): Promise<FlowResponse> {
-  markBlocked(state, reason, stepId);
-  await writeState(state);
-  return buildResponse(state, { reason });
+/**
+ * Blocked is a response state, not a stored state: the state file is never
+ * written for a blocked outcome, so the next query re-derives from disk.
+ */
+function blockedResponse(state: WorkflowState, reason: string): FlowResponse {
+  return {
+    state: 'blocked',
+    taskDir: state.taskDir,
+    statePath: getStatePath(state.taskDir),
+    steps: state.steps,
+    nextStep: getCurrentStep(state),
+    reason,
+  };
 }
 
 function normalizeOutputPath(output: string): string {
@@ -407,9 +397,9 @@ function validateFileCompletion(
     return `Step ${definition.id} does not declare an expected output path.`;
   }
 
-  if (!input.output) {
-    return `Step ${definition.id} must provide --output ${definition.expectedOutput}.`;
-  }
+  // --output is optional: the CLI already knows the expected path. When
+  // provided, it must match.
+  if (!input.output) return;
 
   const expected = path.normalize(definition.expectedOutput);
   const actual = normalizeOutputPath(input.output);
@@ -426,8 +416,8 @@ async function completeStepResult(
     const validationError = validateFileCompletion(definition, input);
     if (validationError) return validationError;
 
-    if (!(await pathIsFile(definition.expectedOutput!))) {
-      return `Expected output file does not exist for step ${definition.id}: ${definition.expectedOutput}`;
+    if (!(await pathIsNonEmptyFile(definition.expectedOutput!))) {
+      return `Expected output file is missing or empty for step ${definition.id}: ${definition.expectedOutput}`;
     }
 
     return {
@@ -460,6 +450,7 @@ async function completeStepResult(
   };
 }
 
+/** Read-only: derives state from disk without creating or touching the state file. */
 export async function getFlowStatus(taskDirInput: string): Promise<FlowResponse> {
   const loaded = await loadOrCreateState(taskDirInput);
   if (!loaded.state) {
@@ -468,20 +459,29 @@ export async function getFlowStatus(taskDirInput: string): Promise<FlowResponse>
 
   const missingArtifact = await validateCompletedArtifacts(loaded.state);
   if (missingArtifact) {
-    markBlocked(loaded.state, missingArtifact);
-  } else {
-    markNextStepReady(loaded.state);
+    return blockedResponse(loaded.state, missingArtifact);
   }
 
-  await writeState(loaded.state);
   return buildResponse(loaded.state);
 }
 
+/** Owns state-file creation and refresh; blocked outcomes leave the file untouched. */
 export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
-  const status = await getFlowStatus(taskDirInput);
+  const loaded = await loadOrCreateState(taskDirInput);
+  if (!loaded.state) {
+    return buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+  }
+
+  const missingArtifact = await validateCompletedArtifacts(loaded.state);
+  if (missingArtifact) {
+    return blockedResponse(loaded.state, missingArtifact);
+  }
+
+  await writeState(loaded.state);
+  const response = buildResponse(loaded.state);
   return {
-    ...status,
-    step: status.nextStep,
+    ...response,
+    step: response.nextStep,
   };
 }
 
@@ -496,36 +496,26 @@ export async function completeFlowStep(
 
   const priorArtifactError = await validateCompletedArtifacts(loaded.state);
   if (priorArtifactError) {
-    return saveBlockedState(loaded.state, priorArtifactError);
+    return blockedResponse(loaded.state, priorArtifactError);
   }
 
   const currentStep = getCurrentStep(loaded.state);
   if (!currentStep) {
-    markNextStepReady(loaded.state);
-    await writeState(loaded.state);
     return buildResponse(loaded.state);
   }
 
   if (input.step !== currentStep.id) {
-    return saveBlockedState(
-      loaded.state,
-      `Expected step ${currentStep.id}, got ${input.step}.`,
-      currentStep.id
-    );
+    return blockedResponse(loaded.state, `Expected step ${currentStep.id}, got ${input.step}.`);
   }
 
   const definition = getDefinitionById(loaded.state.taskDir, currentStep.id);
   if (!definition) {
-    return saveBlockedState(
-      loaded.state,
-      `Unknown workflow step: ${currentStep.id}.`,
-      currentStep.id
-    );
+    return blockedResponse(loaded.state, `Unknown workflow step: ${currentStep.id}.`);
   }
 
   const result = await completeStepResult(definition, input);
   if (typeof result === 'string') {
-    return saveBlockedState(loaded.state, result, currentStep.id);
+    return blockedResponse(loaded.state, result);
   }
 
   currentStep.status = 'completed';
@@ -542,21 +532,29 @@ export async function flowStatusCommand(
   taskDir: string,
   options: FlowCommandOptions = {}
 ): Promise<void> {
-  printFlowResponse(await getFlowStatus(taskDir), options);
+  reportFlowResponse(await getFlowStatus(taskDir), options);
 }
 
 export async function flowNextCommand(
   taskDir: string,
   options: FlowCommandOptions = {}
 ): Promise<void> {
-  printFlowResponse(await getFlowNext(taskDir), options);
+  reportFlowResponse(await getFlowNext(taskDir), options);
 }
 
 export async function flowCompleteCommand(
   taskDir: string,
   options: FlowCompleteCommandOptions
 ): Promise<void> {
-  printFlowResponse(await completeFlowStep(taskDir, options), options);
+  reportFlowResponse(await completeFlowStep(taskDir, options), options);
+}
+
+/** Prints the response and signals blocked outcomes via a nonzero exit code. */
+function reportFlowResponse(response: FlowResponse, options: FlowCommandOptions): void {
+  printFlowResponse(response, options);
+  if (response.state === 'blocked') {
+    process.exitCode = 1;
+  }
 }
 
 function printFlowResponse(response: FlowResponse, options: FlowCommandOptions): void {

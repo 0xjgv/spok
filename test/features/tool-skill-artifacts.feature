@@ -31,3 +31,4 @@ Feature: Tool skill artifacts
     When I initialize Spok for the tools "claude"
     Then the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow complete"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "subagent_type: general-purpose"
