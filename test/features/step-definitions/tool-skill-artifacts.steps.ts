@@ -6,6 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { InitCommand } from '../../../src/core/init.js';
 import { UpdateCommand } from '../../../src/core/update.js';
+import { GlobalSkillsInstallCommand } from '../../../src/core/skills-install.js';
 
 interface SkillArtifactWorld {
   projectDir?: string;
@@ -83,6 +84,17 @@ When('I update Spok with force', async function (this: SkillArtifactWorld) {
   });
 });
 
+When('I install global Spok skills for the tools {string}', async function (this: SkillArtifactWorld, tools: string) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  this.setupGuidance = await captureConsoleLog(async () => {
+    await new GlobalSkillsInstallCommand({
+      tools,
+      interactive: false,
+      homeDir: this.projectDir!,
+    }).execute();
+  });
+});
+
 Then('Spok creates skills under {string}', async function (this: SkillArtifactWorld, relativeDir: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.equal(
@@ -92,6 +104,26 @@ Then('Spok creates skills under {string}', async function (this: SkillArtifactWo
 });
 
 Then('Spok creates the workflow skill {string} under {string}', async function (
+  this: SkillArtifactWorld,
+  skillName: string,
+  relativeDir: string
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.equal(
+    await pathExists(path.join(this.projectDir, relativeDir, skillName, 'SKILL.md')),
+    true
+  );
+});
+
+Then('Spok creates global skills under {string}', async function (this: SkillArtifactWorld, relativeDir: string) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.equal(
+    await pathExists(path.join(this.projectDir, relativeDir, 'spok-propose', 'SKILL.md')),
+    true
+  );
+});
+
+Then('Spok creates the global workflow skill {string} under {string}', async function (
   this: SkillArtifactWorld,
   skillName: string,
   relativeDir: string

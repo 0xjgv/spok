@@ -32,3 +32,14 @@ Feature: Tool skill artifacts
     Then the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow complete"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "subagent_type: general-purpose"
+
+  Scenario: Global skills install writes to home-scoped tool directories
+    Given a new project
+    When I install global Spok skills for the tools "claude,codex,factory"
+    Then Spok creates global skills under ".claude/skills"
+    And Spok creates the global workflow skill "spok-explore" under ".claude/skills"
+    And Spok creates global skills under ".agents/skills"
+    And Spok creates the global workflow skill "spok-explore" under ".agents/skills"
+    And Spok creates global skills under ".factory/skills"
+    And Spok creates the global workflow skill "spok-explore" under ".factory/skills"
+    And Spok does not create "spok"

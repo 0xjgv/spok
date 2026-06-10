@@ -129,6 +129,26 @@ program
     }
   });
 
+const skillsCmd = program.command('skills').description('Manage Spok skills');
+
+skillsCmd
+  .command('install')
+  .description('Install Spok skills into global home-scoped tool directories')
+  .option('--tools <tools>', toolsOptionDescription)
+  .action(async (options?: { tools?: string }) => {
+    try {
+      const { GlobalSkillsInstallCommand } = await import('../core/skills-install.js');
+      const installCommand = new GlobalSkillsInstallCommand({
+        tools: options?.tools,
+      });
+      await installCommand.execute();
+    } catch (error) {
+      console.log();
+      ora().fail(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
 program
   .command('list')
   .description('List items (changes by default). Use --specs to list specs.')

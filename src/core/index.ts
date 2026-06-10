@@ -14,3 +14,4 @@ export {
 
 export * from './workspace/index.js';
 export * from './planning-home.js';
+export * from './skills-install.js';
