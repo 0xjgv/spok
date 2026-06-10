@@ -12,7 +12,7 @@ For slash commands, see [Commands](commands.md). For workflow patterns, see [Wor
 
 | Surface | Verbs | Purpose |
 |---------|-------|---------|
-| **User-facing** | `init`, `update`, `archive`, `list` | Setup, refresh, finalize, browse |
+| **User-facing** | `version`, `init`, `update`, `archive`, `list` | Inspect, setup, refresh, finalize, browse |
 | **Internal plumbing** | `new`, `status`, `instructions` | Called by skills; safe to inspect, not meant for daily human use |
 
 Spok also ships internal libraries (validation, artifact graphs, workflow schemas, workspace resolution) that power the commands above. These are not exposed as CLI verbs in 1.0 — see [Migration Guide](migration-guide.md) for removed commands like `validate`, `show`, and `completion`.
@@ -23,8 +23,6 @@ Spok also ships internal libraries (validation, artifact graphs, workflow schema
 
 | Option | Description |
 |--------|-------------|
-| `--version`, `-V` | Show version number |
-| `--no-color` | Disable color output |
 | `--help`, `-h` | Display help for command |
 
 ---

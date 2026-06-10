@@ -17,7 +17,7 @@ bun add -g spok
 ## Verify Installation
 
 ```bash
-spok --version
+spok version
 ```
 
 ## Next Steps

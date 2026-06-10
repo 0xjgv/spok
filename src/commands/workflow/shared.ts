@@ -48,7 +48,7 @@ export const DEFAULT_SCHEMA = 'spec-driven';
 // -----------------------------------------------------------------------------
 
 /**
- * Checks if color output is disabled via NO_COLOR env or --no-color flag.
+ * Checks if color output is disabled via NO_COLOR env.
  */
 export function isColorDisabled(): boolean {
   return process.env.NO_COLOR === '1' || process.env.NO_COLOR === 'true';

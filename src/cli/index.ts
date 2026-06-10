@@ -51,18 +51,10 @@ function getCommandPath(command: Command): string {
 program
   .name('spok')
   .description('AI-native system for spec-driven development')
-  .version(version);
-
-// Global options
-program.option('--no-color', 'Disable color output');
+  .helpCommand(false);
 
 // Apply global flags and telemetry before any command runs
-program.hook('preAction', async (thisCommand, actionCommand) => {
-  const opts = thisCommand.opts();
-  if (opts.color === false) {
-    process.env.NO_COLOR = '1';
-  }
-
+program.hook('preAction', async (_thisCommand, actionCommand) => {
   await maybeShowTelemetryNotice();
 
   const commandPath = getCommandPath(actionCommand);
@@ -78,6 +70,24 @@ program
   .description('Print Spok version')
   .action(() => {
     console.log(version);
+  });
+
+program
+  .command('help [command]')
+  .description('display help for command')
+  .action((commandName?: string) => {
+    if (!commandName) {
+      program.outputHelp();
+      return;
+    }
+
+    const command = program.commands.find((subcommand) => subcommand.name() === commandName);
+    if (!command) {
+      console.error(`error: unknown command '${commandName}'`);
+      process.exit(1);
+    }
+
+    command.outputHelp();
   });
 
 const availableToolIds = AI_TOOLS.filter((tool) => tool.skillsDir).map((tool) => tool.value);
@@ -136,9 +146,22 @@ program
     }
   });
 
-const skillsCmd = program.command('skills').description('Manage Spok skills');
+const skillsCmd = program
+  .command('skills')
+  .description('Manage Spok skills')
+  .helpCommand(false)
+  .addHelpText('after', `
+Examples:
+  spok skills install --tools claude,codex,factory
+  spok skills install --tools all
+  spok skills install --tools none
 
-skillsCmd
+Help:
+  spok help skills
+  spok skills --help
+  spok skills install --help`);
+
+const skillsInstallCmd = skillsCmd
   .command('install')
   .description('Install Spok skills into global home-scoped tool directories')
   .option('--tools <tools>', toolsOptionDescription)
@@ -154,6 +177,29 @@ skillsCmd
       ora().fail(`Error: ${(error as Error).message}`);
       process.exit(1);
     }
+  });
+
+skillsCmd
+  .command('help [command]', { hidden: true })
+  .description('display help for command')
+  .action((commandName?: string) => {
+    if (!commandName) {
+      skillsCmd.outputHelp();
+      return;
+    }
+
+    if (commandName === 'install') {
+      skillsInstallCmd.outputHelp();
+      return;
+    }
+
+    console.error(`Unknown skills subcommand: ${commandName}`);
+    console.error();
+    console.error('Use one of:');
+    console.error('  spok help skills');
+    console.error('  spok skills --help');
+    console.error('  spok skills install --help');
+    process.exit(1);
   });
 
 program
