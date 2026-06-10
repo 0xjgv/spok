@@ -24,7 +24,6 @@ version: 0.1.0
 
   - **Junie support** — Added tool and command generation for JetBrains Junie
   - **Lingma IDE support** — Added configuration support for Lingma IDE
-  - **ForgeCode support** — Added tool support for ForgeCode
   - **IBM Bob support** — Added support for IBM Bob coding assistant
 
   ### Bug Fixes

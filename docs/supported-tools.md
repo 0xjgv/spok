@@ -27,7 +27,6 @@ You invoke `/spok-explore`, `/spok-propose`, `/spok-apply`, and `/spok-archive` 
 | Cline (`cline`) | `.cline/skills/spok-*/SKILL.md` |
 | CodeBuddy (`codebuddy`) | `.codebuddy/skills/spok-*/SKILL.md` |
 | Codex (`codex`) | `.agents/skills/spok-*/SKILL.md` |
-| ForgeCode (`forgecode`) | `.forge/skills/spok-*/SKILL.md` |
 | Continue (`continue`) | `.continue/skills/spok-*/SKILL.md` |
 | CoStrict (`costrict`) | `.cospec/skills/spok-*/SKILL.md` |
 | Crush (`crush`) | `.crush/skills/spok-*/SKILL.md` |
@@ -66,7 +65,7 @@ spok init --tools all
 spok init --tools none
 ```
 
-**Available tool IDs (`--tools`):** `amazon-q`, `antigravity`, `auggie`, `bob`, `claude`, `cline`, `codex`, `forgecode`, `codebuddy`, `continue`, `costrict`, `crush`, `cursor`, `factory`, `gemini`, `github-copilot`, `iflow`, `junie`, `kilocode`, `kimi`, `kiro`, `opencode`, `pi`, `qoder`, `lingma`, `qwen`, `roocode`, `trae`, `windsurf`
+**Available tool IDs (`--tools`):** `amazon-q`, `antigravity`, `auggie`, `bob`, `claude`, `cline`, `codex`, `codebuddy`, `continue`, `costrict`, `crush`, `cursor`, `factory`, `gemini`, `github-copilot`, `iflow`, `junie`, `kilocode`, `kimi`, `kiro`, `opencode`, `pi`, `qoder`, `lingma`, `qwen`, `roocode`, `trae`, `windsurf`
 
 ## Installed Skills
 
