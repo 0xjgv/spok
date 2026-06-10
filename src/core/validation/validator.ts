@@ -10,9 +10,20 @@ import {
   MAX_REQUIREMENT_TEXT_LENGTH,
   VALIDATION_MESSAGES
 } from './constants.js';
-import { parseDeltaSpec, normalizeRequirementName } from '../parsers/requirement-blocks.js';
+import {
+  parseDeltaSpec,
+  normalizeRequirementName,
+  DeltaPlan,
+  RequirementBlock,
+} from '../parsers/requirement-blocks.js';
 import { findMainSpecStructureIssues } from '../parsers/spec-structure.js';
 import { FileSystemUtils } from '../../utils/file-system.js';
+
+interface DeltaNames {
+  added: Set<string>;
+  modified: Set<string>;
+  removed: Set<string>;
+}
 
 export class Validator {
   private strictMode: boolean;
@@ -123,129 +134,28 @@ export class Validator {
       const entries = await fs.readdir(specsDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        const specName = entry.name;
-        const specFile = path.join(specsDir, specName, 'spec.md');
-        let content: string | undefined;
-        try {
-          content = await fs.readFile(specFile, 'utf-8');
-        } catch {
-          continue;
-        }
+        const content = await this.readDeltaSpecFile(specsDir, entry.name);
+        if (content === undefined) continue;
 
         const plan = parseDeltaSpec(content);
-        const entryPath = `${specName}/spec.md`;
-        const sectionNames: string[] = [];
-        if (plan.sectionPresence.added) sectionNames.push('## ADDED Requirements');
-        if (plan.sectionPresence.modified) sectionNames.push('## MODIFIED Requirements');
-        if (plan.sectionPresence.removed) sectionNames.push('## REMOVED Requirements');
-        if (plan.sectionPresence.renamed) sectionNames.push('## RENAMED Requirements');
-        const hasSections = sectionNames.length > 0;
-        const hasEntries = plan.added.length + plan.modified.length + plan.removed.length + plan.renamed.length > 0;
+        const entryPath = `${entry.name}/spec.md`;
+
+        const sectionNames = this.collectPresentSectionNames(plan);
+        const hasEntries =
+          plan.added.length + plan.modified.length + plan.removed.length + plan.renamed.length > 0;
         if (!hasEntries) {
-          if (hasSections) emptySectionSpecs.push({ path: entryPath, sections: sectionNames });
+          if (sectionNames.length > 0) emptySectionSpecs.push({ path: entryPath, sections: sectionNames });
           else missingHeaderSpecs.push(entryPath);
         }
 
-        const addedNames = new Set<string>();
-        const modifiedNames = new Set<string>();
-        const removedNames = new Set<string>();
-        const renamedFrom = new Set<string>();
-        const renamedTo = new Set<string>();
+        const names = this.collectDeltaNames(plan);
+        totalDeltas += plan.added.length + plan.modified.length + plan.removed.length + plan.renamed.length;
 
-        // Validate ADDED
-        for (const block of plan.added) {
-          const key = normalizeRequirementName(block.name);
-          totalDeltas++;
-          if (addedNames.has(key)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `Duplicate requirement in ADDED: "${block.name}"` });
-          } else {
-            addedNames.add(key);
-          }
-          const requirementText = this.extractRequirementText(block.raw);
-          if (!requirementText) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `ADDED "${block.name}" is missing requirement text` });
-          } else if (!this.containsShallOrMust(requirementText)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `ADDED "${block.name}" must contain SHALL or MUST` });
-          }
-          const scenarioCount = this.countScenarios(block.raw);
-          if (scenarioCount < 1) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `ADDED "${block.name}" must include at least one scenario` });
-          }
-        }
-
-        // Validate MODIFIED
-        for (const block of plan.modified) {
-          const key = normalizeRequirementName(block.name);
-          totalDeltas++;
-          if (modifiedNames.has(key)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `Duplicate requirement in MODIFIED: "${block.name}"` });
-          } else {
-            modifiedNames.add(key);
-          }
-          const requirementText = this.extractRequirementText(block.raw);
-          if (!requirementText) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `MODIFIED "${block.name}" is missing requirement text` });
-          } else if (!this.containsShallOrMust(requirementText)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `MODIFIED "${block.name}" must contain SHALL or MUST` });
-          }
-          const scenarioCount = this.countScenarios(block.raw);
-          if (scenarioCount < 1) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `MODIFIED "${block.name}" must include at least one scenario` });
-          }
-        }
-
-        // Validate REMOVED (names only)
-        for (const name of plan.removed) {
-          const key = normalizeRequirementName(name);
-          totalDeltas++;
-          if (removedNames.has(key)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `Duplicate requirement in REMOVED: "${name}"` });
-          } else {
-            removedNames.add(key);
-          }
-        }
-
-        // Validate RENAMED pairs
-        for (const { from, to } of plan.renamed) {
-          const fromKey = normalizeRequirementName(from);
-          const toKey = normalizeRequirementName(to);
-          totalDeltas++;
-          if (renamedFrom.has(fromKey)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `Duplicate FROM in RENAMED: "${from}"` });
-          } else {
-            renamedFrom.add(fromKey);
-          }
-          if (renamedTo.has(toKey)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `Duplicate TO in RENAMED: "${to}"` });
-          } else {
-            renamedTo.add(toKey);
-          }
-        }
-
-        // Cross-section conflicts (within the same spec file)
-        for (const n of modifiedNames) {
-          if (removedNames.has(n)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `Requirement present in both MODIFIED and REMOVED: "${n}"` });
-          }
-          if (addedNames.has(n)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `Requirement present in both MODIFIED and ADDED: "${n}"` });
-          }
-        }
-        for (const n of addedNames) {
-          if (removedNames.has(n)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `Requirement present in both ADDED and REMOVED: "${n}"` });
-          }
-        }
-        for (const { from, to } of plan.renamed) {
-          const fromKey = normalizeRequirementName(from);
-          const toKey = normalizeRequirementName(to);
-          if (modifiedNames.has(fromKey)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `MODIFIED references old name from RENAMED. Use new header for "${to}"` });
-          }
-          if (addedNames.has(toKey)) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `RENAMED TO collides with ADDED for "${to}"` });
-          }
-        }
+        issues.push(...this.validateRequirementBlocks('ADDED', plan.added, entryPath));
+        issues.push(...this.validateRequirementBlocks('MODIFIED', plan.modified, entryPath));
+        issues.push(...this.validateRemovedNames(plan.removed, entryPath));
+        issues.push(...this.validateRenamedPairs(plan.renamed, entryPath));
+        issues.push(...this.findCrossSectionConflicts(plan, entryPath, names));
       }
     } catch {
       // If no specs dir, treat as no deltas
@@ -271,6 +181,139 @@ export class Validator {
     }
 
     return this.createReport(issues);
+  }
+
+  private async readDeltaSpecFile(specsDir: string, specName: string): Promise<string | undefined> {
+    const specFile = path.join(specsDir, specName, 'spec.md');
+    try {
+      return await fs.readFile(specFile, 'utf-8');
+    } catch {
+      return undefined;
+    }
+  }
+
+  private collectPresentSectionNames(plan: DeltaPlan): string[] {
+    const sectionNames: string[] = [];
+    if (plan.sectionPresence.added) sectionNames.push('## ADDED Requirements');
+    if (plan.sectionPresence.modified) sectionNames.push('## MODIFIED Requirements');
+    if (plan.sectionPresence.removed) sectionNames.push('## REMOVED Requirements');
+    if (plan.sectionPresence.renamed) sectionNames.push('## RENAMED Requirements');
+    return sectionNames;
+  }
+
+  /**
+   * Collect the distinct normalized names of each delta section. Used for
+   * cross-section conflict checks; duplicate detection happens per-section.
+   */
+  private collectDeltaNames(plan: DeltaPlan): DeltaNames {
+    return {
+      added: new Set(plan.added.map(block => normalizeRequirementName(block.name))),
+      modified: new Set(plan.modified.map(block => normalizeRequirementName(block.name))),
+      removed: new Set(plan.removed.map(name => normalizeRequirementName(name))),
+    };
+  }
+
+  private validateRequirementBlocks(
+    operation: 'ADDED' | 'MODIFIED',
+    blocks: RequirementBlock[],
+    entryPath: string,
+  ): ValidationIssue[] {
+    const issues: ValidationIssue[] = [];
+    const seen = new Set<string>();
+
+    for (const block of blocks) {
+      const key = normalizeRequirementName(block.name);
+      if (seen.has(key)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `Duplicate requirement in ${operation}: "${block.name}"` });
+      } else {
+        seen.add(key);
+      }
+
+      const requirementText = this.extractRequirementText(block.raw);
+      if (!requirementText) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `${operation} "${block.name}" is missing requirement text` });
+      } else if (!this.containsShallOrMust(requirementText)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `${operation} "${block.name}" must contain SHALL or MUST` });
+      }
+
+      if (this.countScenarios(block.raw) < 1) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `${operation} "${block.name}" must include at least one scenario` });
+      }
+    }
+
+    return issues;
+  }
+
+  private validateRemovedNames(removed: string[], entryPath: string): ValidationIssue[] {
+    const issues: ValidationIssue[] = [];
+    const seen = new Set<string>();
+
+    for (const name of removed) {
+      const key = normalizeRequirementName(name);
+      if (seen.has(key)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `Duplicate requirement in REMOVED: "${name}"` });
+      } else {
+        seen.add(key);
+      }
+    }
+
+    return issues;
+  }
+
+  private validateRenamedPairs(
+    renamed: Array<{ from: string; to: string }>,
+    entryPath: string,
+  ): ValidationIssue[] {
+    const issues: ValidationIssue[] = [];
+    const seenFrom = new Set<string>();
+    const seenTo = new Set<string>();
+
+    for (const { from, to } of renamed) {
+      const fromKey = normalizeRequirementName(from);
+      const toKey = normalizeRequirementName(to);
+      if (seenFrom.has(fromKey)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `Duplicate FROM in RENAMED: "${from}"` });
+      } else {
+        seenFrom.add(fromKey);
+      }
+      if (seenTo.has(toKey)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `Duplicate TO in RENAMED: "${to}"` });
+      } else {
+        seenTo.add(toKey);
+      }
+    }
+
+    return issues;
+  }
+
+  private findCrossSectionConflicts(plan: DeltaPlan, entryPath: string, names: DeltaNames): ValidationIssue[] {
+    const issues: ValidationIssue[] = [];
+
+    for (const n of names.modified) {
+      if (names.removed.has(n)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `Requirement present in both MODIFIED and REMOVED: "${n}"` });
+      }
+      if (names.added.has(n)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `Requirement present in both MODIFIED and ADDED: "${n}"` });
+      }
+    }
+    for (const n of names.added) {
+      if (names.removed.has(n)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `Requirement present in both ADDED and REMOVED: "${n}"` });
+      }
+    }
+    for (const { from, to } of plan.renamed) {
+      const fromKey = normalizeRequirementName(from);
+      const toKey = normalizeRequirementName(to);
+      if (names.modified.has(fromKey)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `MODIFIED references old name from RENAMED. Use new header for "${to}"` });
+      }
+      if (names.added.has(toKey)) {
+        issues.push({ level: 'ERROR', path: entryPath, message: `RENAMED TO collides with ADDED for "${to}"` });
+      }
+    }
+
+    return issues;
   }
 
   private convertZodErrors(error: ZodError): ValidationIssue[] {

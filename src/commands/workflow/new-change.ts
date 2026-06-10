@@ -58,6 +58,36 @@ function validateWorkspaceAffectedAreas(planningHome: PlanningHome, affectedArea
   }
 }
 
+function buildChangeMetadata(
+  planningHome: PlanningHome,
+  options: NewChangeOptions,
+  affectedAreas: string[]
+): { goal?: string; affected_areas?: string[] } {
+  const goal = planningHome.kind === 'workspace'
+    ? options.goal ?? options.description
+    : options.goal;
+
+  return {
+    ...(goal ? { goal } : {}),
+    ...(affectedAreas.length > 0 ? { affected_areas: affectedAreas } : {}),
+  };
+}
+
+async function writeChangeReadme(changeDir: string, name: string, description: string): Promise<void> {
+  const { promises: fs } = await import('fs');
+  const readmePath = path.join(changeDir, 'README.md');
+  await fs.writeFile(readmePath, `# ${name}\n\n${description}\n`, 'utf-8');
+}
+
+function reportWorkspaceNextSteps(name: string, affectedAreas: string[]): void {
+  if (affectedAreas.length > 0) {
+    console.log(`Affected areas: ${affectedAreas.join(', ')}`);
+  } else {
+    console.log('Affected areas: unresolved; identify them in workspace specs or tasks as planning continues.');
+  }
+  console.log('Next: run spok status --change "' + name + '" to inspect workspace planning artifacts.');
+}
+
 export async function newChangeCommand(name: string | undefined, options: NewChangeOptions): Promise<void> {
   if (!name) {
     throw new Error('Missing required argument <name>');
@@ -79,28 +109,18 @@ export async function newChangeCommand(name: string | undefined, options: NewCha
   }
 
   const resolvedSchema = options.schema ?? planningHome.defaultSchema;
-  const schemaDisplay = ` with schema '${resolvedSchema}'`;
-  const spinner = ora(`Creating change '${name}'${schemaDisplay}...`).start();
+  const spinner = ora(`Creating change '${name}' with schema '${resolvedSchema}'...`).start();
 
   try {
-    const workspaceGoal = planningHome.kind === 'workspace'
-      ? options.goal ?? options.description
-      : options.goal;
     const result = await createChange(projectRoot, name, {
       schema: options.schema,
       defaultSchema: planningHome.defaultSchema,
       changesDir: planningHome.changesDir,
-      metadata: {
-        ...(workspaceGoal ? { goal: workspaceGoal } : {}),
-        ...(affectedAreas.length > 0 ? { affected_areas: affectedAreas } : {}),
-      },
+      metadata: buildChangeMetadata(planningHome, options, affectedAreas),
     });
 
-    // If description provided, create README.md with description
     if (options.description) {
-      const { promises: fs } = await import('fs');
-      const readmePath = path.join(result.changeDir, 'README.md');
-      await fs.writeFile(readmePath, `# ${name}\n\n${options.description}\n`, 'utf-8');
+      await writeChangeReadme(result.changeDir, name, options.description);
     }
 
     const location = formatChangeLocation(planningHome, name);
@@ -108,12 +128,7 @@ export async function newChangeCommand(name: string | undefined, options: NewCha
     spinner.succeed(`Created ${scope} '${name}' at ${location}/ (schema: ${result.schema})`);
 
     if (planningHome.kind === 'workspace') {
-      if (affectedAreas.length > 0) {
-        console.log(`Affected areas: ${affectedAreas.join(', ')}`);
-      } else {
-        console.log('Affected areas: unresolved; identify them in workspace specs or tasks as planning continues.');
-      }
-      console.log('Next: run spok status --change "' + name + '" to inspect workspace planning artifacts.');
+      reportWorkspaceNextSteps(name, affectedAreas);
     }
   } catch (error) {
     spinner.fail(`Failed to create change '${name}'`);

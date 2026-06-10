@@ -107,6 +107,32 @@ export const RETIRED_SKILL_DIRS = [
 export type RetiredSkillDir = (typeof RETIRED_SKILL_DIRS)[number];
 
 /**
+ * Converts a slash command glob pattern into an anchored RegExp.
+ * Escapes regex special characters except `*`, which becomes `.*`.
+ * e.g. `spok-*.prompt.md` -> /^spok-.*\.prompt\.md$/
+ *
+ * @param pattern - Glob pattern (a file name or a path segment)
+ * @returns Anchored regular expression matching the pattern
+ */
+function globToRegExp(pattern: string): RegExp {
+  const regexPattern = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape regex special chars except *
+    .replace(/\*/g, '.*'); // Replace * with .*
+  return new RegExp(`^${regexPattern}$`);
+}
+
+/**
+ * Normalizes a pattern field (single value or array) into an array.
+ *
+ * @param value - A string, array of strings, or undefined
+ * @returns Array of strings (empty when undefined)
+ */
+function toArray(value: string | string[] | undefined): string[] {
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+/**
  * Pattern types for legacy slash commands
  */
 export interface LegacySlashCommandPattern {
@@ -264,23 +290,17 @@ export async function detectLegacySlashCommands(
   const directories: string[] = [];
   const files: string[] = [];
 
-  for (const [toolId, pattern] of Object.entries(LEGACY_SLASH_COMMAND_PATHS)) {
-    if (pattern.path) {
-      const paths = Array.isArray(pattern.path) ? pattern.path : [pattern.path];
-      for (const relPath of paths) {
-        const dirPath = FileSystemUtils.joinPath(projectPath, relPath);
-        if (await FileSystemUtils.directoryExists(dirPath)) {
-          directories.push(relPath);
-        }
+  for (const pattern of Object.values(LEGACY_SLASH_COMMAND_PATHS)) {
+    for (const relPath of toArray(pattern.path)) {
+      const dirPath = FileSystemUtils.joinPath(projectPath, relPath);
+      if (await FileSystemUtils.directoryExists(dirPath)) {
+        directories.push(relPath);
       }
     }
-    if (pattern.pattern) {
-      // For file-based patterns, check for individual files
-      const patterns = Array.isArray(pattern.pattern) ? pattern.pattern : [pattern.pattern];
-      for (const p of patterns) {
-        const foundFiles = await findLegacySlashCommandFiles(projectPath, p);
-        files.push(...foundFiles);
-      }
+    // For file-based patterns, check for individual files
+    for (const p of toArray(pattern.pattern)) {
+      const foundFiles = await findLegacySlashCommandFiles(projectPath, p);
+      files.push(...foundFiles);
     }
   }
 
@@ -316,15 +336,7 @@ async function findLegacySlashCommandFiles(
 
   try {
     const entries = await fs.readdir(dirPath);
-
-    // Convert glob pattern to regex
-    // spok-*.md -> /^spok-.*\.md$/
-    // spok-*.prompt.md -> /^spok-.*\.prompt\.md$/
-    // spok-*.toml -> /^spok-.*\.toml$/
-    const regexPattern = filePart
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape regex special chars except *
-      .replace(/\*/g, '.*'); // Replace * with .*
-    const regex = new RegExp(`^${regexPattern}$`);
+    const regex = globToRegExp(filePart);
 
     for (const entry of entries) {
       if (regex.test(entry)) {
@@ -472,13 +484,7 @@ export async function cleanupLegacyArtifacts(
 
   // Delete legacy slash command directories (these are 100% Spok-managed)
   for (const dirPath of detection.slashCommandDirs) {
-    const fullPath = FileSystemUtils.joinPath(projectPath, dirPath);
-    try {
-      await fs.rm(fullPath, { recursive: true, force: true });
-      result.deletedDirs.push(dirPath);
-    } catch (error: any) {
-      result.errors.push(`Failed to delete directory ${dirPath}: ${error.message}`);
-    }
+    await removeDirectory(projectPath, dirPath, result, `Failed to delete directory ${dirPath}`);
   }
 
   // Delete legacy slash command files (these are 100% Spok-managed)
@@ -511,16 +517,35 @@ export async function cleanupLegacyArtifacts(
 
   // Delete retired skill directories (these are 100% Spok-managed)
   for (const relPath of detection.retiredSkillDirs ?? []) {
-    const fullPath = FileSystemUtils.joinPath(projectPath, relPath);
-    try {
-      await fs.rm(fullPath, { recursive: true, force: true });
-      result.deletedDirs.push(relPath);
-    } catch (error: any) {
-      result.errors.push(`Failed to delete retired skill ${relPath}: ${error.message}`);
-    }
+    await removeDirectory(projectPath, relPath, result, `Failed to delete retired skill ${relPath}`);
   }
 
   return result;
+}
+
+/**
+ * Recursively removes a directory, recording the result.
+ * On success the relative path is added to `result.deletedDirs`;
+ * on failure `errorPrefix` plus the error message is added to `result.errors`.
+ *
+ * @param projectPath - The root path of the project
+ * @param relPath - Project-relative path of the directory to remove
+ * @param result - Cleanup result to record success or failure into
+ * @param errorPrefix - Prefix for the error message on failure
+ */
+async function removeDirectory(
+  projectPath: string,
+  relPath: string,
+  result: CleanupResult,
+  errorPrefix: string
+): Promise<void> {
+  const fullPath = FileSystemUtils.joinPath(projectPath, relPath);
+  try {
+    await fs.rm(fullPath, { recursive: true, force: true });
+    result.deletedDirs.push(relPath);
+  } catch (error: any) {
+    result.errors.push(`${errorPrefix}: ${error.message}`);
+  }
 }
 
 /**
@@ -688,16 +713,14 @@ export function formatDetectionSummary(detection: LegacyDetectionResult): string
  */
 export function getToolsFromLegacyArtifacts(detection: LegacyDetectionResult): string[] {
   const tools = new Set<string>();
+  const entries = Object.entries(LEGACY_SLASH_COMMAND_PATHS);
 
-  // Match directories to tool IDs
+  // Match directories to tool IDs by exact relative path
   for (const dir of detection.slashCommandDirs) {
-    for (const [toolId, pattern] of Object.entries(LEGACY_SLASH_COMMAND_PATHS)) {
-      if (pattern.path) {
-        const paths = Array.isArray(pattern.path) ? pattern.path : [pattern.path];
-        if (paths.includes(dir)) {
-          tools.add(toolId);
-          break;
-        }
+    for (const [toolId, pattern] of entries) {
+      if (toArray(pattern.path).includes(dir)) {
+        tools.add(toolId);
+        break;
       }
     }
   }
@@ -706,24 +729,10 @@ export function getToolsFromLegacyArtifacts(detection: LegacyDetectionResult): s
   for (const file of detection.slashCommandFiles) {
     // Normalize file path to use forward slashes for consistent matching (Windows compatibility)
     const normalizedFile = file.replace(/\\/g, '/');
-    for (const [toolId, pattern] of Object.entries(LEGACY_SLASH_COMMAND_PATHS)) {
-      if (pattern.pattern) {
-        // Convert glob pattern to regex for matching
-        // e.g., '.cursor/commands/spok-*.md' -> /^\.cursor\/commands\/spok-.*\.md$/
-        const patterns = Array.isArray(pattern.pattern) ? pattern.pattern : [pattern.pattern];
-        let matched = false;
-        for (const p of patterns) {
-          const regexPattern = p
-            .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape regex special chars except *
-            .replace(/\*/g, '.*'); // Replace * with .*
-          const regex = new RegExp(`^${regexPattern}$`);
-          if (regex.test(normalizedFile)) {
-            tools.add(toolId);
-            matched = true;
-            break;
-          }
-        }
-        if (matched) break;
+    for (const [toolId, pattern] of entries) {
+      if (toArray(pattern.pattern).some((p) => globToRegExp(p).test(normalizedFile))) {
+        tools.add(toolId);
+        break;
       }
     }
   }

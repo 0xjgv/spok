@@ -53,126 +53,102 @@ export class ChangeParser extends MarkdownParser {
   }
 
   private async parseDeltaSpecs(specsDir: string): Promise<Delta[]> {
-    const deltas: Delta[] = [];
-    
+    let specDirs;
     try {
-      const specDirs = await fs.readdir(specsDir, { withFileTypes: true });
-      
-      for (const dir of specDirs) {
-        if (!dir.isDirectory()) continue;
-        
-        const specName = dir.name;
-        const specFile = path.join(specsDir, specName, 'spec.md');
-        
-        try {
-          const content = await fs.readFile(specFile, 'utf-8');
-          const specDeltas = this.parseSpecDeltas(specName, content);
-          deltas.push(...specDeltas);
-        } catch (error) {
-          // Spec file might not exist, which is okay
-          continue;
-        }
-      }
-    } catch (error) {
+      specDirs = await fs.readdir(specsDir, { withFileTypes: true });
+    } catch {
       // Specs directory might not exist, which is okay
       return [];
     }
-    
+
+    const deltas: Delta[] = [];
+
+    for (const dir of specDirs) {
+      if (!dir.isDirectory()) continue;
+
+      const specFile = path.join(specsDir, dir.name, 'spec.md');
+
+      try {
+        const content = await fs.readFile(specFile, 'utf-8');
+        deltas.push(...this.parseSpecDeltas(dir.name, content));
+      } catch {
+        // Spec file might not exist, which is okay
+      }
+    }
+
     return deltas;
   }
 
   private parseSpecDeltas(specName: string, content: string): Delta[] {
-    const deltas: Delta[] = [];
     const sections = this.parseSectionsFromContent(content);
-    
-    // Parse ADDED requirements
-    const addedSection = this.findSection(sections, 'ADDED Requirements');
-    if (addedSection) {
-      const requirements = this.parseRequirements(addedSection);
-      requirements.forEach(req => {
+    const deltas: Delta[] = [];
+
+    const requirementRules: Array<{
+      title: string;
+      operation: DeltaOperation;
+      describe: (req: Requirement) => string;
+    }> = [
+      { title: 'ADDED Requirements', operation: 'ADDED', describe: req => `Add requirement: ${req.text}` },
+      { title: 'MODIFIED Requirements', operation: 'MODIFIED', describe: req => `Modify requirement: ${req.text}` },
+      { title: 'REMOVED Requirements', operation: 'REMOVED', describe: req => `Remove requirement: ${req.text}` },
+    ];
+
+    for (const { title, operation, describe } of requirementRules) {
+      const section = this.findSection(sections, title);
+      if (!section) continue;
+
+      for (const req of this.parseRequirements(section)) {
         deltas.push({
           spec: specName,
-          operation: 'ADDED' as DeltaOperation,
-          description: `Add requirement: ${req.text}`,
+          operation,
+          description: describe(req),
           // Provide both single and plural forms for compatibility
           requirement: req,
           requirements: [req],
         });
-      });
+      }
     }
-    
-    // Parse MODIFIED requirements
-    const modifiedSection = this.findSection(sections, 'MODIFIED Requirements');
-    if (modifiedSection) {
-      const requirements = this.parseRequirements(modifiedSection);
-      requirements.forEach(req => {
-        deltas.push({
-          spec: specName,
-          operation: 'MODIFIED' as DeltaOperation,
-          description: `Modify requirement: ${req.text}`,
-          requirement: req,
-          requirements: [req],
-        });
-      });
-    }
-    
-    // Parse REMOVED requirements
-    const removedSection = this.findSection(sections, 'REMOVED Requirements');
-    if (removedSection) {
-      const requirements = this.parseRequirements(removedSection);
-      requirements.forEach(req => {
-        deltas.push({
-          spec: specName,
-          operation: 'REMOVED' as DeltaOperation,
-          description: `Remove requirement: ${req.text}`,
-          requirement: req,
-          requirements: [req],
-        });
-      });
-    }
-    
-    // Parse RENAMED requirements
+
     const renamedSection = this.findSection(sections, 'RENAMED Requirements');
     if (renamedSection) {
-      const renames = this.parseRenames(renamedSection.content);
-      renames.forEach(rename => {
+      for (const rename of this.parseRenames(renamedSection.content)) {
         deltas.push({
           spec: specName,
           operation: 'RENAMED' as DeltaOperation,
           description: `Rename requirement from "${rename.from}" to "${rename.to}"`,
           rename,
         });
-      });
+      }
     }
-    
+
     return deltas;
   }
 
   private parseRenames(content: string): Array<{ from: string; to: string }> {
     const renames: Array<{ from: string; to: string }> = [];
     const lines = ChangeParser.normalizeContent(content).split('\n');
-    
+
     let currentRename: { from?: string; to?: string } = {};
-    
+
     for (const line of lines) {
       const fromMatch = line.match(/^\s*-?\s*FROM:\s*`?###\s*Requirement:\s*(.+?)`?\s*$/);
-      const toMatch = line.match(/^\s*-?\s*TO:\s*`?###\s*Requirement:\s*(.+?)`?\s*$/);
-      
       if (fromMatch) {
         currentRename.from = fromMatch[1].trim();
-      } else if (toMatch) {
-        currentRename.to = toMatch[1].trim();
-        
-        if (currentRename.from && currentRename.to) {
-          renames.push({
-            from: currentRename.from,
-            to: currentRename.to,
-          });
-          currentRename = {};
-        }
+        continue;
+      }
+
+      const toMatch = line.match(/^\s*-?\s*TO:\s*`?###\s*Requirement:\s*(.+?)`?\s*$/);
+      if (!toMatch) {
+        continue;
+      }
+
+      currentRename.to = toMatch[1].trim();
+      if (currentRename.from && currentRename.to) {
+        renames.push({ from: currentRename.from, to: currentRename.to });
+        currentRename = {};
       }
     }
-    
+
     return renames;
   }
 
@@ -184,38 +160,38 @@ export class ChangeParser extends MarkdownParser {
     const stack: Section[] = [];
     
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
       if (codeFenceLineMask[i]) {
         continue;
       }
-      const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
-      
-      if (headerMatch) {
-        const level = headerMatch[1].length;
-        const title = headerMatch[2].trim();
-        const contentLines = this.getContentUntilNextHeaderFromLines(lines, codeFenceLineMask, i + 1, level);
-        
-        const section = {
-          level,
-          title,
-          content: contentLines.join('\n').trim(),
-          children: [],
-        };
 
-        while (stack.length > 0 && stack[stack.length - 1].level >= level) {
-          stack.pop();
-        }
-
-        if (stack.length === 0) {
-          sections.push(section);
-        } else {
-          stack[stack.length - 1].children.push(section);
-        }
-        
-        stack.push(section);
+      const headerMatch = lines[i].match(/^(#{1,6})\s+(.+)$/);
+      if (!headerMatch) {
+        continue;
       }
+
+      const level = headerMatch[1].length;
+      const contentLines = this.getContentUntilNextHeaderFromLines(lines, codeFenceLineMask, i + 1, level);
+
+      const section = {
+        level,
+        title: headerMatch[2].trim(),
+        content: contentLines.join('\n').trim(),
+        children: [],
+      };
+
+      while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+        stack.pop();
+      }
+
+      if (stack.length === 0) {
+        sections.push(section);
+      } else {
+        stack[stack.length - 1].children.push(section);
+      }
+
+      stack.push(section);
     }
-    
+
     return sections;
   }
 

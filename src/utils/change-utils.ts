@@ -55,45 +55,71 @@ export interface ValidationResult {
  * validateChangeName('Add-Auth') // { valid: false, error: '...' }
  */
 export function validateChangeName(name: string): ValidationResult {
-  // Pattern: starts with lowercase letter, followed by lowercase letters/numbers,
-  // optionally followed by hyphen + lowercase letters/numbers (repeatable)
-  const kebabCasePattern = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
-
   if (!name) {
     return { valid: false, error: 'Change name cannot be empty' };
   }
 
-  if (!kebabCasePattern.test(name)) {
-    // Provide specific error messages for common mistakes
-    if (/[A-Z]/.test(name)) {
-      return { valid: false, error: 'Change name must be lowercase (use kebab-case)' };
-    }
-    if (/\s/.test(name)) {
-      return { valid: false, error: 'Change name cannot contain spaces (use hyphens instead)' };
-    }
-    if (/_/.test(name)) {
-      return { valid: false, error: 'Change name cannot contain underscores (use hyphens instead)' };
-    }
-    if (name.startsWith('-')) {
-      return { valid: false, error: 'Change name cannot start with a hyphen' };
-    }
-    if (name.endsWith('-')) {
-      return { valid: false, error: 'Change name cannot end with a hyphen' };
-    }
-    if (/--/.test(name)) {
-      return { valid: false, error: 'Change name cannot contain consecutive hyphens' };
-    }
-    if (/[^a-z0-9-]/.test(name)) {
-      return { valid: false, error: 'Change name can only contain lowercase letters, numbers, and hyphens' };
-    }
-    if (/^[0-9]/.test(name)) {
-      return { valid: false, error: 'Change name must start with a letter' };
-    }
-
-    return { valid: false, error: 'Change name must follow kebab-case convention (e.g., add-auth, refactor-db)' };
+  // Pattern: starts with lowercase letter, followed by lowercase letters/numbers,
+  // optionally followed by hyphen + lowercase letters/numbers (repeatable)
+  const kebabCasePattern = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+  if (kebabCasePattern.test(name)) {
+    return { valid: true };
   }
 
-  return { valid: true };
+  return { valid: false, error: describeKebabCaseViolation(name) };
+}
+
+/**
+ * Returns a specific error message explaining why a name is not valid kebab-case.
+ * Assumes the name has already failed the kebab-case pattern.
+ */
+function describeKebabCaseViolation(name: string): string {
+  if (/[A-Z]/.test(name)) {
+    return 'Change name must be lowercase (use kebab-case)';
+  }
+  if (/\s/.test(name)) {
+    return 'Change name cannot contain spaces (use hyphens instead)';
+  }
+  if (/_/.test(name)) {
+    return 'Change name cannot contain underscores (use hyphens instead)';
+  }
+  if (name.startsWith('-')) {
+    return 'Change name cannot start with a hyphen';
+  }
+  if (name.endsWith('-')) {
+    return 'Change name cannot end with a hyphen';
+  }
+  if (/--/.test(name)) {
+    return 'Change name cannot contain consecutive hyphens';
+  }
+  if (/[^a-z0-9-]/.test(name)) {
+    return 'Change name can only contain lowercase letters, numbers, and hyphens';
+  }
+  if (/^[0-9]/.test(name)) {
+    return 'Change name must start with a letter';
+  }
+
+  return 'Change name must follow kebab-case convention (e.g., add-auth, refactor-db)';
+}
+
+/**
+ * Resolves the schema name from an explicit option, project config, or default.
+ *
+ * Resolution order: explicit `options.schema` → `spok/config.yaml` → supplied default.
+ */
+function resolveSchemaName(projectRoot: string, options: CreateChangeOptions): string {
+  if (options.schema) {
+    return options.schema;
+  }
+
+  const defaultSchema = options.defaultSchema ?? DEFAULT_SCHEMA;
+  try {
+    const config = readProjectConfig(projectRoot);
+    return config?.schema ?? defaultSchema;
+  } catch {
+    // If config read fails, use default
+    return defaultSchema;
+  }
 }
 
 /**
@@ -129,22 +155,8 @@ export async function createChange(
     throw new Error(validation.error);
   }
 
-  const defaultSchema = options.defaultSchema ?? DEFAULT_SCHEMA;
-
   // Determine schema: explicit option → project config → supplied default
-  let schemaName: string;
-  if (options.schema) {
-    schemaName = options.schema;
-  } else {
-    // Try to read from project config
-    try {
-      const config = readProjectConfig(projectRoot);
-      schemaName = config?.schema ?? defaultSchema;
-    } catch {
-      // If config read fails, use default
-      schemaName = defaultSchema;
-    }
-  }
+  const schemaName = resolveSchemaName(projectRoot, options);
 
   // Validate the resolved schema
   validateSchemaName(schemaName, projectRoot);

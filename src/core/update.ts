@@ -54,6 +54,13 @@ export interface UpdateCommandOptions {
   force?: boolean;
 }
 
+/** Outcome of refreshing skills across a set of tools. */
+interface UpdateResult {
+  updatedTools: string[];
+  failedTools: Array<{ name: string; error: string }>;
+  removedCommandCount: number;
+}
+
 /**
  * Scans installed workflow artifacts (skills and managed commands) across configured tools.
  * Returns the union of detected workflow IDs that belong to SPOK_WORKFLOWS.
@@ -168,6 +175,30 @@ function getToolsNeedingDeliverySync(
   return [...configuredTools].filter((toolId) => hasToolDeliveryDrift(projectPath, toolId));
 }
 
+/**
+ * Writes all skill files for a single tool and refreshes its vendored helper skills.
+ */
+async function writeToolSkills(
+  projectPath: string,
+  tool: { value: string; skillsDir: string },
+  skillTemplates: ReturnType<typeof getSkillTemplates>
+): Promise<void> {
+  const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
+
+  for (const { template, dirName } of skillTemplates) {
+    const skillFile = path.join(skillsDir, dirName, 'SKILL.md');
+
+    // Use hyphen-based command references for OpenCode
+    const transformer =
+      tool.value === 'opencode' || tool.value === 'pi' ? transformToHyphenCommands : undefined;
+    const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
+    await FileSystemUtils.writeFile(skillFile, skillContent);
+  }
+
+  // Refresh vendored helper skills (idempotent overwrite).
+  await installVendoredSkills(projectPath, tool.skillsDir);
+}
+
 export class UpdateCommand {
   private readonly force: boolean;
 
@@ -184,8 +215,6 @@ export class UpdateCommand {
       throw new Error(`No Spok directory found. Run 'spok init' first.`);
     }
 
-    const desiredWorkflows = [...SPOK_WORKFLOWS];
-
     // 3. Detect and handle legacy artifacts + upgrade legacy tools
     const newlyConfiguredTools = await this.handleLegacyCleanup(resolvedProjectPath);
 
@@ -199,36 +228,11 @@ export class UpdateCommand {
     }
 
     // 6. Check version status for all configured tools
-    const commandConfiguredTools = getCommandConfiguredTools(resolvedProjectPath);
-    const commandConfiguredSet = new Set(commandConfiguredTools);
-    const toolStatuses = configuredTools.map((toolId) => {
-      const status = getToolVersionStatus(resolvedProjectPath, toolId, SPOK_VERSION);
-      if (!status.configured && commandConfiguredSet.has(toolId)) {
-        return { ...status, configured: true };
-      }
-      return status;
-    });
-    const statusByTool = new Map(toolStatuses.map((status) => [status.toolId, status] as const));
+    const plan = this.buildUpdatePlan(resolvedProjectPath, configuredTools);
 
-    // 7. Smart update detection
-    const toolsNeedingVersionUpdate = toolStatuses
-      .filter((s) => s.needsUpdate)
-      .map((s) => s.toolId);
-    const toolsNeedingConfigSync = getToolsNeedingDeliverySync(
-      resolvedProjectPath,
-      configuredTools
-    );
-    const toolsToUpdateSet = new Set<string>([
-      ...toolsNeedingVersionUpdate,
-      ...toolsNeedingConfigSync,
-    ]);
-    const toolsUpToDate = toolStatuses.filter((s) => !toolsToUpdateSet.has(s.toolId));
-
-    if (!this.force && toolsToUpdateSet.size === 0) {
-      // All tools are up to date
-      this.displayUpToDateMessage(toolStatuses);
-
-      // Still check for new tool directories
+    // 7. Nothing to do unless forced: report and bail out early
+    if (!this.force && plan.toolsToUpdate.size === 0) {
+      this.displayUpToDateMessage(plan.toolStatuses);
       this.detectNewTools(resolvedProjectPath, configuredTools);
       return;
     }
@@ -237,43 +241,83 @@ export class UpdateCommand {
     if (this.force) {
       console.log(`Force updating ${configuredTools.length} tool(s): ${configuredTools.join(', ')}`);
     } else {
-      this.displayUpdatePlan([...toolsToUpdateSet], statusByTool, toolsUpToDate);
+      this.displayUpdatePlan([...plan.toolsToUpdate], plan.statusByTool, plan.toolsUpToDate);
     }
     console.log();
 
-    // 9. Determine what to generate
-    const skillTemplates = getSkillTemplates(desiredWorkflows);
+    // 9-11. Update the selected tools and report the outcome
+    const toolsToUpdate = this.force ? configuredTools : [...plan.toolsToUpdate];
+    const result = await this.updateTools(resolvedProjectPath, toolsToUpdate);
+    this.displayUpdateSummary(result);
 
-    // 10. Update tools (all if force, otherwise only those needing update)
-    const toolsToUpdate = this.force ? configuredTools : [...toolsToUpdateSet];
+    // 12. Show onboarding message for newly configured tools from legacy upgrade
+    this.displayOnboarding(newlyConfiguredTools);
+
+    const configuredAndNewTools = [...new Set([...configuredTools, ...newlyConfiguredTools])];
+
+    // 13. Detect new tool directories not currently configured
+    this.detectNewTools(resolvedProjectPath, configuredAndNewTools);
+
+    // 14. List affected tools
+    if (result.updatedTools.length > 0) {
+      console.log(chalk.dim(`Tools: ${result.updatedTools.join(', ')}`));
+    }
+
+    // 15. Warn if Claude is configured but referenced subagents are missing
+    this.warnMissingClaudeSubagents(configuredAndNewTools);
+
+    console.log();
+    console.log(chalk.dim('Restart your IDE for changes to take effect.'));
+  }
+
+  /**
+   * Computes version status for configured tools and the set of tools that need
+   * updating (either a version bump or a delivery/config sync).
+   */
+  private buildUpdatePlan(projectPath: string, configuredTools: string[]) {
+    const commandConfiguredSet = new Set(getCommandConfiguredTools(projectPath));
+    const toolStatuses = configuredTools.map((toolId) => {
+      const status = getToolVersionStatus(projectPath, toolId, SPOK_VERSION);
+      if (!status.configured && commandConfiguredSet.has(toolId)) {
+        return { ...status, configured: true };
+      }
+      return status;
+    });
+
+    const toolsToUpdate = new Set<string>([
+      ...toolStatuses.filter((s) => s.needsUpdate).map((s) => s.toolId),
+      ...getToolsNeedingDeliverySync(projectPath, configuredTools),
+    ]);
+
+    return {
+      toolStatuses,
+      statusByTool: new Map(toolStatuses.map((status) => [status.toolId, status] as const)),
+      toolsToUpdate,
+      toolsUpToDate: toolStatuses.filter((s) => !toolsToUpdate.has(s.toolId)),
+    };
+  }
+
+  /**
+   * Refreshes skills for each tool, removing legacy command wrappers, and
+   * collects the updated/failed tools plus the count of removed command files.
+   */
+  private async updateTools(projectPath: string, toolIds: string[]): Promise<UpdateResult> {
+    const skillTemplates = getSkillTemplates([...SPOK_WORKFLOWS]);
     const updatedTools: string[] = [];
     const failedTools: Array<{ name: string; error: string }> = [];
     let removedCommandCount = 0;
 
-    for (const toolId of toolsToUpdate) {
+    for (const toolId of toolIds) {
       const tool = AI_TOOLS.find((t) => t.value === toolId);
       if (!tool?.skillsDir) continue;
 
       const spinner = ora(`Updating ${tool.name}...`).start();
 
       try {
-        const skillsDir = path.join(resolvedProjectPath, tool.skillsDir, 'skills');
-
-        for (const { template, dirName } of skillTemplates) {
-          const skillDir = path.join(skillsDir, dirName);
-          const skillFile = path.join(skillDir, 'SKILL.md');
-
-          // Use hyphen-based command references for OpenCode
-          const transformer = (tool.value === 'opencode' || tool.value === 'pi') ? transformToHyphenCommands : undefined;
-          const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
-          await FileSystemUtils.writeFile(skillFile, skillContent);
-        }
-
-        // Refresh vendored helper skills (idempotent overwrite).
-        await installVendoredSkills(resolvedProjectPath, tool.skillsDir);
+        await writeToolSkills(projectPath, { value: tool.value, skillsDir: tool.skillsDir }, skillTemplates);
 
         // Command wrappers are legacy/generated artifacts now.
-        removedCommandCount += await this.removeCommandFiles(resolvedProjectPath, toolId);
+        removedCommandCount += await this.removeCommandFiles(projectPath, toolId);
 
         spinner.succeed(`Updated ${tool.name}`);
         updatedTools.push(tool.name);
@@ -286,7 +330,14 @@ export class UpdateCommand {
       }
     }
 
-    // 11. Summary
+    return { updatedTools, failedTools, removedCommandCount };
+  }
+
+  /**
+   * Display the results of an update run.
+   */
+  private displayUpdateSummary(result: UpdateResult): void {
+    const { updatedTools, failedTools, removedCommandCount } = result;
     console.log();
     if (updatedTools.length > 0) {
       console.log(chalk.green(`✓ Updated: ${updatedTools.join(', ')} (v${SPOK_VERSION})`));
@@ -297,43 +348,36 @@ export class UpdateCommand {
     if (removedCommandCount > 0) {
       console.log(chalk.dim(`Removed: ${removedCommandCount} command files`));
     }
-    // 12. Show onboarding message for newly configured tools from legacy upgrade
-    if (newlyConfiguredTools.length > 0) {
-      console.log();
-      console.log(chalk.bold('Getting started:'));
-      console.log('  /spok-explore  Think through an idea');
-      console.log('  /spok-propose  Start a new change');
-      console.log('  /spok-apply    Implement the next chunk');
-      console.log('  /spok-archive  Finalize the change');
-      console.log();
-      console.log(`Learn more: ${chalk.cyan('https://github.com/0xjgv/spok')}`);
-    }
+  }
 
-    const configuredAndNewTools = [...new Set([...configuredTools, ...newlyConfiguredTools])];
-
-    // 13. Detect new tool directories not currently configured
-    this.detectNewTools(resolvedProjectPath, configuredAndNewTools);
-
-    // 14. List affected tools
-    if (updatedTools.length > 0) {
-      const toolDisplayNames = updatedTools;
-      console.log(chalk.dim(`Tools: ${toolDisplayNames.join(', ')}`));
-    }
-
-    // 15. Warn if Claude is configured but custom subagents referenced by
-    // vendored skills aren't installed in ~/.claude/agents/.
-    const claudeIsConfigured = configuredAndNewTools.includes('claude');
-    if (claudeIsConfigured) {
-      const subagentResult = checkClaudeSubagents();
-      const subagentWarning = formatSubagentWarning(subagentResult);
-      if (subagentWarning) {
-        console.log();
-        console.log(chalk.yellow(subagentWarning));
-      }
-    }
+  /**
+   * Show the getting-started message after newly configuring tools via a legacy upgrade.
+   */
+  private displayOnboarding(newlyConfiguredTools: string[]): void {
+    if (newlyConfiguredTools.length === 0) return;
 
     console.log();
-    console.log(chalk.dim('Restart your IDE for changes to take effect.'));
+    console.log(chalk.bold('Getting started:'));
+    console.log('  /spok-explore  Think through an idea');
+    console.log('  /spok-propose  Start a new change');
+    console.log('  /spok-apply    Implement the next chunk');
+    console.log('  /spok-archive  Finalize the change');
+    console.log();
+    console.log(`Learn more: ${chalk.cyan('https://github.com/0xjgv/spok')}`);
+  }
+
+  /**
+   * Warn if Claude is configured but custom subagents referenced by vendored
+   * skills aren't installed in ~/.claude/agents/.
+   */
+  private warnMissingClaudeSubagents(configuredTools: string[]): void {
+    if (!configuredTools.includes('claude')) return;
+
+    const subagentWarning = formatSubagentWarning(checkClaudeSubagents());
+    if (subagentWarning) {
+      console.log();
+      console.log(chalk.yellow(subagentWarning));
+    }
   }
 
   /**
@@ -595,20 +639,7 @@ export class UpdateCommand {
       const spinner = ora(`Setting up ${tool.name}...`).start();
 
       try {
-        const skillsDir = path.join(projectPath, tool.skillsDir, 'skills');
-
-        for (const { template, dirName } of skillTemplates) {
-          const skillDir = path.join(skillsDir, dirName);
-          const skillFile = path.join(skillDir, 'SKILL.md');
-
-          // Use hyphen-based command references for OpenCode
-          const transformer = (tool.value === 'opencode' || tool.value === 'pi') ? transformToHyphenCommands : undefined;
-          const skillContent = generateSkillContent(template, SPOK_VERSION, transformer);
-          await FileSystemUtils.writeFile(skillFile, skillContent);
-        }
-
-        // Refresh vendored helper skills (idempotent overwrite).
-        await installVendoredSkills(projectPath, tool.skillsDir);
+        await writeToolSkills(projectPath, { value: tool.value, skillsDir: tool.skillsDir }, skillTemplates);
 
         // Remove old command wrappers for this tool if any remain after cleanup.
         await this.removeCommandFiles(projectPath, toolId);
