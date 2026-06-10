@@ -1,11 +1,16 @@
 # CLAUDE
 
+## Orientation
+
+- Spok is an AI-native CLI for spec-driven development (`spok` bin, built to `dist/` by `bun run build`).
+- Layout: `src/` source · `test/` vitest tests + cucumber features (`test/features/`) · `harness.ts` quality-gate runner · `schemas/` JSON schemas for spec artifacts · `docs/` user docs · `spok/` this repo's own Spok workspace (config + specs).
+
 ## Commands
 
 - After edits: `bun run check` — fix lint, build, typecheck, test, hook-drift + suppression report
 - Pre-commit: `bun run pre-commit` — staged files only (auto via git hook)
 - CI: `bun run ci` — read-only pipeline: lint → typecheck → build → audit → complexity → acceptance → coverage → crap → arch. CRAP is advisory (warns only — pass `--enforce` to hard-fail). Requires `uvx` on PATH.
-- Complexity: `bun run harness.ts complexity` — lizard@1.22.2 CC gate (CCN≤15, args≤7, length≤100) over src + test
+- Complexity: `bun run complexity` — lizard@1.22.2 CC gate (CCN≤15, args≤7, length≤100) over src + test
 - Audit: `bun run audit` — audit dependencies for known vulnerabilities (via bun audit)
 - Acceptance: `bun run acceptance` — run cucumber against `test/features/`
 - Coverage: `bun run coverage --min=0` — vitest coverage (LCOV) with threshold
@@ -17,6 +22,14 @@
 - Auto-format: runs automatically after Claude edits via `Stop` hook (post-edit eslint --fix)
 
 ## Behavior contract
+
+<important>
+## Role
+
+- The human is the engineer. They own design, API shape, and merge authority. You propose, they dispose.
+- Do NOT run `git commit`, `git push`, or equivalent publishing commands unless the user's current prompt asked for it. The verbs `commit`, `push`, `ship`, `land`, `merge` in action context authorize that turn only.
+- If you decide on your own to "commit this and move on," the `PreToolUse` hook will deny the command. That is working as intended.
+</important>
 
 <important if="you accept a new task">
 - Restate the task as at most 5 sub-tasks. Each sub-task MUST touch ≤1 non-test file and ≤1 test.

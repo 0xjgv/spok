@@ -615,12 +615,11 @@ async function checkHooksPresent(): Promise<void> {
   const settingsPath = `${ROOT}/.claude/settings.json`;
   if (!existsSync(settingsPath)) return;
   const settings = JSON.parse(await Bun.file(settingsPath).text()) as {
-    hooks?: { SessionStart?: unknown[] };
+    hooks?: Record<string, unknown[]>;
   };
-  if (!settings.hooks?.SessionStart?.length) return;
+  if (!Object.keys(settings.hooks ?? {}).length) return;
 
   const required = [
-    '.claude/scripts/session-start.sh',
     '.claude/scripts/ups-classify.sh',
     '.claude/scripts/pre-bash-gate.sh',
     '.claude/scripts/pre-edit-gate.sh',
