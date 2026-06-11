@@ -13,6 +13,8 @@ const EXPLORE_INSTRUCTIONS = `Enter explore mode. Think deeply. Follow the conve
 
 This is a stance, not a fixed workflow. There are no mandatory steps or required outputs. Be a thinking partner.
 
+**CLI self-discovery**: When unsure about Spok's CLI surface, run \`spok capabilities --json\`. Use it only for discovery; keep the workflow guidance below as the primary path.
+
 ---
 
 ## The Stance

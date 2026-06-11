@@ -32,6 +32,15 @@ Feature: Tool skill artifacts
     Then the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow complete"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "subagent_type: general-purpose"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "model: <step.model>"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next --json is the source of truth"
+
+  Scenario: Flow next prints the routed model for the first step
+    Given a new project
+    And a staged flow task
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Next step: research-questions"
+    And the Spok CLI output contains "Model: fable"
 
   Scenario: Global skills install writes to home-scoped tool directories
     Given a new project

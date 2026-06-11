@@ -72,6 +72,7 @@ describe('InitCommand', () => {
     expect(exploreSkill).toContain('must NOT write code or implement features');
     expect(exploreSkill).toContain('spok list --json');
     expect(exploreSkill).toContain('spok status --change "<name>" --json');
+    expect(exploreSkill).toContain('spok capabilities --json');
     expect(exploreSkill).toContain('Do not auto-capture');
     expect(exploreSkill).not.toContain('/opsx:explore');
     expect(vi.mocked(console.log)).toHaveBeenCalledWith('  /spok-explore  Think through an idea');

@@ -30,6 +30,8 @@ Use `/spok-explore` before proposing when the direction is still unclear. The sh
 /spok-archive
 ```
 
+If an agent is unsure about the installed CLI surface, it can run `spok capabilities --json` as a self-discovery escape hatch. The four slash commands above remain the normal workflow.
+
 ---
 
 ## Command Reference

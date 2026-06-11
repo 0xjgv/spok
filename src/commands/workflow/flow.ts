@@ -6,6 +6,19 @@ export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 export type FlowRunState = 'ready' | 'blocked' | 'complete';
 export type FlowStepStatus = 'pending' | 'ready' | 'completed';
 export type FlowCompletionKind = 'file' | 'summary' | 'commit';
+export type FlowModel = 'fable' | 'sonnet' | 'opus' | 'haiku';
+
+const FLOW_STEP_MODEL_BY_ID = {
+  'research-questions': 'fable',
+  research: 'sonnet',
+  'design-discussion': 'fable',
+  'structure-outline': 'opus',
+  plan: 'fable',
+  implement: 'opus',
+  simplify: 'sonnet',
+  validate: 'fable',
+  commit: 'haiku',
+} as const satisfies Record<string, FlowModel>;
 
 export interface FlowStepResult {
   output?: string;
@@ -17,6 +30,7 @@ export interface FlowStepResult {
 export interface FlowStep {
   id: string;
   skill: string;
+  model: FlowModel;
   argument: string;
   expectedOutput?: string;
   status: FlowStepStatus;
@@ -59,6 +73,7 @@ export interface FlowCompleteCommandOptions extends FlowCommandOptions, FlowComp
 interface StepDefinition {
   id: string;
   skill: string;
+  model: FlowModel;
   argument: string;
   expectedOutput?: string;
   completionKind: FlowCompletionKind;
@@ -96,6 +111,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'research-questions',
       skill: 'spok-create-research-questions',
+      model: FLOW_STEP_MODEL_BY_ID['research-questions'],
       argument: ticket,
       expectedOutput: researchQuestions,
       completionKind: 'file',
@@ -103,6 +119,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'research',
       skill: 'spok-create-research',
+      model: FLOW_STEP_MODEL_BY_ID.research,
       argument: researchQuestions,
       expectedOutput: research,
       completionKind: 'file',
@@ -110,6 +127,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'design-discussion',
       skill: 'spok-create-design-discussion',
+      model: FLOW_STEP_MODEL_BY_ID['design-discussion'],
       argument: taskDir,
       expectedOutput: designDiscussion,
       completionKind: 'file',
@@ -117,6 +135,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'structure-outline',
       skill: 'spok-create-structure-outline',
+      model: FLOW_STEP_MODEL_BY_ID['structure-outline'],
       argument: taskDir,
       expectedOutput: structureOutline,
       completionKind: 'file',
@@ -124,6 +143,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'plan',
       skill: 'spok-create-plan',
+      model: FLOW_STEP_MODEL_BY_ID.plan,
       argument: taskDir,
       expectedOutput: plan,
       completionKind: 'file',
@@ -131,18 +151,21 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'implement',
       skill: 'spok-implement-plan',
+      model: FLOW_STEP_MODEL_BY_ID.implement,
       argument: taskDir,
       completionKind: 'summary',
     },
     {
       id: 'simplify',
       skill: 'spok-simplify',
+      model: FLOW_STEP_MODEL_BY_ID.simplify,
       argument: taskDir,
       completionKind: 'summary',
     },
     {
       id: 'validate',
       skill: 'spok-validate-implementation',
+      model: FLOW_STEP_MODEL_BY_ID.validate,
       argument: taskDir,
       expectedOutput: validation,
       completionKind: 'file',
@@ -150,6 +173,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'commit',
       skill: 'spok-ci-commit',
+      model: FLOW_STEP_MODEL_BY_ID.commit,
       argument: taskDir,
       completionKind: 'commit',
     },
@@ -164,6 +188,7 @@ function stepFromDefinition(
   return {
     id: definition.id,
     skill: definition.skill,
+    model: definition.model,
     argument: definition.argument,
     expectedOutput: definition.expectedOutput,
     status,
@@ -581,6 +606,7 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
 
   console.log(`Next step: ${step.id}`);
   console.log(`Skill: ${step.skill}`);
+  console.log(`Model: ${step.model}`);
   console.log(`Argument: ${step.argument}`);
   if (step.expectedOutput) {
     console.log(`Expected output: ${step.expectedOutput}`);

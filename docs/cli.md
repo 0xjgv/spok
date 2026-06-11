@@ -13,6 +13,7 @@ For slash commands, see [Commands](commands.md). For workflow patterns, see [Wor
 | Surface | Verbs | Purpose |
 |---------|-------|---------|
 | **User-facing** | `version`, `init`, `update`, `archive`, `list` | Inspect, setup, refresh, finalize, browse |
+| **Agent discovery** | `capabilities` | Machine-readable CLI manifest for agents and scripts |
 | **Internal plumbing** | `new`, `status`, `instructions` | Called by skills; safe to inspect, not meant for daily human use |
 
 Spok also ships internal libraries (validation, artifact graphs, workflow schemas, workspace resolution) that power the commands above. These are not exposed as CLI verbs in 1.0 — see [Migration Guide](migration-guide.md) for removed commands like `validate`, `show`, and `completion`.
@@ -213,6 +214,59 @@ spok archive update-ci-config --skip-specs
 2. Prompts for confirmation (unless `--yes`).
 3. Applies delta specs from `<changeRoot>/specs/<capability>/spec.md` to `spok/specs/<capability>/spec.md` (`ADDED`, `MODIFIED`, `REMOVED`, `RENAMED`).
 4. Moves the change folder to `spok/changes/archive/YYYY-MM-DD-<name>/`.
+
+---
+
+## Agent Discovery
+
+### `spok capabilities`
+
+Describe Spok's current CLI surface. This is an escape hatch for agents and scripts that need to discover available commands before choosing a workflow command; it is not part of the normal human workflow.
+
+```
+spok capabilities [options]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+# Human-readable command groups
+spok capabilities
+
+# Machine-readable manifest for agents
+spok capabilities --json
+```
+
+**Output (JSON):**
+
+```json
+{
+  "schemaVersion": 1,
+  "version": "1.3.1",
+  "description": "AI-native system for spec-driven development",
+  "recommendedFlow": ["/spok-explore", "/spok-propose", "/spok-apply", "/spok-archive"],
+  "commands": [
+    {
+      "name": "status",
+      "path": "status",
+      "visibility": "skill",
+      "description": "Display artifact completion status for a change",
+      "arguments": [],
+      "options": [
+        {"flags": ["--change <id>"], "required": false, "description": "Change name to show status for"},
+        {"flags": ["--json"], "required": false, "description": "Output as JSON"}
+      ],
+      "emitsJson": true
+    }
+  ]
+}
+```
 
 ---
 

@@ -22,6 +22,22 @@ interface FlowHarness {
   completeThroughValidation(): Promise<void>;
 }
 
+const EXPECTED_STEP_MODELS = [
+  { id: 'research-questions', model: 'fable' },
+  { id: 'research', model: 'sonnet' },
+  { id: 'design-discussion', model: 'fable' },
+  { id: 'structure-outline', model: 'opus' },
+  { id: 'plan', model: 'fable' },
+  { id: 'implement', model: 'opus' },
+  { id: 'simplify', model: 'sonnet' },
+  { id: 'validate', model: 'fable' },
+  { id: 'commit', model: 'haiku' },
+];
+
+function expectStepModels(steps: Array<{ id: string; model?: string }>) {
+  expect(steps.map(({ id, model }) => ({ id, model }))).toEqual(EXPECTED_STEP_MODELS);
+}
+
 function useFlowHarness(): FlowHarness {
   let tempDir: string;
   let taskDir: string;
@@ -82,12 +98,17 @@ describe('deterministic workflow step state', () => {
     expect(result.step).toMatchObject({
       id: 'research-questions',
       skill: 'spok-create-research-questions',
+      model: 'fable',
       argument: path.join(flow.taskDir, 'ticket.md'),
       expectedOutput: path.join(flow.taskDir, 'research-questions.md'),
       status: 'ready',
     });
+    expectStepModels(result.steps);
 
-    await expect(fs.stat(path.join(flow.taskDir, WORKFLOW_STATE_FILE))).resolves.toBeTruthy();
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    await expect(fs.stat(statePath)).resolves.toBeTruthy();
+    const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    expectStepModels(state.steps);
   });
 
   it('does not create the state file on a status query', async () => {
@@ -95,6 +116,7 @@ describe('deterministic workflow step state', () => {
 
     expect(result.state).toBe('ready');
     expect(result.nextStep?.id).toBe('research-questions');
+    expectStepModels(result.steps);
     await expect(fs.stat(path.join(flow.taskDir, WORKFLOW_STATE_FILE))).rejects.toThrow();
   });
 
@@ -124,6 +146,7 @@ describe('deterministic workflow step state', () => {
     expect(result.nextStep).toMatchObject({
       id: 'research',
       skill: 'spok-create-research',
+      model: 'sonnet',
       argument: output,
       expectedOutput: path.join(flow.taskDir, 'research.md'),
       status: 'ready',
@@ -140,9 +163,65 @@ describe('deterministic workflow step state', () => {
     expect(result.step).toMatchObject({
       id: 'design-discussion',
       skill: 'spok-create-design-discussion',
+      model: 'fable',
       argument: flow.taskDir,
       expectedOutput: path.join(flow.taskDir, 'design-discussion.md'),
     });
+  });
+
+  it('normalizes legacy workflow-state.json with model values', async () => {
+    const createdAt = '2026-01-01T00:00:00.000Z';
+    const researchQuestions = path.join(flow.taskDir, 'research-questions.md');
+    const research = path.join(flow.taskDir, 'research.md');
+    await fs.writeFile(researchQuestions, '# Research Questions\n', 'utf-8');
+    await fs.writeFile(research, '# Research\n', 'utf-8');
+
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    await fs.writeFile(
+      statePath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          taskDir: flow.taskDir,
+          status: 'ready',
+          steps: [
+            {
+              id: 'research-questions',
+              skill: 'spok-create-research-questions',
+              argument: path.join(flow.taskDir, 'ticket.md'),
+              expectedOutput: researchQuestions,
+              status: 'completed',
+              result: { output: researchQuestions, completedAt: createdAt },
+            },
+            {
+              id: 'research',
+              skill: 'spok-create-research',
+              argument: researchQuestions,
+              expectedOutput: research,
+              status: 'completed',
+              result: { output: research, completedAt: createdAt },
+            },
+          ],
+          createdAt,
+          updatedAt: createdAt,
+        },
+        null,
+        2
+      )}\n`,
+      'utf-8'
+    );
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.step).toMatchObject({
+      id: 'design-discussion',
+      model: 'fable',
+      status: 'ready',
+    });
+    expectStepModels(result.steps);
+    const normalizedState = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    expectStepModels(normalizedState.steps);
   });
 });
 
@@ -248,6 +327,7 @@ describe('flow command output', () => {
     expect(logs).toEqual([
       'Next step: research-questions',
       'Skill: spok-create-research-questions',
+      'Model: fable',
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
       `Expected output: ${path.join(flow.taskDir, 'research-questions.md')}`,
     ]);
@@ -289,7 +369,8 @@ describe('flow command output', () => {
     const response = JSON.parse(logs[0]);
     expect(response).toMatchObject({
       state: 'ready',
-      nextStep: { id: 'research-questions' },
+      nextStep: { id: 'research-questions', model: 'fable' },
     });
+    expectStepModels(response.steps);
   });
 });

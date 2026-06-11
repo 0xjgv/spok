@@ -16,6 +16,8 @@ archive. There is no separate sync step.
 **Input**: Optionally specify a change name. If omitted, infer from
 conversation context. If still ambiguous you MUST prompt the user.
 
+**CLI self-discovery**: When unsure about Spok's CLI surface, run \`spok capabilities --json\`. Use it only for discovery; keep the workflow recipe below as the primary path.
+
 **Steps**
 
 1. **Select the change**

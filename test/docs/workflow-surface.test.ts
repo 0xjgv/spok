@@ -15,6 +15,16 @@ describe('workflow surface docs', () => {
     expect(commands).toContain('before proposing');
   });
 
+  it('documents capabilities as an agent self-discovery escape hatch', async () => {
+    const cli = await readDoc('docs/cli.md');
+    const commands = await readDoc('docs/commands.md');
+
+    expect(cli).toContain('### `spok capabilities`');
+    expect(cli).toContain('spok capabilities --json');
+    expect(commands).toContain('spok capabilities --json');
+    expect(commands).toContain('self-discovery escape hatch');
+  });
+
   it('maps old explore to current explore without retiring the current skill', async () => {
     const migrationGuide = await readDoc('docs/migration-guide.md');
     const retiredSkills = migrationGuide.slice(

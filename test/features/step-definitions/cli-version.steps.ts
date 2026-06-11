@@ -8,6 +8,15 @@ interface CliVersionWorld {
   cliResult?: RunCLIResult;
 }
 
+interface CapabilitiesManifest {
+  commands: Array<{ path: string }>;
+}
+
+function parseLastCliJson(world: CliVersionWorld): unknown {
+  assert.ok(world.cliResult, 'cliResult must be set by a CLI run step');
+  return JSON.parse(world.cliResult.stdout);
+}
+
 When('I run the Spok CLI with {string}', async function (this: CliVersionWorld, args: string) {
   this.cliResult = await runCLI(args.split(' '), {
     env: {
@@ -90,6 +99,21 @@ Then('the Spok CLI output contains {string}', function (
 ) {
   assert.ok(this.cliResult, 'cliResult must be set by a CLI run step');
   assert.match(this.cliResult.stdout, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+Then('the Spok CLI output is valid JSON', function (this: CliVersionWorld) {
+  assert.doesNotThrow(() => parseLastCliJson(this));
+});
+
+Then('the Spok CLI capabilities include command {string}', function (
+  this: CliVersionWorld,
+  commandPath: string
+) {
+  const manifest = parseLastCliJson(this) as CapabilitiesManifest;
+  assert.ok(
+    manifest.commands.some((command) => command.path === commandPath),
+    `Expected capabilities to include command ${commandPath}`
+  );
 });
 
 Then('the Spok CLI error contains {string}', function (

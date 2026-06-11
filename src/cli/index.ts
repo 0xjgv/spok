@@ -28,6 +28,62 @@ const program = new Command();
 const require = createRequire(import.meta.url);
 const { version } = require('../../package.json');
 
+type CommandVisibility = 'user' | 'skill' | 'internal';
+
+interface CommandArgumentCapability {
+  name: string;
+  required: boolean;
+  description: string;
+}
+
+interface CommandOptionCapability {
+  flags: string[];
+  required: boolean;
+  description: string;
+}
+
+interface CommandCapability {
+  name: string;
+  path: string;
+  visibility: CommandVisibility;
+  description: string;
+  arguments: CommandArgumentCapability[];
+  options: CommandOptionCapability[];
+  emitsJson: boolean;
+}
+
+interface CapabilitiesManifest {
+  schemaVersion: 1;
+  version: string;
+  description: string;
+  recommendedFlow: string[];
+  commands: CommandCapability[];
+}
+
+const DESCRIPTION = 'AI-native system for spec-driven development';
+const RECOMMENDED_FLOW = ['/spok-explore', '/spok-propose', '/spok-apply', '/spok-archive'];
+const COMMAND_VISIBILITY: Record<string, CommandVisibility> = {
+  version: 'user',
+  help: 'user',
+  init: 'user',
+  update: 'user',
+  skills: 'user',
+  'skills install': 'user',
+  list: 'user',
+  archive: 'user',
+  capabilities: 'skill',
+  status: 'skill',
+  instructions: 'skill',
+  new: 'skill',
+  'new change': 'skill',
+  flow: 'internal',
+  'flow status': 'internal',
+  'flow next': 'internal',
+  'flow complete': 'internal',
+};
+
+const COMMAND_ORDER = Object.keys(COMMAND_VISIBILITY);
+
 /**
  * Get the full command path for nested commands.
  * For example: 'change show' -> 'change:show'
@@ -48,14 +104,101 @@ function getCommandPath(command: Command): string {
   return names.join(':') || 'spok';
 }
 
+function hasJsonOption(command: Command): boolean {
+  let current: Command | null = command;
+  while (current) {
+    if (current.opts<{ json?: boolean }>().json === true) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function splitOptionFlags(flags: string): string[] {
+  return flags
+    .split(/[,|]+/u)
+    .map((flag) => flag.trim())
+    .filter((flag) => flag.length > 0);
+}
+
+function getCommandArguments(command: Command): CommandArgumentCapability[] {
+  return command.registeredArguments.map((argument) => ({
+    name: argument.name(),
+    required: argument.required,
+    description: argument.description,
+  }));
+}
+
+function getCommandOptions(command: Command): CommandOptionCapability[] {
+  return command.options
+    .filter((option) => !option.hidden)
+    .map((option) => ({
+      flags: splitOptionFlags(option.flags),
+      required: option.mandatory,
+      description: option.description,
+    }));
+}
+
+function findCommandByPath(root: Command, commandPath: string): Command | undefined {
+  return commandPath
+    .split(' ')
+    .reduce<Command | undefined>((current, name) => current?.commands.find((command) => command.name() === name), root);
+}
+
+function commandEmitsJson(command: Command): boolean {
+  return command.options.some((option) => option.long === '--json');
+}
+
+function buildCapabilitiesManifest(root: Command): CapabilitiesManifest {
+  const commands = COMMAND_ORDER.flatMap((commandPath): CommandCapability[] => {
+    const command = findCommandByPath(root, commandPath);
+    if (!command) return [];
+
+    return [{
+      name: command.name(),
+      path: commandPath,
+      visibility: COMMAND_VISIBILITY[commandPath],
+      description: command.description(),
+      arguments: getCommandArguments(command),
+      options: getCommandOptions(command),
+      emitsJson: commandEmitsJson(command),
+    }];
+  });
+
+  return {
+    schemaVersion: 1,
+    version,
+    description: DESCRIPTION,
+    recommendedFlow: RECOMMENDED_FLOW,
+    commands,
+  };
+}
+
+function printCapabilitiesText(manifest: CapabilitiesManifest): void {
+  console.log(`${manifest.description} ${manifest.version}`);
+  console.log();
+  for (const visibility of ['user', 'skill', 'internal'] as const) {
+    const commands = manifest.commands.filter((command) => command.visibility === visibility);
+    console.log(`${visibility}:`);
+    for (const command of commands) {
+      console.log(`  ${command.path}`);
+    }
+    console.log();
+  }
+  console.log('For machine-readable output, run: spok capabilities --json');
+}
+
 program
   .name('spok')
-  .description('AI-native system for spec-driven development')
+  .description(DESCRIPTION)
   .helpCommand(false);
 
 // Apply global flags and telemetry before any command runs
 program.hook('preAction', async (_thisCommand, actionCommand) => {
-  await maybeShowTelemetryNotice();
+  if (!hasJsonOption(actionCommand)) {
+    await maybeShowTelemetryNotice();
+  }
 
   const commandPath = getCommandPath(actionCommand);
   await trackCommand(commandPath, version);
@@ -220,6 +363,19 @@ program
       ora().fail(`Error: ${(error as Error).message}`);
       process.exit(1);
     }
+  });
+
+program
+  .command('capabilities')
+  .description('Describe the current Spok CLI command surface')
+  .option('--json', 'Output as JSON')
+  .action((options?: { json?: boolean }) => {
+    const manifest = buildCapabilitiesManifest(program);
+    if (options?.json) {
+      console.log(JSON.stringify(manifest, null, 2));
+      return;
+    }
+    printCapabilitiesText(manifest);
   });
 
 program

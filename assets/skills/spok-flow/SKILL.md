@@ -39,10 +39,11 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 3. Read the returned `step` object:
    - `id` is the workflow step id.
    - `skill` is the exact skill to invoke.
+   - `model` is the exact model to pass to the Agent tool.
    - `argument` is the exact argument to pass to that skill.
    - `expectedOutput` is present for file-producing steps.
 
-4. Launch a subagent for the step with the **Agent** tool and `subagent_type: general-purpose`:
+4. Launch a subagent for the step with the **Agent** tool, passing `subagent_type: general-purpose` and `model: <step.model>`:
 
    > Call the `<step.skill>` skill with `<step.argument>` as the argument using the **Skill** tool.
    > When complete, return the **absolute path** of the document that was created (file-producing steps) or a concise summary (other steps).
@@ -71,6 +72,8 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly.
 
 Do not restate or assume the step order — `spok flow next` is the only source of truth.
+Do not derive or override model routing inside this skill — `spok flow next --json` is the source of truth, including `step.model`.
+In plain terms: spok flow next --json is the source of truth for model routing.
 
 For `implement`, tell `spok-implement-plan` that it is running inside `spok-flow`: it must implement and verify the plan, return a summary, and must not create commits. The final commit belongs only to the `commit` step.
 

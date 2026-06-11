@@ -98,6 +98,16 @@ describe('skill-generation', () => {
       expect(content).toContain('Do not auto-capture');
       expect(content).not.toContain('/opsx:explore');
     });
+
+    it('should include CLI self-discovery guidance in generated workflow skills', () => {
+      const templates = getSkillTemplates();
+
+      for (const { template } of templates) {
+        const content = generateSkillContent(template, '1.3.1');
+        expect(content).toContain('spok capabilities --json');
+        expect(content).toContain('CLI self-discovery');
+      }
+    });
   });
 
   describe('getCommandTemplates', () => {

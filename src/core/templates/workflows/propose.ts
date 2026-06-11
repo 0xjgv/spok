@@ -20,6 +20,8 @@ This skill drives two phases:
 
 **Input**: The user's request should include a change name (kebab-case) OR a description of what they want to build.
 
+**CLI self-discovery**: When unsure about Spok's CLI surface, run \`spok capabilities --json\`. Use it only for discovery; keep the workflow recipe below as the primary path.
+
 **Steps**
 
 1. **If no clear input provided, ask what they want to build**

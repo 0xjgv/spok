@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { InitCommand } from '../../../src/core/init.js';
 import { UpdateCommand } from '../../../src/core/update.js';
 import { GlobalSkillsInstallCommand } from '../../../src/core/skills-install.js';
+import { runCLI, type RunCLIResult } from '../../helpers/run-cli.js';
 
 interface SkillArtifactWorld {
   projectDir?: string;
@@ -14,6 +15,8 @@ interface SkillArtifactWorld {
   originalCodexHome?: string;
   originalXdgConfigHome?: string;
   setupGuidance?: string;
+  flowTaskDir?: string;
+  cliResult?: RunCLIResult;
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -51,6 +54,13 @@ Given('a new project', async function (this: SkillArtifactWorld) {
   await fs.mkdir(this.projectDir, { recursive: true });
 });
 
+Given('a staged flow task', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  this.flowTaskDir = path.join(this.projectDir, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
+  await fs.mkdir(this.flowTaskDir, { recursive: true });
+  await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
+});
+
 Given(
   'an existing Spok setup for the tools {string} without the workflow skill {string}',
   async function (this: SkillArtifactWorld, tools: string, skillName: string) {
@@ -75,6 +85,13 @@ When('I initialize Spok for the tools {string}', async function (this: SkillArti
   this.setupGuidance = await captureConsoleLog(async () => {
     await new InitCommand({ tools, force: true, interactive: false }).execute(this.projectDir!);
   });
+});
+
+When('I run spok flow next for the staged task', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  this.cliResult = await runCLI(['flow', 'next', this.flowTaskDir], { cwd: this.projectDir });
+  assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
 });
 
 When('I update Spok with force', async function (this: SkillArtifactWorld) {

@@ -29,6 +29,14 @@ Feature: CLI version output
     And the Spok CLI output contains "spok help skills"
     And the Spok CLI output contains "spok skills install --help"
 
+  Scenario: Capabilities JSON describes nested commands
+    When I run the Spok CLI with "capabilities --json"
+    Then the Spok CLI output is valid JSON
+    And the Spok CLI capabilities include command "flow status"
+    And the Spok CLI capabilities include command "flow next"
+    And the Spok CLI capabilities include command "flow complete"
+    And the Spok CLI capabilities include command "new change"
+
   Scenario: Misleading nested skills help gives a correction
     When I run the Spok CLI with "skills help skills"
     Then the Spok CLI output rejects skills help form "skills"
