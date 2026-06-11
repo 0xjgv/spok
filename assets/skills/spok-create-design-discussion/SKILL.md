@@ -38,7 +38,7 @@ You are now in the Design Discussion phase. Based on the research findings and t
    - Return specific file:line references
    - Find tests and examples
 
-**Content guidance**: The template has two Current State sections — `### Current State` for product/user-facing context (what the user sees, behaviors, UX gaps) and `### Current State (Code)` for technical codebase details (file paths, function and type names). Populate each section with the appropriate type of content.
+**Content guidance**: The template has `### Current State` for product/user-facing context (what the user sees, behaviors, UX gaps) and `### Current Architecture` for technical codebase details (file paths, function and type names). Populate each section with the appropriate type of content.
 
 ## Work with the user to iterate on the design
 

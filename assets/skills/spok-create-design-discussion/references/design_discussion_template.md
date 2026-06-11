@@ -22,15 +22,15 @@ sha: [result of git rev-parse HEAD]
 - [user story, problems that will be solved, new things a user can do]
 - ..
 
-### Current State (Code)
-
-- [technical codebase details — file paths with line numbers, function/type names, database columns, architecture facts]
-- ..
-- ..
-
 ### What we're not doing
 
 - [things that are out of scope]
+- ..
+
+### Current Architecture
+
+- [technical codebase details — file paths with line numbers, function/type names, database columns, architecture facts]
+- ..
 - ..
 
 ### Patterns to follow
