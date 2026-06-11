@@ -49,14 +49,11 @@ const MAX_CONTEXT_SIZE = 50 * 1024; // 50KB hard limit
  * Returns null if neither file exists (no config is OK).
  */
 function resolveConfigPath(projectRoot: string): string | null {
-  const yamlPath = path.join(projectRoot, 'spok', 'config.yaml');
-  if (existsSync(yamlPath)) {
-    return yamlPath;
-  }
-
-  const ymlPath = path.join(projectRoot, 'spok', 'config.yml');
-  if (existsSync(ymlPath)) {
-    return ymlPath;
+  for (const fileName of ['config.yaml', 'config.yml']) {
+    const configPath = path.join(projectRoot, 'spok', fileName);
+    if (existsSync(configPath)) {
+      return configPath;
+    }
   }
 
   return null;

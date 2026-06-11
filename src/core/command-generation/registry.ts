@@ -33,6 +33,35 @@ import { qwenAdapter } from './adapters/qwen.js';
 import { roocodeAdapter } from './adapters/roocode.js';
 import { windsurfAdapter } from './adapters/windsurf.js';
 
+const BUILT_IN_ADAPTERS = [
+  amazonQAdapter,
+  antigravityAdapter,
+  auggieAdapter,
+  bobAdapter,
+  claudeAdapter,
+  clineAdapter,
+  codexAdapter,
+  codebuddyAdapter,
+  continueAdapter,
+  costrictAdapter,
+  crushAdapter,
+  cursorAdapter,
+  factoryAdapter,
+  geminiAdapter,
+  githubCopilotAdapter,
+  iflowAdapter,
+  junieAdapter,
+  kilocodeAdapter,
+  kiroAdapter,
+  opencodeAdapter,
+  piAdapter,
+  qoderAdapter,
+  lingmaAdapter,
+  qwenAdapter,
+  roocodeAdapter,
+  windsurfAdapter,
+] satisfies ToolCommandAdapter[];
+
 /**
  * Registry for looking up tool command adapters.
  */
@@ -41,32 +70,9 @@ export class CommandAdapterRegistry {
 
   // Static initializer - register built-in adapters
   static {
-    CommandAdapterRegistry.register(amazonQAdapter);
-    CommandAdapterRegistry.register(antigravityAdapter);
-    CommandAdapterRegistry.register(auggieAdapter);
-    CommandAdapterRegistry.register(bobAdapter);
-    CommandAdapterRegistry.register(claudeAdapter);
-    CommandAdapterRegistry.register(clineAdapter);
-    CommandAdapterRegistry.register(codexAdapter);
-    CommandAdapterRegistry.register(codebuddyAdapter);
-    CommandAdapterRegistry.register(continueAdapter);
-    CommandAdapterRegistry.register(costrictAdapter);
-    CommandAdapterRegistry.register(crushAdapter);
-    CommandAdapterRegistry.register(cursorAdapter);
-    CommandAdapterRegistry.register(factoryAdapter);
-    CommandAdapterRegistry.register(geminiAdapter);
-    CommandAdapterRegistry.register(githubCopilotAdapter);
-    CommandAdapterRegistry.register(iflowAdapter);
-    CommandAdapterRegistry.register(junieAdapter);
-    CommandAdapterRegistry.register(kilocodeAdapter);
-    CommandAdapterRegistry.register(kiroAdapter);
-    CommandAdapterRegistry.register(opencodeAdapter);
-    CommandAdapterRegistry.register(piAdapter);
-    CommandAdapterRegistry.register(qoderAdapter);
-    CommandAdapterRegistry.register(lingmaAdapter);
-    CommandAdapterRegistry.register(qwenAdapter);
-    CommandAdapterRegistry.register(roocodeAdapter);
-    CommandAdapterRegistry.register(windsurfAdapter);
+    for (const adapter of BUILT_IN_ADAPTERS) {
+      CommandAdapterRegistry.register(adapter);
+    }
   }
 
   /**

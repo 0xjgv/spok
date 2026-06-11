@@ -56,6 +56,15 @@ const PROGRESS_SPINNER = {
   frames: ['░░░', '▒░░', '▒▒░', '▒▒▒', '▓▒▒', '▓▓▒', '▓▓▓', '▒▓▓', '░▒▓'],
 };
 
+function getSpokStructureDirs(spokPath: string): string[] {
+  return [
+    spokPath,
+    path.join(spokPath, 'specs'),
+    path.join(spokPath, 'changes'),
+    path.join(spokPath, 'changes', 'archive'),
+  ];
+}
+
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
@@ -368,15 +377,10 @@ export class InitCommand {
   // ═══════════════════════════════════════════════════════════
 
   private async createDirectoryStructure(spokPath: string, extendMode: boolean): Promise<void> {
+    const directories = getSpokStructureDirs(spokPath);
+
     if (extendMode) {
       // In extend mode, just ensure directories exist without spinner
-      const directories = [
-        spokPath,
-        path.join(spokPath, 'specs'),
-        path.join(spokPath, 'changes'),
-        path.join(spokPath, 'changes', 'archive'),
-      ];
-
       for (const dir of directories) {
         await FileSystemUtils.createDirectory(dir);
       }
@@ -384,13 +388,6 @@ export class InitCommand {
     }
 
     const spinner = this.startSpinner('Creating Spok structure...');
-
-    const directories = [
-      spokPath,
-      path.join(spokPath, 'specs'),
-      path.join(spokPath, 'changes'),
-      path.join(spokPath, 'changes', 'archive'),
-    ];
 
     for (const dir of directories) {
       await FileSystemUtils.createDirectory(dir);

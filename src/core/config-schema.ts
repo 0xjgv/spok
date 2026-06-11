@@ -37,6 +37,10 @@ export const DEFAULT_CONFIG: GlobalConfigType = {
 
 const KNOWN_TOP_LEVEL_KEYS = new Set([...Object.keys(DEFAULT_CONFIG), 'workflows']);
 
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
 /**
  * Validate a config key path for CLI set operations.
  * Unknown top-level keys are rejected unless explicitly allowed by the caller.
@@ -79,13 +83,10 @@ export function getNestedValue(obj: Record<string, unknown>, path: string): unkn
   let current: unknown = obj;
 
   for (const key of keys) {
-    if (current === null || current === undefined) {
+    if (!isObjectLike(current)) {
       return undefined;
     }
-    if (typeof current !== 'object') {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[key];
+    current = current[key];
   }
 
   return current;
@@ -105,7 +106,7 @@ export function setNestedValue(obj: Record<string, unknown>, path: string, value
 
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if (current[key] === undefined || current[key] === null || typeof current[key] !== 'object') {
+    if (!isObjectLike(current[key])) {
       current[key] = {};
     }
     current = current[key] as Record<string, unknown>;
@@ -128,7 +129,7 @@ export function deleteNestedValue(obj: Record<string, unknown>, path: string): b
 
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if (current[key] === undefined || current[key] === null || typeof current[key] !== 'object') {
+    if (!isObjectLike(current[key])) {
       return false;
     }
     current = current[key] as Record<string, unknown>;
@@ -203,8 +204,8 @@ export function formatValueYaml(value: unknown, indent: number = 0): string {
     return value.map((item) => `${indentStr}- ${formatValueYaml(item, indent + 1)}`).join('\n');
   }
 
-  if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>);
+  if (isObjectLike(value)) {
+    const entries = Object.entries(value);
     if (entries.length === 0) {
       return '{}';
     }

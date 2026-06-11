@@ -54,6 +54,15 @@ type Counts = { added: number; modified: number; removed: number; renamed: numbe
 // Public API
 // -----------------------------------------------------------------------------
 
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Find all delta spec files that need to be applied from a change.
  */
@@ -69,25 +78,12 @@ export async function findSpecUpdates(changeDir: string, mainSpecsDir: string): 
         const specFile = path.join(changeSpecsDir, entry.name, 'spec.md');
         const targetFile = path.join(mainSpecsDir, entry.name, 'spec.md');
 
-        try {
-          await fs.access(specFile);
-
-          // Check if target exists
-          let exists = false;
-          try {
-            await fs.access(targetFile);
-            exists = true;
-          } catch {
-            exists = false;
-          }
-
+        if (await fileExists(specFile)) {
           updates.push({
             source: specFile,
             target: targetFile,
-            exists,
+            exists: await fileExists(targetFile),
           });
-        } catch {
-          // Source spec doesn't exist, skip
         }
       }
     }

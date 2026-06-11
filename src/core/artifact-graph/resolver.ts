@@ -5,6 +5,13 @@ import { getGlobalDataDir } from '../global-config.js';
 import { parseSchema, SchemaValidationError } from './schema.js';
 import type { SchemaYaml } from './types.js';
 
+type SchemaSource = 'project' | 'user' | 'package';
+
+interface SchemaLocation {
+  dir: string;
+  source: SchemaSource;
+}
+
 /**
  * Error thrown when loading a schema fails.
  */
@@ -45,6 +52,20 @@ export function getProjectSchemasDir(projectRoot: string): string {
   return path.join(projectRoot, 'spok', 'schemas');
 }
 
+function getSchemaLocations(projectRoot?: string): SchemaLocation[] {
+  const locations: SchemaLocation[] = [];
+  if (projectRoot) {
+    locations.push({ dir: getProjectSchemasDir(projectRoot), source: 'project' });
+  }
+  locations.push({ dir: getUserSchemasDir(), source: 'user' });
+  locations.push({ dir: getPackageSchemasDir(), source: 'package' });
+  return locations;
+}
+
+function getSchemaPath(schemaDir: string): string {
+  return path.join(schemaDir, 'schema.yaml');
+}
+
 /**
  * Resolves a schema name to its directory path.
  *
@@ -64,27 +85,11 @@ export function getSchemaDir(
   name: string,
   projectRoot?: string
 ): string | null {
-  // 1. Check project-local directory (if projectRoot provided)
-  if (projectRoot) {
-    const projectDir = path.join(getProjectSchemasDir(projectRoot), name);
-    const projectSchemaPath = path.join(projectDir, 'schema.yaml');
-    if (fs.existsSync(projectSchemaPath)) {
-      return projectDir;
+  for (const location of getSchemaLocations(projectRoot)) {
+    const schemaDir = path.join(location.dir, name);
+    if (fs.existsSync(getSchemaPath(schemaDir))) {
+      return schemaDir;
     }
-  }
-
-  // 2. Check user override directory
-  const userDir = path.join(getUserSchemasDir(), name);
-  const userSchemaPath = path.join(userDir, 'schema.yaml');
-  if (fs.existsSync(userSchemaPath)) {
-    return userDir;
-  }
-
-  // 3. Check package built-in directory
-  const packageDir = path.join(getPackageSchemasDir(), name);
-  const packageSchemaPath = path.join(packageDir, 'schema.yaml');
-  if (fs.existsSync(packageSchemaPath)) {
-    return packageDir;
   }
 
   return null;
@@ -118,7 +123,7 @@ export function resolveSchema(name: string, projectRoot?: string): SchemaYaml {
     );
   }
 
-  const schemaPath = path.join(schemaDir, 'schema.yaml');
+  const schemaPath = getSchemaPath(schemaDir);
 
   // Load and parse the schema
   let content: string;
@@ -176,12 +181,7 @@ function* schemaEntryNames(dir: string): Generator<string> {
 export function listSchemas(projectRoot?: string): string[] {
   const schemas = new Set<string>();
 
-  const dirs = [getPackageSchemasDir(), getUserSchemasDir()];
-  if (projectRoot) {
-    dirs.push(getProjectSchemasDir(projectRoot));
-  }
-
-  for (const dir of dirs) {
+  for (const { dir } of getSchemaLocations(projectRoot)) {
     for (const name of schemaEntryNames(dir)) {
       schemas.add(name);
     }
@@ -197,7 +197,7 @@ export interface SchemaInfo {
   name: string;
   description: string;
   artifacts: string[];
-  source: 'project' | 'user' | 'package';
+  source: SchemaSource;
 }
 
 /**
@@ -207,11 +207,11 @@ export interface SchemaInfo {
 function readSchemaInfo(
   dir: string,
   name: string,
-  source: SchemaInfo['source']
+  source: SchemaSource
 ): SchemaInfo | null {
   try {
     const schema = parseSchema(
-      fs.readFileSync(path.join(dir, name, 'schema.yaml'), 'utf-8')
+      fs.readFileSync(getSchemaPath(path.join(dir, name)), 'utf-8')
     );
     return {
       name,
@@ -235,15 +235,7 @@ export function listSchemasWithInfo(projectRoot?: string): SchemaInfo[] {
   const schemas: SchemaInfo[] = [];
   const seenNames = new Set<string>();
 
-  // Sources in priority order: project-local overrides user, which overrides package.
-  const sources: Array<{ dir: string; source: SchemaInfo['source'] }> = [];
-  if (projectRoot) {
-    sources.push({ dir: getProjectSchemasDir(projectRoot), source: 'project' });
-  }
-  sources.push({ dir: getUserSchemasDir(), source: 'user' });
-  sources.push({ dir: getPackageSchemasDir(), source: 'package' });
-
-  for (const { dir, source } of sources) {
+  for (const { dir, source } of getSchemaLocations(projectRoot)) {
     for (const name of schemaEntryNames(dir)) {
       if (seenNames.has(name)) {
         continue;

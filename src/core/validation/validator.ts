@@ -33,54 +33,39 @@ export class Validator {
   }
 
   async validateSpec(filePath: string): Promise<ValidationReport> {
-    const issues: ValidationIssue[] = [];
     const specName = this.extractNameFromPath(filePath);
     try {
       const content = readFileSync(filePath, 'utf-8');
-      const parser = new MarkdownParser(content);
-      
-      const spec = parser.parseSpec(specName);
-      
-      const result = SpecSchema.safeParse(spec);
-      
-      if (!result.success) {
-        issues.push(...this.convertZodErrors(result.error));
-      }
-      
-      issues.push(...this.applySpecRules(spec, content));
-      
+      return this.createReport(this.validateSpecContentIssues(specName, content));
     } catch (error) {
-      const baseMessage = error instanceof Error ? error.message : 'Unknown error';
-      const enriched = this.enrichTopLevelError(specName, baseMessage);
-      issues.push({
-        level: 'ERROR',
-        path: 'file',
-        message: enriched,
-      });
+      return this.createReport([this.toTopLevelIssue(specName, error)]);
     }
-    
-    return this.createReport(issues);
   }
 
   /**
    * Validate spec content from a string (used for pre-write validation of rebuilt specs)
    */
   async validateSpecContent(specName: string, content: string): Promise<ValidationReport> {
-    const issues: ValidationIssue[] = [];
     try {
-      const parser = new MarkdownParser(content);
-      const spec = parser.parseSpec(specName);
-      const result = SpecSchema.safeParse(spec);
-      if (!result.success) {
-        issues.push(...this.convertZodErrors(result.error));
-      }
-      issues.push(...this.applySpecRules(spec, content));
+      return this.createReport(this.validateSpecContentIssues(specName, content));
     } catch (error) {
-      const baseMessage = error instanceof Error ? error.message : 'Unknown error';
-      const enriched = this.enrichTopLevelError(specName, baseMessage);
-      issues.push({ level: 'ERROR', path: 'file', message: enriched });
+      return this.createReport([this.toTopLevelIssue(specName, error)]);
     }
-    return this.createReport(issues);
+  }
+
+  private validateSpecContentIssues(specName: string, content: string): ValidationIssue[] {
+    const parser = new MarkdownParser(content);
+    const spec = parser.parseSpec(specName);
+    const result = SpecSchema.safeParse(spec);
+    const issues = result.success ? [] : this.convertZodErrors(result.error);
+    issues.push(...this.applySpecRules(spec, content));
+    return issues;
+  }
+
+  private toTopLevelIssue(itemId: string, error: unknown): ValidationIssue {
+    const baseMessage = error instanceof Error ? error.message : 'Unknown error';
+    const enriched = this.enrichTopLevelError(itemId, baseMessage);
+    return { level: 'ERROR', path: 'file', message: enriched };
   }
 
   async validateChange(filePath: string): Promise<ValidationReport> {
@@ -102,13 +87,7 @@ export class Validator {
       issues.push(...this.applyChangeRules(change, content));
       
     } catch (error) {
-      const baseMessage = error instanceof Error ? error.message : 'Unknown error';
-      const enriched = this.enrichTopLevelError(changeName, baseMessage);
-      issues.push({
-        level: 'ERROR',
-        path: 'file',
-        message: enriched,
-      });
+      issues.push(this.toTopLevelIssue(changeName, error));
     }
     
     return this.createReport(issues);
