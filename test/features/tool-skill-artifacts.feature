@@ -6,8 +6,10 @@ Feature: Tool skill artifacts
     When I initialize Spok for the tools "claude,codex"
     Then Spok creates skills under ".claude/skills"
     And Spok creates the workflow skill "spok-explore" under ".claude/skills"
+    And Spok creates the workflow skill "spok-validate-problem" under ".claude/skills"
     And Spok creates skills under ".agents/skills"
     And Spok creates the workflow skill "spok-explore" under ".agents/skills"
+    And Spok creates the workflow skill "spok-validate-problem" under ".agents/skills"
     And Spok does not create ".claude/commands"
     And Spok does not create ".codex"
     And Spok does not create command or prompt files for the selected tools
@@ -39,7 +41,7 @@ Feature: Tool skill artifacts
     Given a new project
     And a staged flow task
     When I run spok flow next for the staged task
-    Then the Spok CLI output contains "Next step: research-questions"
+    Then the Spok CLI output contains "Next step: validate-problem"
     And the Spok CLI output contains "Model: fable"
 
   Scenario: Global skills install writes to home-scoped tool directories

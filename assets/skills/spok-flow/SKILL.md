@@ -1,6 +1,6 @@
 ---
 name: spok-flow
-description: end-to-end research → design → plan → implement → review → commit workflow for a single chunk. Driven by spok-apply.
+description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk. Driven by spok-apply.
 argument-hint: <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
 version: 0.4.0
 ---

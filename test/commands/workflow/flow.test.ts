@@ -17,12 +17,14 @@ import {
 
 interface FlowHarness {
   readonly taskDir: string;
+  completeProblemValidation(decision?: string): Promise<void>;
   completeFileStep(step: string, filename: string): Promise<void>;
   completeSummaryStep(step: string, summary: string): Promise<void>;
   completeThroughValidation(): Promise<void>;
 }
 
 const EXPECTED_STEP_MODELS = [
+  { id: 'validate-problem', model: 'fable' },
   { id: 'research-questions', model: 'fable' },
   { id: 'research', model: 'sonnet' },
   { id: 'design-discussion', model: 'fable' },
@@ -53,6 +55,18 @@ function useFlowHarness(): FlowHarness {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
+  async function completeProblemValidation(decision = 'proceed') {
+    await getFlowNext(taskDir);
+    const output = path.join(taskDir, 'problem-validation.md');
+    await fs.writeFile(
+      output,
+      `# Problem Validation\n\n## Flow Decision\n\n${decision}\n`,
+      'utf-8'
+    );
+    const result = await completeFlowStep(taskDir, { step: 'validate-problem', output });
+    expect(result.state).not.toBe('blocked');
+  }
+
   async function completeFileStep(step: string, filename: string) {
     await getFlowNext(taskDir);
     const output = path.join(taskDir, filename);
@@ -68,6 +82,7 @@ function useFlowHarness(): FlowHarness {
   }
 
   async function completeThroughValidation() {
+    await completeProblemValidation();
     await completeFileStep('research-questions', 'research-questions.md');
     await completeFileStep('research', 'research.md');
     await completeFileStep('design-discussion', 'design-discussion.md');
@@ -82,6 +97,7 @@ function useFlowHarness(): FlowHarness {
     get taskDir() {
       return taskDir;
     },
+    completeProblemValidation,
     completeFileStep,
     completeSummaryStep,
     completeThroughValidation,
@@ -91,16 +107,16 @@ function useFlowHarness(): FlowHarness {
 describe('deterministic workflow step state', () => {
   const flow = useFlowHarness();
 
-  it('returns research questions as the first step when only ticket.md exists', async () => {
+  it('returns problem validation as the first step when only ticket.md exists', async () => {
     const result = await getFlowNext(flow.taskDir);
 
     expect(result.state).toBe('ready');
     expect(result.step).toMatchObject({
-      id: 'research-questions',
-      skill: 'spok-create-research-questions',
+      id: 'validate-problem',
+      skill: 'spok-validate-problem',
       model: 'fable',
       argument: path.join(flow.taskDir, 'ticket.md'),
-      expectedOutput: path.join(flow.taskDir, 'research-questions.md'),
+      expectedOutput: path.join(flow.taskDir, 'problem-validation.md'),
       status: 'ready',
     });
     expectStepModels(result.steps);
@@ -115,24 +131,28 @@ describe('deterministic workflow step state', () => {
     const result = await getFlowStatus(flow.taskDir);
 
     expect(result.state).toBe('ready');
-    expect(result.nextStep?.id).toBe('research-questions');
+    expect(result.nextStep?.id).toBe('validate-problem');
     expectStepModels(result.steps);
     await expect(fs.stat(path.join(flow.taskDir, WORKFLOW_STATE_FILE))).rejects.toThrow();
   });
 
-  it('completes a file step without --output when the expected file exists', async () => {
+  it('completes problem validation without --output when the expected file can proceed', async () => {
     await getFlowNext(flow.taskDir);
-    await fs.writeFile(path.join(flow.taskDir, 'research-questions.md'), '# RQ\n', 'utf-8');
+    await fs.writeFile(
+      path.join(flow.taskDir, 'problem-validation.md'),
+      '# Problem Validation\n\n## Flow Decision\n\nproceed\n',
+      'utf-8'
+    );
 
-    const result = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+    const result = await completeFlowStep(flow.taskDir, { step: 'validate-problem' });
 
     expect(result.state).toBe('ready');
     expect(result.completedStep?.status).toBe('completed');
-    expect(result.nextStep?.id).toBe('research');
+    expect(result.nextStep?.id).toBe('research-questions');
   });
 
   it('validates the expected output before advancing to the next step', async () => {
-    await getFlowNext(flow.taskDir);
+    await flow.completeProblemValidation();
     const output = path.join(flow.taskDir, 'research-questions.md');
     await fs.writeFile(output, '# Research Questions\n', 'utf-8');
 
@@ -154,6 +174,7 @@ describe('deterministic workflow step state', () => {
   });
 
   it('resumes from workflow-state.json after completed artifacts are present', async () => {
+    await flow.completeProblemValidation();
     await flow.completeFileStep('research-questions', 'research-questions.md');
     await flow.completeFileStep('research', 'research.md');
 
@@ -229,6 +250,7 @@ describe('deterministic workflow blockers', () => {
   const flow = useFlowHarness();
 
   it('blocks when a completed prior artifact is missing', async () => {
+    await flow.completeProblemValidation();
     await flow.completeFileStep('research-questions', 'research-questions.md');
     await fs.rm(path.join(flow.taskDir, 'research-questions.md'));
 
@@ -248,17 +270,31 @@ describe('deterministic workflow blockers', () => {
     });
 
     expect(result.state).toBe('blocked');
-    expect(result.reason).toContain('Expected step research-questions');
+    expect(result.reason).toContain('Expected step validate-problem');
   });
 
   it('blocks completion when the expected output file is empty', async () => {
     await getFlowNext(flow.taskDir);
-    await fs.writeFile(path.join(flow.taskDir, 'research-questions.md'), '', 'utf-8');
+    await fs.writeFile(path.join(flow.taskDir, 'problem-validation.md'), '', 'utf-8');
 
-    const result = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+    const result = await completeFlowStep(flow.taskDir, { step: 'validate-problem' });
 
     expect(result.state).toBe('blocked');
     expect(result.reason).toContain('missing or empty');
+  });
+
+  it('blocks problem validation completion when the flow decision is not proceed', async () => {
+    await getFlowNext(flow.taskDir);
+    await fs.writeFile(
+      path.join(flow.taskDir, 'problem-validation.md'),
+      '# Problem Validation\n\n## Flow Decision\n\npending user decision\n',
+      'utf-8'
+    );
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'validate-problem' });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('Flow Decision to proceed');
   });
 
   it('leaves the state file unchanged by a blocked completion and recovers', async () => {
@@ -272,7 +308,7 @@ describe('deterministic workflow blockers', () => {
 
     const recovered = await getFlowNext(flow.taskDir);
     expect(recovered.state).toBe('ready');
-    expect(recovered.step?.id).toBe('research-questions');
+    expect(recovered.step?.id).toBe('validate-problem');
   });
 
   it('blocks completion for a wrong output path', async () => {
@@ -281,13 +317,13 @@ describe('deterministic workflow blockers', () => {
     await fs.writeFile(wrongOutput, '# Wrong\n', 'utf-8');
 
     const result = await completeFlowStep(flow.taskDir, {
-      step: 'research-questions',
+      step: 'validate-problem',
       output: wrongOutput,
     });
 
     expect(result.state).toBe('blocked');
     expect(result.reason).toContain('Expected output path');
-    expect(result.reason).toContain('research-questions.md');
+    expect(result.reason).toContain('problem-validation.md');
   });
 
   it('blocks commit completion without a commit SHA', async () => {
@@ -325,11 +361,11 @@ describe('flow command output', () => {
     await flowNextCommand(flow.taskDir);
 
     expect(logs).toEqual([
-      'Next step: research-questions',
-      'Skill: spok-create-research-questions',
+      'Next step: validate-problem',
+      'Skill: spok-validate-problem',
       'Model: fable',
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
-      `Expected output: ${path.join(flow.taskDir, 'research-questions.md')}`,
+      `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
     ]);
   });
 
@@ -341,7 +377,7 @@ describe('flow command output', () => {
       output: path.join(flow.taskDir, 'research.md'),
     });
 
-    expect(logs).toEqual(['Blocked: Expected step research-questions, got research.']);
+    expect(logs).toEqual(['Blocked: Expected step validate-problem, got research.']);
   });
 
   it('sets a nonzero exit code for blocked outcomes', async () => {
@@ -369,7 +405,7 @@ describe('flow command output', () => {
     const response = JSON.parse(logs[0]);
     expect(response).toMatchObject({
       state: 'ready',
-      nextStep: { id: 'research-questions', model: 'fable' },
+      nextStep: { id: 'validate-problem', model: 'fable' },
     });
     expectStepModels(response.steps);
   });

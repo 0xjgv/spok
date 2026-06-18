@@ -34,6 +34,7 @@ You have access to specialized agents to help research the codebase:
 1. **Read all @-mentioned files immediately and FULLY**
    - Any files mentioned with @ are auto-injected into your context
    - Review them carefully before creating questions
+   - If `<task-dir>/problem-validation.md` exists next to the ticket, read it FULLY and use its evidence as context. Do not redo reproduction or root cause analysis.
 
 2. **Focus ONLY on the current state of the codebase**
    - Do NOT include questions about what should be built

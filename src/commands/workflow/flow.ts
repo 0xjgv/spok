@@ -8,7 +8,10 @@ export type FlowStepStatus = 'pending' | 'ready' | 'completed';
 export type FlowCompletionKind = 'file' | 'summary' | 'commit';
 export type FlowModel = 'fable' | 'sonnet' | 'opus' | 'haiku';
 
+const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
+
 const FLOW_STEP_MODEL_BY_ID = {
+  [PROBLEM_VALIDATION_STEP_ID]: 'fable',
   'research-questions': 'fable',
   research: 'sonnet',
   'design-discussion': 'fable',
@@ -100,6 +103,7 @@ function getStatePath(taskDir: string): string {
 
 function buildStepDefinitions(taskDir: string): StepDefinition[] {
   const ticket = path.join(taskDir, 'ticket.md');
+  const problemValidation = path.join(taskDir, 'problem-validation.md');
   const researchQuestions = path.join(taskDir, 'research-questions.md');
   const research = path.join(taskDir, 'research.md');
   const designDiscussion = path.join(taskDir, 'design-discussion.md');
@@ -108,6 +112,14 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
   const validation = path.join(taskDir, 'validation.md');
 
   return [
+    {
+      id: PROBLEM_VALIDATION_STEP_ID,
+      skill: 'spok-validate-problem',
+      model: FLOW_STEP_MODEL_BY_ID[PROBLEM_VALIDATION_STEP_ID],
+      argument: ticket,
+      expectedOutput: problemValidation,
+      completionKind: 'file',
+    },
     {
       id: 'research-questions',
       skill: 'spok-create-research-questions',
@@ -217,6 +229,10 @@ function isCompletedStep(step: unknown): step is FlowStep {
   return typeof candidate.id === 'string' && candidate.status === 'completed';
 }
 
+function shouldSkipProblemValidationForLegacyState(completedById: Map<string, FlowStep>): boolean {
+  return completedById.size > 0 && !completedById.has(PROBLEM_VALIDATION_STEP_ID);
+}
+
 function normalizeState(taskDir: string, stored: unknown): WorkflowState {
   const initial = createInitialState(taskDir);
   if (!stored || typeof stored !== 'object') return initial;
@@ -231,8 +247,16 @@ function normalizeState(taskDir: string, stored: unknown): WorkflowState {
   }
 
   const definitions = buildStepDefinitions(taskDir);
+  const skipProblemValidation = shouldSkipProblemValidationForLegacyState(completedById);
   const steps = definitions.map((definition) => {
     const completed = completedById.get(definition.id);
+    if (!completed && definition.id === PROBLEM_VALIDATION_STEP_ID && skipProblemValidation) {
+      return stepFromDefinition(definition, 'completed', {
+        summary: 'Skipped for legacy workflow state created before validate-problem existed.',
+        completedAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
+      });
+    }
+
     return stepFromDefinition(definition, completed ? 'completed' : 'pending', completed?.result);
   });
 
@@ -388,9 +412,15 @@ async function validateCompletedArtifacts(state: WorkflowState): Promise<string 
 
     const definition = getDefinitionById(state.taskDir, step.id);
     if (definition?.completionKind !== 'file' || !definition.expectedOutput) continue;
+    if (!step.result?.output) continue;
 
     if (!(await pathIsNonEmptyFile(definition.expectedOutput))) {
       return `Missing completed artifact for step ${step.id}: ${definition.expectedOutput}`;
+    }
+
+    if (definition.id === PROBLEM_VALIDATION_STEP_ID) {
+      const decisionError = await validateProblemValidationFlowDecision(definition);
+      if (decisionError) return decisionError;
     }
   }
 }
@@ -433,6 +463,35 @@ function validateFileCompletion(
   }
 }
 
+function extractMarkdownSection(content: string, heading: string): string {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = content.match(
+    new RegExp(`(?:^|\\n)##\\s+${escapedHeading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|$)`, 'i')
+  );
+  return match?.[1]?.trim() ?? '';
+}
+
+function flowDecisionAllowsProceed(content: string): boolean {
+  const section = extractMarkdownSection(content, 'Flow Decision');
+  const firstDecisionLine = section
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+
+  return /^`?proceed`?\b/i.test(firstDecisionLine ?? '');
+}
+
+async function validateProblemValidationFlowDecision(
+  definition: StepDefinition
+): Promise<string | undefined> {
+  if (definition.id !== PROBLEM_VALIDATION_STEP_ID || !definition.expectedOutput) return;
+
+  const content = await fs.readFile(definition.expectedOutput, 'utf-8');
+  if (flowDecisionAllowsProceed(content)) return;
+
+  return `Step ${PROBLEM_VALIDATION_STEP_ID} must set Flow Decision to proceed before the flow can continue: ${definition.expectedOutput}`;
+}
+
 async function completeStepResult(
   definition: StepDefinition,
   input: FlowCompleteInput
@@ -444,6 +503,9 @@ async function completeStepResult(
     if (!(await pathIsNonEmptyFile(definition.expectedOutput!))) {
       return `Expected output file is missing or empty for step ${definition.id}: ${definition.expectedOutput}`;
     }
+
+    const decisionError = await validateProblemValidationFlowDecision(definition);
+    if (decisionError) return decisionError;
 
     return {
       output: definition.expectedOutput,

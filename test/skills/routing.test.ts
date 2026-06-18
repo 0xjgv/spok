@@ -5,6 +5,7 @@ import * as path from 'node:path';
 const SKILLS_DIR = path.resolve(__dirname, '../../assets/skills');
 
 const FORK_ARTIFACTS: Record<string, string> = {
+  'spok-validate-problem': 'problem-validation.md',
   'spok-create-research-questions': 'research-questions.md',
   'spok-create-research': 'research.md',
   'spok-create-design-discussion': 'design-discussion.md',
