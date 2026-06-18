@@ -41,7 +41,7 @@ spok/
 │       └── .flow/                  # Per-chunk tickets, written by /spok-apply
 │           └── <chunk-slug>/
 │               └── ticket.md
-└── config.yaml                     # Project configuration (optional)
+└── config.toml                     # Project configuration (optional)
 ```
 
 Plus the skills under your AI tool's skills directory, for example for Claude Code:

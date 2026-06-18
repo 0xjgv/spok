@@ -99,6 +99,7 @@ describe('spok capabilities', () => {
     expect(byPath.get('status')).toMatchObject({ emitsJson: true });
     expect(byPath.get('instructions')).toMatchObject({ emitsJson: true });
     expect(byPath.get('capabilities')).toMatchObject({ visibility: 'skill', emitsJson: true });
+    expect(byPath.get('doctor')).toMatchObject({ visibility: 'user', emitsJson: true });
   });
 
   it.each([

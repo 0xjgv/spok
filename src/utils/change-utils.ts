@@ -105,7 +105,7 @@ function describeKebabCaseViolation(name: string): string {
 /**
  * Resolves the schema name from an explicit option, project config, or default.
  *
- * Resolution order: explicit `options.schema` → `spok/config.yaml` → supplied default.
+ * Resolution order: explicit `options.schema` → Spok project config → supplied default.
  */
 function resolveSchemaName(projectRoot: string, options: CreateChangeOptions): string {
   if (options.schema) {

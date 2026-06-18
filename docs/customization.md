@@ -8,35 +8,40 @@ Spok 1.0 ships with a fixed four-skill surface (`/spok-explore`, `/spok-propose`
 
 For commands, see [Commands](commands.md). For the CLI, see [CLI](cli.md).
 
-## Project Configuration (`spok/config.yaml`)
+## Project Configuration (`spok/config.toml`)
 
-`spok/config.yaml` is created during `spok init`. It controls two things:
+`spok/config.toml` is created during `spok init`. Existing `spok/config.yaml` and `spok/config.yml` files are still accepted for backward compatibility. It controls three things:
 
-- **`context:`** — A project description injected into every artifact instruction. Use this to encode tech stack, conventions, and non-obvious constraints.
-- **`rules:`** — Per-artifact rules injected only when that artifact is being generated.
+- **`context`** — A project description injected into every artifact instruction. Use this to encode tech stack, conventions, and non-obvious constraints.
+- **`rules`** — Per-artifact rules injected only when that artifact is being generated.
+- **`flow.self_learn`** — Optional post-commit workflow improvement review after `/spok-apply`.
 
 ### Example
 
-```yaml
-schema: spec-driven
+```toml
+schema = "spec-driven"
 
-context: |
-  Tech stack: TypeScript, React, Node.js, PostgreSQL
-  API style: RESTful, documented in docs/api.md
-  Testing: Jest + React Testing Library
-  We value backwards compatibility for all public APIs
+context = """
+Tech stack: TypeScript, React, Node.js, PostgreSQL
+API style: RESTful, documented in docs/api.md
+Testing: Jest + React Testing Library
+We value backwards compatibility for all public APIs
+"""
 
-rules:
-  proposal:
-    - Include rollback plan
-    - Identify affected teams
-  specs:
-    - Use Given/When/Then format
-    - Reference existing patterns before inventing new ones
-  design:
-    - Document fallback strategies
-  tasks:
-    - Keep each chunk to a single end-to-end-testable slice
+[rules]
+proposal = [
+  "Include rollback plan",
+  "Identify affected teams",
+]
+specs = [
+  "Use Given/When/Then format",
+  "Reference existing patterns before inventing new ones",
+]
+design = ["Document fallback strategies"]
+tasks = ["Keep each chunk to a single end-to-end-testable slice"]
+
+[flow]
+self_learn = true
 ```
 
 ### How It Reaches the AI
@@ -74,7 +79,7 @@ spok instructions proposal --change my-change --json
 
 This is also how you debug "the AI keeps ignoring my rules" — if the rule isn't in the JSON output, it's not reaching the model.
 
-## What `context:` Should Hold
+## What `context` Should Hold
 
 Be selective. Context is injected into **every** artifact instruction, so trim it ruthlessly.
 
@@ -85,7 +90,7 @@ Be selective. Context is injected into **every** artifact instruction, so trim i
 - Non-obvious constraints ("we can't depend on library X because…")
 - Conventions that often get ignored by default
 
-**Move to `rules:` instead:**
+**Move to `rules` instead:**
 
 - Artifact-specific formatting ("use Given/When/Then in specs")
 - Per-artifact checklists ("proposals must include a rollback plan")
@@ -97,14 +102,15 @@ Be selective. Context is injected into **every** artifact instruction, so trim i
 
 ## Multi-Language Output
 
-To produce artifacts in a language other than English, put a directive in `context:`. See [Multi-Language](multi-language.md) for examples.
+To produce artifacts in a language other than English, put a directive in `context`. See [Multi-Language](multi-language.md) for examples.
 
-```yaml
-context: |
-  Language: Portuguese (pt-BR)
-  All artifacts must be written in Brazilian Portuguese.
+```toml
+context = """
+Language: Portuguese (pt-BR)
+All artifacts must be written in Brazilian Portuguese.
 
-  Tech stack: TypeScript, React, Node.js
+Tech stack: TypeScript, React, Node.js
+"""
 ```
 
 ## What Was Removed in 1.0

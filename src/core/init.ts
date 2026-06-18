@@ -20,6 +20,7 @@ import {
 import { PALETTE } from './styles/palette.js';
 import { isInteractive } from '../utils/interactive.js';
 import { serializeConfig } from './config-prompts.js';
+import { PROJECT_CONFIG_FILE_NAMES } from './project-config.js';
 import { CommandAdapterRegistry } from './command-generation/index.js';
 import {
   detectLegacyArtifacts,
@@ -126,7 +127,7 @@ export class InitCommand {
     // Generate skills for each tool and remove old command wrapper files
     const results = await this.generateSkillsAndCommands(projectPath, validatedTools);
 
-    // Create config.yaml if needed
+    // Create config.toml if needed
     const configStatus = await this.createConfig(spokPath, extendMode);
 
     // Warn if Claude is configured but custom subagents referenced by vendored
@@ -475,12 +476,12 @@ export class InitCommand {
   // ═══════════════════════════════════════════════════════════
 
   private async createConfig(spokPath: string, extendMode: boolean): Promise<'created' | 'exists' | 'skipped'> {
-    const configPath = path.join(spokPath, 'config.yaml');
-    const configYmlPath = path.join(spokPath, 'config.yml');
-    const configYamlExists = fs.existsSync(configPath);
-    const configYmlExists = fs.existsSync(configYmlPath);
+    const configPath = path.join(spokPath, 'config.toml');
+    const configExists = PROJECT_CONFIG_FILE_NAMES.some((fileName) =>
+      fs.existsSync(path.join(spokPath, fileName))
+    );
 
-    if (configYamlExists || configYmlExists) {
+    if (configExists) {
       return 'exists';
     }
 
@@ -490,8 +491,8 @@ export class InitCommand {
     }
 
     try {
-      const yamlContent = serializeConfig({ schema: DEFAULT_SCHEMA });
-      await FileSystemUtils.writeFile(configPath, yamlContent);
+      const tomlContent = serializeConfig({ schema: DEFAULT_SCHEMA });
+      await FileSystemUtils.writeFile(configPath, tomlContent);
       return 'created';
     } catch {
       return 'skipped';
@@ -545,12 +546,12 @@ export class InitCommand {
 
     // Config status
     if (configStatus === 'created') {
-      console.log(`Config: spok/config.yaml (schema: ${DEFAULT_SCHEMA})`);
+      console.log(`Config: spok/config.toml (schema: ${DEFAULT_SCHEMA})`);
     } else if (configStatus === 'exists') {
-      // Show actual filename (config.yaml or config.yml)
-      const configYaml = path.join(projectPath, SPOK_DIR_NAME, 'config.yaml');
-      const configYml = path.join(projectPath, SPOK_DIR_NAME, 'config.yml');
-      const configName = fs.existsSync(configYaml) ? 'config.yaml' : fs.existsSync(configYml) ? 'config.yml' : 'config.yaml';
+      const configName =
+        PROJECT_CONFIG_FILE_NAMES.find((fileName) =>
+          fs.existsSync(path.join(projectPath, SPOK_DIR_NAME, fileName))
+        ) ?? 'config.toml';
       console.log(`Config: spok/${configName} (exists)`);
     } else {
       console.log(chalk.dim(`Config: skipped (non-interactive mode)`));

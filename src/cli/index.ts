@@ -4,9 +4,12 @@ import ora from 'ora';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { AI_TOOLS } from '../core/config.js';
+import { doctorCommand } from '../core/doctor.js';
 import { UpdateCommand } from '../core/update.js';
 import { ListCommand } from '../core/list.js';
 import { ArchiveCommand } from '../core/archive.js';
+import { resolveCurrentPlanningHomeSync } from '../core/planning-home.js';
+import { readProjectConfigWithDiagnostics } from '../core/project-config.js';
 import {
   statusCommand,
   instructionsCommand,
@@ -82,6 +85,7 @@ const COMMAND_VISIBILITY: Record<string, CommandVisibility> = {
   version: 'user',
   help: 'user',
   init: 'user',
+  doctor: 'user',
   update: 'user',
   skills: 'user',
   'skills install': 'user',
@@ -99,6 +103,16 @@ const COMMAND_VISIBILITY: Record<string, CommandVisibility> = {
 };
 
 const COMMAND_ORDER = Object.keys(COMMAND_VISIBILITY);
+const CONFIG_WARNING_COMMANDS = new Set([
+  'list',
+  'archive',
+  'status',
+  'instructions',
+  'new:change',
+  'flow:status',
+  'flow:next',
+  'flow:complete',
+]);
 
 /**
  * Get the full command path for nested commands.
@@ -192,6 +206,41 @@ function buildCapabilitiesManifest(root: Command): CapabilitiesManifest {
   };
 }
 
+function maybeWarnProjectConfig(actionCommand: Command): void {
+  const commandPath = getCommandPath(actionCommand);
+  if (hasJsonOption(actionCommand) || !CONFIG_WARNING_COMMANDS.has(commandPath)) {
+    return;
+  }
+
+  try {
+    const planningHome = resolveCurrentPlanningHomeSync({
+      allowImplicitRepoRoot: false,
+    });
+    const result = readProjectConfigWithDiagnostics(planningHome.root);
+    if (result.diagnostics.length === 0) {
+      return;
+    }
+
+    const configPath = result.configPath
+      ? path.relative(planningHome.root, result.configPath)
+      : 'Spok config';
+    const hasErrors = result.diagnostics.some((diagnostic) => diagnostic.level === 'error');
+    const label = hasErrors ? 'invalid' : 'check';
+
+    console.error(`Warning: ${label} Spok config at ${configPath}`);
+    for (const diagnostic of result.diagnostics.slice(0, 3)) {
+      const location = diagnostic.path ? `${diagnostic.path}: ` : '';
+      console.error(`- ${location}${diagnostic.message}`);
+    }
+    if (result.diagnostics.length > 3) {
+      console.error(`- ...and ${result.diagnostics.length - 3} more issue(s)`);
+    }
+    console.error('Run `spok doctor` for a full configuration report.');
+  } catch {
+    // Commands can run outside a Spok planning home and report their own errors.
+  }
+}
+
 function printCapabilitiesText(manifest: CapabilitiesManifest): void {
   console.log(`${manifest.description} ${manifest.version}`);
   console.log();
@@ -220,6 +269,7 @@ program
 program.hook('preAction', async (_thisCommand, actionCommand) => {
   if (!hasJsonOption(actionCommand)) {
     await maybeShowTelemetryNotice();
+    maybeWarnProjectConfig(actionCommand);
   }
 
   const commandPath = getCommandPath(actionCommand);
@@ -293,6 +343,14 @@ program
       ora().fail(`Error: ${(error as Error).message}`);
       process.exit(1);
     }
+  });
+
+program
+  .command('doctor')
+  .description('Check Spok project configuration and setup')
+  .option('--json', 'Output as JSON')
+  .action(async (options?: { json?: boolean }) => {
+    await doctorCommand(options);
   });
 
 program
@@ -425,7 +483,7 @@ program
   .command('status')
   .description('Display artifact completion status for a change')
   .option('--change <id>', 'Change name to show status for')
-  .option('--schema <name>', 'Schema override (auto-detected from config.yaml)')
+  .option('--schema <name>', 'Schema override (auto-detected from project config)')
   .option('--json', 'Output as JSON')
   .action(async (options: StatusOptions) => {
     try {
@@ -441,7 +499,7 @@ program
   .command('instructions [artifact]')
   .description('Output enriched instructions for creating an artifact or applying tasks')
   .option('--change <id>', 'Change name')
-  .option('--schema <name>', 'Schema override (auto-detected from config.yaml)')
+  .option('--schema <name>', 'Schema override (auto-detected from project config)')
   .option('--json', 'Output as JSON')
   .action(async (artifactId: string | undefined, options: InstructionsOptions) => {
     try {

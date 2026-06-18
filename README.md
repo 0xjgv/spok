@@ -110,7 +110,7 @@ spok/
 │       ├── specs/          # Delta specs for this change
 │       ├── design.md       # Technical design
 │       └── tasks.md        # Chunked implementation checklist
-└── config.yaml             # Optional project config
+└── config.toml             # Optional project config
 ```
 
 Each change is isolated until you archive it. During archive, Spok applies the delta specs to `spok/specs/` and moves the completed change into history.

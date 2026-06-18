@@ -742,7 +742,7 @@ export function getToolsFromLegacyArtifacts(detection: LegacyDetectionResult): s
 
 /**
  * Generates a migration hint message for project.md.
- * This is shown when project.md exists and needs manual migration to config.yaml.
+ * This is shown when project.md exists and needs manual migration to config.toml.
  *
  * @returns Formatted migration hint string for console output
  */
@@ -752,11 +752,11 @@ export function formatProjectMdMigrationHint(): string {
   lines.push('  • spok/project.md');
   lines.push(chalk.dim('    We won\'t delete this file. It may contain useful project context.'));
   lines.push('');
-  lines.push(chalk.dim('    The new spok/config.yaml has a "context:" section for planning'));
+  lines.push(chalk.dim('    The new spok/config.toml has a "context" setting for planning'));
   lines.push(chalk.dim('    context. This is included in every Spok request and works more'));
   lines.push(chalk.dim('    reliably than the old project.md approach.'));
   lines.push('');
-  lines.push(chalk.dim('    Review project.md, move any useful content to config.yaml\'s context'));
+  lines.push(chalk.dim('    Review project.md, move any useful content to config.toml\'s context'));
   lines.push(chalk.dim('    section, then delete the file when ready.'));
   return lines.join('\n');
 }

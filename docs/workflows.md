@@ -227,17 +227,17 @@ implement-2fa                  wip
 
 ### Inject project context once, not every prompt
 
-Put your tech stack, conventions, and non-obvious constraints in `spok/config.yaml` under `context:`. Spok injects that into every artifact instruction, so `/spok-propose` doesn't need to be reminded every time. See [Concepts](concepts.md#project-configuration) for the structure.
+Put your tech stack, conventions, and non-obvious constraints in `spok/config.toml` under `context`. Spok injects that into every artifact instruction, so `/spok-propose` doesn't need to be reminded every time. See [Concepts](concepts.md#project-configuration) for the structure.
 
 ### Enable post-commit workflow learning
 
-Spok project settings live at `<project-root>/spok/config.yaml`.
+Spok project settings live at `<project-root>/spok/config.toml`. Existing `config.yaml` and `config.yml` files are still accepted.
 
 For a post-commit advisory review of workflow friction, weak evidence, and follow-up improvements, opt in with:
 
-```yaml
-flow:
-  self_learn: true
+```toml
+[flow]
+self_learn = true
 ```
 
 When enabled, each successful `/spok-apply` chunk runs a final `spok-self-learn` gate after the commit and writes `.flow/<chunk-slug>/self-learn.md`. Findings are advisory; they do not fail, amend, or rewrite the commit.

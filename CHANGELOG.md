@@ -8,7 +8,8 @@ version: 0.1.0
 
 ### Minor Changes
 
-- Added an opt-in `flow.self_learn` gate for `spok-flow`. When enabled in `spok/config.yaml`, each committed `/spok-apply` chunk runs an advisory post-commit workflow review and writes `.flow/<chunk>/self-learn.md`.
+- Added an opt-in `flow.self_learn` gate for `spok-flow`. When enabled in `spok/config.toml`, each committed `/spok-apply` chunk runs an advisory post-commit workflow review and writes `.flow/<chunk>/self-learn.md`.
+- Added `spok/config.toml` as the canonical project config while preserving `config.yaml` and `config.yml` compatibility, plus CLI config warnings and a `spok doctor` command for full diagnostics.
 
 ## 1.3.1
 

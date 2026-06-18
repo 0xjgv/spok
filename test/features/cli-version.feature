@@ -36,6 +36,7 @@ Feature: CLI version output
     And the Spok CLI capabilities include command "flow next"
     And the Spok CLI capabilities include command "flow complete"
     And the Spok CLI capabilities include command "new change"
+    And the Spok CLI capabilities include command "doctor"
 
   Scenario: Misleading nested skills help gives a correction
     When I run the Spok CLI with "skills help skills"

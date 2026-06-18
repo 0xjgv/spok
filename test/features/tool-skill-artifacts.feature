@@ -29,6 +29,50 @@ Feature: Tool skill artifacts
     When I initialize Spok for the tools "claude"
     Then setup guidance mentions "/spok-explore"
     And setup guidance mentions "/spok-propose"
+    And Spok creates file "spok/config.toml"
+
+  Scenario: CLI warns about invalid project config and points to doctor
+    Given a new project
+    And project config contains:
+      """
+      schema = "spec-driven"
+
+      [flow]
+      self_learn = "yes"
+      """
+    When I run the Spok CLI in the project with "list"
+    Then the Spok CLI exits with code 0
+    And the Spok CLI error contains "Warning: invalid Spok config at spok/config.toml"
+    And the Spok CLI error contains "Run `spok doctor` for a full configuration report."
+
+  Scenario: JSON commands are not polluted by config warnings
+    Given a new project
+    And project config contains:
+      """
+      schema = "spec-driven"
+
+      [flow]
+      self_learn = "yes"
+      """
+    When I run the Spok CLI in the project with "list --json"
+    Then the Spok CLI exits with code 0
+    And the Spok CLI output is valid JSON
+    And the Spok CLI error does not contain "invalid Spok config"
+
+  Scenario: Doctor reports invalid project config
+    Given a new project
+    And project config contains:
+      """
+      schema = "spec-driven"
+
+      [flow]
+      self_learn = "yes"
+      """
+    When I run the Spok CLI in the project with "doctor"
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "Spok Doctor"
+    And the Spok CLI output contains "Config: spok/config.toml"
+    And the Spok CLI output contains "flow.self_learn must be boolean"
 
   Scenario: Apply delegates inner flow sequencing to deterministic flow commands
     Given a new project
@@ -39,7 +83,7 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "model: <step.model>"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "effort: <step.effort>"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next --json is the source of truth"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.yaml. To enable it, add:"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.toml. To enable it, add:"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
 
   Scenario: Flow self-learn gate runs after commit when enabled

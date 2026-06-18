@@ -151,7 +151,7 @@ Ship exactly one unchecked chunk from `tasks.md` end-to-end.
 3. Parses `tasks.md` and finds the first chunk whose checkbox is `- [ ]`.
 4. Halts if the chunk's `**Prerequisites:**` field references slugs that are still unchecked.
 5. Stages a ticket at `<changeRoot>/.flow/<chunk-slug>/ticket.md` containing the chunk title, slug, layers, end-to-end test, rollback note, body, and pointers to the change's proposal, specs, and design.
-6. Invokes the vendored `spok-flow` skill (`Skill({skill: "spok-flow", args: "<absolute-ticket-dir>"})`), which drives research → design → plan → implement → review → commit on just that chunk. If `flow.self_learn: true` is set in `spok/config.yaml`, it also runs an advisory post-commit self-learn gate and writes `<ticket-dir>/self-learn.md`.
+6. Invokes the vendored `spok-flow` skill (`Skill({skill: "spok-flow", args: "<absolute-ticket-dir>"})`), which drives research → design → plan → implement → review → commit on just that chunk. If `flow.self_learn = true` is set in `spok/config.toml`, it also runs an advisory post-commit self-learn gate and writes `<ticket-dir>/self-learn.md`.
 7. On success, flips `- [ ]` to `- [x]` for the chunk's line only. On failure, leaves the box unchecked and surfaces the error.
 8. Prints remaining chunk count and the next chunk title.
 
@@ -304,8 +304,9 @@ Your AI tool doesn't see the Spok skills.
 
 The AI is producing weak artifacts.
 
-- Add project context in `spok/config.yaml` under `context:` — this is injected into every artifact instruction.
-- Add per-artifact rules under `rules:` (`proposal:`, `specs:`, `design:`, `tasks:`).
+- Add project context in `spok/config.toml` under `context` — this is injected into every artifact instruction.
+- Add per-artifact rules under `[rules]` (`proposal`, `specs`, `design`, `tasks`).
+- Run `spok doctor` if the CLI warns that your project config is invalid.
 - Provide a clearer description when you call `/spok-propose`.
 
 ---

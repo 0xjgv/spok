@@ -61,13 +61,20 @@ Given('a staged flow task', async function (this: SkillArtifactWorld) {
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
 });
 
+Given('project config contains:', async function (this: SkillArtifactWorld, configContent: string) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  const configDir = path.join(this.projectDir, 'spok');
+  await fs.mkdir(path.join(configDir, 'changes'), { recursive: true });
+  await fs.writeFile(path.join(configDir, 'config.toml'), `${configContent.trim()}\n`, 'utf-8');
+});
+
 Given('self-learn is enabled in project config', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   const configDir = path.join(this.projectDir, 'spok');
   await fs.mkdir(configDir, { recursive: true });
   await fs.writeFile(
-    path.join(configDir, 'config.yaml'),
-    'schema: spec-driven\nflow:\n  self_learn: true\n',
+    path.join(configDir, 'config.toml'),
+    'schema = "spec-driven"\n\n[flow]\nself_learn = true\n',
     'utf-8'
   );
 });
@@ -172,6 +179,17 @@ When('I run spok flow next for the staged task', async function (this: SkillArti
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
 });
 
+When('I run the Spok CLI in the project with {string}', async function (this: SkillArtifactWorld, args: string) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  this.cliResult = await runCLI(args.split(' '), {
+    cwd: this.projectDir,
+    env: {
+      SPOK_TELEMETRY: '0',
+    },
+    timeoutMs: 10_000,
+  });
+});
+
 When('I complete the staged flow commit step', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
@@ -256,6 +274,11 @@ Then('Spok does not create {string}', async function (this: SkillArtifactWorld, 
   assert.equal(await pathExists(path.join(this.projectDir, relativePath)), false);
 });
 
+Then('Spok creates file {string}', async function (this: SkillArtifactWorld, relativePath: string) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.equal(await pathExists(path.join(this.projectDir, relativePath)), true);
+});
+
 Then('Spok does not create command or prompt files for the selected tools', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.ok(this.codexHome, 'codexHome must be set by Given a new project');
@@ -277,6 +300,19 @@ Then(
     assert.match(skill, new RegExp(expectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
 );
+
+Then('the Spok CLI exits with code {int}', function (this: SkillArtifactWorld, expectedCode: number) {
+  assert.ok(this.cliResult, 'cliResult must be set by a CLI run step');
+  assert.equal(this.cliResult.exitCode, expectedCode, this.cliResult.stderr);
+});
+
+Then('the Spok CLI error does not contain {string}', function (this: SkillArtifactWorld, expected: string) {
+  assert.ok(this.cliResult, 'cliResult must be set by a CLI run step');
+  assert.doesNotMatch(
+    this.cliResult.stderr,
+    new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  );
+});
 
 After(async function (this: SkillArtifactWorld) {
   if (this.originalCodexHome === undefined) {
