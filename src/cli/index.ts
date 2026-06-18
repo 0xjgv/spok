@@ -52,16 +52,32 @@ interface CommandCapability {
   emitsJson: boolean;
 }
 
+interface SettingCapability {
+  path: string;
+  type: 'boolean';
+  default: boolean;
+  description: string;
+}
+
 interface CapabilitiesManifest {
   schemaVersion: 1;
   version: string;
   description: string;
   recommendedFlow: string[];
   commands: CommandCapability[];
+  settings: SettingCapability[];
 }
 
 const DESCRIPTION = 'AI-native system for spec-driven development';
 const RECOMMENDED_FLOW = ['/spok-explore', '/spok-propose', '/spok-apply', '/spok-archive'];
+const SETTINGS: SettingCapability[] = [
+  {
+    path: 'flow.self_learn',
+    type: 'boolean',
+    default: false,
+    description: 'Run an advisory post-commit workflow improvement review after each committed flow chunk.',
+  },
+];
 const COMMAND_VISIBILITY: Record<string, CommandVisibility> = {
   version: 'user',
   help: 'user',
@@ -172,6 +188,7 @@ function buildCapabilitiesManifest(root: Command): CapabilitiesManifest {
     description: DESCRIPTION,
     recommendedFlow: RECOMMENDED_FLOW,
     commands,
+    settings: SETTINGS,
   };
 }
 
@@ -186,6 +203,11 @@ function printCapabilitiesText(manifest: CapabilitiesManifest): void {
     }
     console.log();
   }
+  console.log('settings:');
+  for (const setting of manifest.settings) {
+    console.log(`  ${setting.path} (${setting.type}, default: ${setting.default})`);
+  }
+  console.log();
   console.log('For machine-readable output, run: spok capabilities --json');
 }
 

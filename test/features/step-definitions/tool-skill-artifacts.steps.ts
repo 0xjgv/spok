@@ -61,6 +61,75 @@ Given('a staged flow task', async function (this: SkillArtifactWorld) {
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
 });
 
+Given('self-learn is enabled in project config', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  const configDir = path.join(this.projectDir, 'spok');
+  await fs.mkdir(configDir, { recursive: true });
+  await fs.writeFile(
+    path.join(configDir, 'config.yaml'),
+    'schema: spec-driven\nflow:\n  self_learn: true\n',
+    'utf-8'
+  );
+});
+
+Given('the staged flow task is completed through validation', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  const taskDir = this.flowTaskDir;
+  const completedAt = '2026-01-01T00:00:00.000Z';
+  const fileSteps = [
+    ['validate-problem', 'problem-validation.md', '# Problem Validation\n\n## Flow Decision\n\nproceed\n'],
+    ['research-questions', 'research-questions.md', '# Research Questions\n'],
+    ['research', 'research.md', '# Research\n'],
+    ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
+    ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
+    ['plan', 'plan.md', '# Plan\n'],
+    ['validate', 'validation.md', '# Validation\n'],
+  ] as const;
+
+  for (const [, filename, content] of fileSteps) {
+    await fs.writeFile(path.join(taskDir, filename), content, 'utf-8');
+  }
+
+  const completedFileStep = ([id, filename]: readonly [string, string, string]) => ({
+    id,
+    status: 'completed',
+    result: {
+      output: path.join(taskDir, filename),
+      completedAt,
+    },
+  });
+
+  await fs.writeFile(
+    path.join(taskDir, 'workflow-state.json'),
+    `${JSON.stringify(
+      {
+        version: 1,
+        taskDir,
+        status: 'ready',
+        steps: [
+          ...fileSteps.slice(0, 6).map(completedFileStep),
+          {
+            id: 'implement',
+            status: 'completed',
+            result: { summary: 'Implemented the plan.', completedAt },
+          },
+          {
+            id: 'simplify',
+            status: 'completed',
+            result: { summary: 'Simplified the implementation.', completedAt },
+          },
+          completedFileStep(fileSteps[6]),
+        ],
+        createdAt: completedAt,
+        updatedAt: completedAt,
+      },
+      null,
+      2
+    )}\n`,
+    'utf-8'
+  );
+});
+
 Given('the Claude harness is active', function (this: SkillArtifactWorld) {
   delete process.env.CODEX_HOME; // cleared so the spawned CLI detects claude
 });
@@ -100,6 +169,27 @@ When('I run spok flow next for the staged task', async function (this: SkillArti
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
   this.cliResult = await runCLI(['flow', 'next', this.flowTaskDir], { cwd: this.projectDir });
+  assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
+});
+
+When('I complete the staged flow commit step', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  this.cliResult = await runCLI(
+    [
+      'flow',
+      'complete',
+      this.flowTaskDir,
+      '--step',
+      'commit',
+      '--commit',
+      'abc123',
+      '--summary',
+      'Committed the chunk.',
+      '--json',
+    ],
+    { cwd: this.projectDir }
+  );
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
 });
 

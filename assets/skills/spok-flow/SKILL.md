@@ -1,6 +1,6 @@
 ---
 name: spok-flow
-description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk. Driven by spok-apply.
+description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk, with an optional post-commit self-learn gate. Driven by spok-apply.
 argument-hint: <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
 version: 0.5.0
 ---
@@ -69,6 +69,11 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      ```bash
      spok flow complete "<task-dir>" --step "commit" --commit "<commit-sha>" --summary "<summary>" --json
      ```
+
+   - `self-learn` is an optional file-producing advisory gate returned only when
+     project config enables `flow.self_learn: true`. Invoke `spok-self-learn`,
+     write `<task-dir>/self-learn.md`, and complete it like any other
+     file-producing step. Its findings do not fail or amend the commit.
 
 6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly.
 

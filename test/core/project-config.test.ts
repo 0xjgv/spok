@@ -68,6 +68,50 @@ rules:
         expect(consoleWarnSpy).not.toHaveBeenCalled();
       });
 
+      it('should parse flow self-learn when enabled', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.yaml'),
+          `schema: spec-driven
+flow:
+  self_learn: true
+`
+        );
+
+        const config = readProjectConfig(tempDir);
+
+        expect(config).toEqual({
+          schema: 'spec-driven',
+          flow: {
+            self_learn: true,
+          },
+        });
+        expect(consoleWarnSpy).not.toHaveBeenCalled();
+      });
+
+      it('should parse flow self-learn when disabled', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.yaml'),
+          `schema: spec-driven
+flow:
+  self_learn: false
+`
+        );
+
+        const config = readProjectConfig(tempDir);
+
+        expect(config).toEqual({
+          schema: 'spec-driven',
+          flow: {
+            self_learn: false,
+          },
+        });
+        expect(consoleWarnSpy).not.toHaveBeenCalled();
+      });
+
       it('should return partial config when schema is invalid', () => {
         const configDir = path.join(tempDir, 'spok');
         fs.mkdirSync(configDir, { recursive: true });
@@ -139,6 +183,47 @@ rules: ["not", "an", "object"]
         });
         expect(consoleWarnSpy).toHaveBeenCalledWith(
           expect.stringContaining("Invalid 'rules' field")
+        );
+      });
+
+      it('should return partial config when flow is not an object', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.yaml'),
+          `schema: spec-driven
+flow: true
+`
+        );
+
+        const config = readProjectConfig(tempDir);
+
+        expect(config).toEqual({
+          schema: 'spec-driven',
+        });
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Invalid 'flow' field")
+        );
+      });
+
+      it('should return partial config when flow self_learn is not boolean', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.yaml'),
+          `schema: spec-driven
+flow:
+  self_learn: "yes"
+`
+        );
+
+        const config = readProjectConfig(tempDir);
+
+        expect(config).toEqual({
+          schema: 'spec-driven',
+        });
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Invalid 'flow.self_learn' field")
         );
       });
 

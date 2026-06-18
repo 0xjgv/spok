@@ -264,6 +264,14 @@ spok capabilities --json
       ],
       "emitsJson": true
     }
+  ],
+  "settings": [
+    {
+      "path": "flow.self_learn",
+      "type": "boolean",
+      "default": false,
+      "description": "Run an advisory post-commit workflow improvement review after each committed flow chunk."
+    }
   ]
 }
 ```

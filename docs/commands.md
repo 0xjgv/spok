@@ -151,7 +151,7 @@ Ship exactly one unchecked chunk from `tasks.md` end-to-end.
 3. Parses `tasks.md` and finds the first chunk whose checkbox is `- [ ]`.
 4. Halts if the chunk's `**Prerequisites:**` field references slugs that are still unchecked.
 5. Stages a ticket at `<changeRoot>/.flow/<chunk-slug>/ticket.md` containing the chunk title, slug, layers, end-to-end test, rollback note, body, and pointers to the change's proposal, specs, and design.
-6. Invokes the vendored `spok-flow` skill (`Skill({skill: "spok-flow", args: "<absolute-ticket-dir>"})`), which drives research → design → plan → implement → review → commit on just that chunk.
+6. Invokes the vendored `spok-flow` skill (`Skill({skill: "spok-flow", args: "<absolute-ticket-dir>"})`), which drives research → design → plan → implement → review → commit on just that chunk. If `flow.self_learn: true` is set in `spok/config.yaml`, it also runs an advisory post-commit self-learn gate and writes `<ticket-dir>/self-learn.md`.
 7. On success, flips `- [ ]` to `- [x]` for the chunk's line only. On failure, leaves the box unchecked and surfaces the error.
 8. Prints remaining chunk count and the next chunk title.
 
@@ -263,6 +263,7 @@ Different AI tools surface slash commands slightly differently. The intent is th
 | `spok-code-review` | `spok-flow` | Reviews the diff |
 | `spok-validate-implementation` | `spok-flow` | Validates implementation against the plan |
 | `spok-ci-commit` | `spok-flow` | Commits the chunk with a conventional message |
+| `spok-self-learn` | `spok-flow` | Optionally reviews post-commit workflow friction and improvement opportunities |
 
 These are intentionally co-located with the user-facing skills so the closure travels with the tool. Don't edit them in-place; they are overwritten on `spok update`.
 

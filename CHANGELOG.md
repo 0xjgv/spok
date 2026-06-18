@@ -4,6 +4,12 @@ version: 0.1.0
 
 # @fission-ai/openspec
 
+## Unreleased
+
+### Minor Changes
+
+- Added an opt-in `flow.self_learn` gate for `spok-flow`. When enabled in `spok/config.yaml`, each committed `/spok-apply` chunk runs an advisory post-commit workflow review and writes `.flow/<chunk>/self-learn.md`.
+
 ## 1.3.1
 
 ### Patch Changes

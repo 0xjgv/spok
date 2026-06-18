@@ -38,6 +38,17 @@ export const ProjectConfigSchema = z.object({
     )
     .optional()
     .describe('Per-artifact rules, keyed by artifact ID'),
+
+  // Optional: flow-level behavior toggles
+  flow: z
+    .object({
+      self_learn: z
+        .boolean()
+        .optional()
+        .describe('Run an advisory post-commit workflow improvement review'),
+    })
+    .optional()
+    .describe('Flow-level behavior toggles'),
 });
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
@@ -150,6 +161,35 @@ function parseRulesField(rawRules: unknown): Record<string, string[]> | undefine
 }
 
 /**
+ * Validate the `flow` field. Returns parsed flow options when at least one
+ * option is valid, or undefined when absent/invalid.
+ */
+function parseFlowField(rawFlow: unknown): ProjectConfig['flow'] | undefined {
+  if (rawFlow === undefined) {
+    return undefined;
+  }
+
+  if (typeof rawFlow !== 'object' || rawFlow === null || Array.isArray(rawFlow)) {
+    console.warn(`Invalid 'flow' field in config (must be object)`);
+    return undefined;
+  }
+
+  const rawOptions = rawFlow as Record<string, unknown>;
+  const flow: NonNullable<ProjectConfig['flow']> = {};
+
+  if (rawOptions.self_learn !== undefined) {
+    const result = z.boolean().safeParse(rawOptions.self_learn);
+    if (result.success) {
+      flow.self_learn = result.data;
+    } else {
+      console.warn(`Invalid 'flow.self_learn' field in config (must be boolean)`);
+    }
+  }
+
+  return Object.keys(flow).length > 0 ? flow : undefined;
+}
+
+/**
  * Read and parse spok/config.yaml from project root.
  * Uses resilient parsing - validates each field independently using Zod safeParse.
  * Returns null if file doesn't exist.
@@ -200,6 +240,11 @@ export function readProjectConfig(projectRoot: string): ProjectConfig | null {
     const rules = parseRulesField(raw.rules);
     if (rules !== undefined) {
       config.rules = rules;
+    }
+
+    const flow = parseFlowField(raw.flow);
+    if (flow !== undefined) {
+      config.flow = flow;
     }
 
     return Object.keys(config).length > 0 ? (config as ProjectConfig) : null;

@@ -12,6 +12,7 @@ const FORK_ARTIFACTS: Record<string, string> = {
   'spok-create-structure-outline': 'structure-outline.md',
   'spok-create-plan': 'plan.md',
   'spok-validate-implementation': 'validation.md',
+  'spok-self-learn': 'self-learn.md',
 };
 
 const DATE_PREFIX_PATTERN = /\b\d{4}-\d{2}-\d{2}-/;

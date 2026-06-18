@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
+import { readProjectConfig } from '../../core/project-config.js';
 
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 
@@ -16,6 +17,7 @@ interface Routing {
 }
 
 const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
+const SELF_LEARN_STEP_ID = 'self-learn';
 
 const FLOW_STEP_TIER_BY_ID = {
   [PROBLEM_VALIDATION_STEP_ID]: 'heavy',
@@ -28,6 +30,7 @@ const FLOW_STEP_TIER_BY_ID = {
   simplify: 'mid',
   validate: 'heavy',
   commit: 'cheap',
+  [SELF_LEARN_STEP_ID]: 'mid',
 } as const satisfies Record<string, FlowTier>;
 
 const ROUTING_MATRIX: Record<FlowTool, Record<FlowTier, Routing>> = {
@@ -127,6 +130,29 @@ function getStatePath(taskDir: string): string {
   return path.join(taskDir, WORKFLOW_STATE_FILE);
 }
 
+function findProjectRootForTaskDir(taskDir: string): string | undefined {
+  let current = taskDir;
+
+  while (true) {
+    if (
+      existsSync(path.join(current, 'spok', 'config.yaml')) ||
+      existsSync(path.join(current, 'spok', 'config.yml'))
+    ) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+function isSelfLearnEnabled(taskDir: string): boolean {
+  const projectRoot = findProjectRootForTaskDir(taskDir);
+  if (!projectRoot) return false;
+  return readProjectConfig(projectRoot)?.flow?.self_learn === true;
+}
+
 function buildStepDefinitions(taskDir: string): StepDefinition[] {
   const tool = detectTool();
   const route = (id: keyof typeof FLOW_STEP_TIER_BY_ID): Routing =>
@@ -139,8 +165,9 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
   const structureOutline = path.join(taskDir, 'structure-outline.md');
   const plan = path.join(taskDir, 'plan.md');
   const validation = path.join(taskDir, 'validation.md');
+  const self_learn = path.join(taskDir, 'self-learn.md');
 
-  return [
+  const steps: StepDefinition[] = [
     {
       id: PROBLEM_VALIDATION_STEP_ID,
       skill: 'spok-validate-problem',
@@ -219,6 +246,19 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
       completionKind: 'commit',
     },
   ];
+
+  if (isSelfLearnEnabled(taskDir)) {
+    steps.push({
+      id: SELF_LEARN_STEP_ID,
+      skill: 'spok-self-learn',
+      ...route(SELF_LEARN_STEP_ID),
+      argument: taskDir,
+      expectedOutput: self_learn,
+      completionKind: 'file',
+    });
+  }
+
+  return steps;
 }
 
 function stepFromDefinition(

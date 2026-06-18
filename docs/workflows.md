@@ -25,7 +25,7 @@ Spok exposes four user-facing workflow skills. `/spok-explore` is optional think
 
 - **`/spok-explore`** helps investigate ideas, compare approaches, inspect Spok artifacts, and summarize findings without writing implementation code.
 - **`/spok-propose`** scaffolds the change folder, creates the planning artifacts (proposal, specs, design), and writes a `tasks.md` that is a list of chunks. A chunk is one thin, end-to-end-testable slice of work.
-- **`/spok-apply`** picks the first unchecked chunk, stages a ticket under `.flow/<chunk-slug>/`, runs research → design → plan → implement → review → commit on it via the vendored `spok-flow` skill, then flips the chunk's checkbox to `[x]`. One chunk per invocation.
+- **`/spok-apply`** picks the first unchecked chunk, stages a ticket under `.flow/<chunk-slug>/`, runs research → design → plan → implement → review → commit on it via the vendored `spok-flow` skill, then flips the chunk's checkbox to `[x]`. One chunk per invocation. When `flow.self_learn` is enabled, `spok-flow` also runs an advisory post-commit review and writes `.flow/<chunk-slug>/self-learn.md`.
 - **`/spok-archive`** applies any delta specs to the main specs and moves the change into `spok/changes/archive/YYYY-MM-DD-<name>/`. Sync is folded in — there is no separate sync step.
 
 The patterns below are about how you sequence these skills across real-world situations.
@@ -228,6 +228,19 @@ implement-2fa                  wip
 ### Inject project context once, not every prompt
 
 Put your tech stack, conventions, and non-obvious constraints in `spok/config.yaml` under `context:`. Spok injects that into every artifact instruction, so `/spok-propose` doesn't need to be reminded every time. See [Concepts](concepts.md#project-configuration) for the structure.
+
+### Enable post-commit workflow learning
+
+Spok project settings live at `<project-root>/spok/config.yaml`.
+
+For a post-commit advisory review of workflow friction, weak evidence, and follow-up improvements, opt in with:
+
+```yaml
+flow:
+  self_learn: true
+```
+
+When enabled, each successful `/spok-apply` chunk runs a final `spok-self-learn` gate after the commit and writes `.flow/<chunk-slug>/self-learn.md`. Findings are advisory; they do not fail, amend, or rewrite the commit.
 
 ---
 

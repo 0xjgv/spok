@@ -11,7 +11,7 @@ Spok works with many AI coding assistants. `spok init` configures the tools you 
 For each selected tool, Spok installs:
 
 1. **User-facing skills**: `<tool-skills-dir>/skills/spok-explore/SKILL.md`, `spok-propose/SKILL.md`, `spok-apply/SKILL.md`, `spok-archive/SKILL.md`.
-2. **Vendored helper skills**: `<tool-skills-dir>/skills/spok-flow/`, `spok-create-scoped-chunks/`, `spok-create-research/`, `spok-create-research-questions/`, `spok-create-design-discussion/`, `spok-create-structure-outline/`, `spok-create-plan/`, `spok-implement-plan/`, `spok-code-review/`, `spok-validate-implementation/`, `spok-ci-commit/`.
+2. **Vendored helper skills**: `<tool-skills-dir>/skills/spok-flow/`, `spok-create-scoped-chunks/`, `spok-create-research/`, `spok-create-research-questions/`, `spok-create-design-discussion/`, `spok-create-structure-outline/`, `spok-create-plan/`, `spok-implement-plan/`, `spok-code-review/`, `spok-validate-implementation/`, `spok-ci-commit/`, `spok-self-learn/`.
 
 You invoke `/spok-explore`, `/spok-propose`, `/spok-apply`, and `/spok-archive` directly in your AI tool. The implementation skills delegate to the vendored helpers internally.
 

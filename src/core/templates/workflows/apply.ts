@@ -130,6 +130,18 @@ conversation context. If still ambiguous you MUST prompt the user.
    Next: <next chunk title> (run \`/spok-apply\` again)
    \`\`\`
 
+   If \`spok/config.yaml\` does not enable \`flow.self_learn: true\`, append:
+
+   \`\`\`
+   Optional: post-commit self-learn is off.
+   Spok settings live in spok/config.yaml. To enable it, add:
+
+   flow:
+     self_learn: true
+
+   See available settings with: spok capabilities --json
+   \`\`\`
+
    If 0 remaining, suggest \`/spok-archive\`.
 
 **Guardrails**

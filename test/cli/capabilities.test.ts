@@ -14,12 +14,20 @@ interface ManifestCommand {
   emitsJson: boolean;
 }
 
+interface ManifestSetting {
+  path: string;
+  type: string;
+  default: unknown;
+  description: string;
+}
+
 interface CapabilitiesManifest {
   schemaVersion: number;
   version: string;
   description: string;
   recommendedFlow: string[];
   commands: ManifestCommand[];
+  settings: ManifestSetting[];
 }
 
 // Keep telemetry enabled (to exercise the first-run notice path) but stop the
@@ -76,6 +84,13 @@ describe('spok capabilities', () => {
       '/spok-apply',
       '/spok-archive',
     ]);
+    expect(manifest.settings).toContainEqual(
+      expect.objectContaining({
+        path: 'flow.self_learn',
+        type: 'boolean',
+        default: false,
+      })
+    );
     expect(byPath.get('new change')).toMatchObject({ visibility: 'skill' });
     expect(byPath.get('flow status')).toMatchObject({ visibility: 'internal', emitsJson: true });
     expect(byPath.get('flow next')).toMatchObject({ visibility: 'internal', emitsJson: true });

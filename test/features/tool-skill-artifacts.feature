@@ -7,9 +7,11 @@ Feature: Tool skill artifacts
     Then Spok creates skills under ".claude/skills"
     And Spok creates the workflow skill "spok-explore" under ".claude/skills"
     And Spok creates the workflow skill "spok-validate-problem" under ".claude/skills"
+    And Spok creates the workflow skill "spok-self-learn" under ".claude/skills"
     And Spok creates skills under ".agents/skills"
     And Spok creates the workflow skill "spok-explore" under ".agents/skills"
     And Spok creates the workflow skill "spok-validate-problem" under ".agents/skills"
+    And Spok creates the workflow skill "spok-self-learn" under ".agents/skills"
     And Spok does not create ".claude/commands"
     And Spok does not create ".codex"
     And Spok does not create command or prompt files for the selected tools
@@ -37,6 +39,18 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "model: <step.model>"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "effort: <step.effort>"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next --json is the source of truth"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.yaml. To enable it, add:"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
+
+  Scenario: Flow self-learn gate runs after commit when enabled
+    Given a new project
+    And self-learn is enabled in project config
+    And a staged flow task
+    And the staged flow task is completed through validation
+    When I complete the staged flow commit step
+    Then the Spok CLI output contains "\"state\": \"ready\""
+    And the Spok CLI output contains "\"id\": \"self-learn\""
+    And the Spok CLI output contains "\"skill\": \"spok-self-learn\""
 
   Scenario: Flow next prints the Claude-routed model and effort for the first step
     Given a new project
@@ -61,8 +75,11 @@ Feature: Tool skill artifacts
     When I install global Spok skills for the tools "claude,codex,factory"
     Then Spok creates global skills under ".claude/skills"
     And Spok creates the global workflow skill "spok-explore" under ".claude/skills"
+    And Spok creates the global workflow skill "spok-self-learn" under ".claude/skills"
     And Spok creates global skills under ".agents/skills"
     And Spok creates the global workflow skill "spok-explore" under ".agents/skills"
+    And Spok creates the global workflow skill "spok-self-learn" under ".agents/skills"
     And Spok creates global skills under ".factory/skills"
     And Spok creates the global workflow skill "spok-explore" under ".factory/skills"
+    And Spok creates the global workflow skill "spok-self-learn" under ".factory/skills"
     And Spok does not create "spok"

@@ -16,7 +16,9 @@ import {
 } from '../../../src/commands/workflow/flow.js';
 
 interface FlowHarness {
+  readonly projectRoot: string;
   readonly taskDir: string;
+  enableSelfLearn(): Promise<void>;
   completeProblemValidation(decision?: string): Promise<void>;
   completeFileStep(step: string, filename: string): Promise<void>;
   completeSummaryStep(step: string, summary: string): Promise<void>;
@@ -36,9 +38,20 @@ const EXPECTED_STEP_ROUTING = [
   { id: 'commit', model: 'haiku', effort: undefined },
 ];
 
+const EXPECTED_SELF_LEARN_STEP_ROUTING = [
+  ...EXPECTED_STEP_ROUTING,
+  { id: 'self-learn', model: 'sonnet', effort: undefined },
+];
+
 function expectStepRouting(steps: Array<{ id: string; model?: string; effort?: string }>) {
   expect(steps.map(({ id, model, effort }) => ({ id, model, effort }))).toEqual(
     EXPECTED_STEP_ROUTING
+  );
+}
+
+function expectSelfLearnStepRouting(steps: Array<{ id: string; model?: string; effort?: string }>) {
+  expect(steps.map(({ id, model, effort }) => ({ id, model, effort }))).toEqual(
+    EXPECTED_SELF_LEARN_STEP_ROUTING
   );
 }
 
@@ -64,6 +77,15 @@ function useFlowHarness(): FlowHarness {
     }
     await fs.rm(tempDir, { recursive: true, force: true });
   });
+
+  async function enableSelfLearn() {
+    await fs.mkdir(path.join(tempDir, 'spok'), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDir, 'spok', 'config.yaml'),
+      'schema: spec-driven\nflow:\n  self_learn: true\n',
+      'utf-8'
+    );
+  }
 
   async function completeProblemValidation(decision = 'proceed') {
     await getFlowNext(taskDir);
@@ -104,9 +126,13 @@ function useFlowHarness(): FlowHarness {
   }
 
   return {
+    get projectRoot() {
+      return tempDir;
+    },
     get taskDir() {
       return taskDir;
     },
+    enableSelfLearn,
     completeProblemValidation,
     completeFileStep,
     completeSummaryStep,
@@ -155,6 +181,24 @@ describe('deterministic workflow step state', () => {
       { id: 'validate', model: 'gpt-5.5', effort: 'xhigh' },
       { id: 'commit', model: 'gpt-5.5', effort: 'low' },
     ]);
+  });
+
+  it('appends self-learn when project config enables it', async () => {
+    await flow.enableSelfLearn();
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.step?.id).toBe('validate-problem');
+    expectSelfLearnStepRouting(result.steps);
+    expect(result.steps.at(-1)).toMatchObject({
+      id: 'self-learn',
+      skill: 'spok-self-learn',
+      model: 'sonnet',
+      argument: flow.taskDir,
+      expectedOutput: path.join(flow.taskDir, 'self-learn.md'),
+      status: 'pending',
+    });
   });
 
   it('does not create the state file on a status query', async () => {
@@ -374,6 +418,64 @@ describe('deterministic workflow blockers', () => {
 
     expect(result.state).toBe('blocked');
     expect(result.reason).toContain('commit SHA');
+  });
+
+  it('advances from commit to self-learn when enabled', async () => {
+    await flow.enableSelfLearn();
+    await flow.completeThroughValidation();
+
+    const result = await completeFlowStep(flow.taskDir, {
+      step: 'commit',
+      commit: 'abc123',
+      summary: 'Committed the chunk.',
+    });
+
+    expect(result.state).toBe('ready');
+    expect(result.completedStep?.id).toBe('commit');
+    expect(result.nextStep).toMatchObject({
+      id: 'self-learn',
+      skill: 'spok-self-learn',
+      model: 'sonnet',
+      argument: flow.taskDir,
+      expectedOutput: path.join(flow.taskDir, 'self-learn.md'),
+      status: 'ready',
+    });
+    expectSelfLearnStepRouting(result.steps);
+  });
+
+  it('blocks self-learn completion when its artifact is missing or empty', async () => {
+    await flow.enableSelfLearn();
+    await flow.completeThroughValidation();
+    await completeFlowStep(flow.taskDir, {
+      step: 'commit',
+      commit: 'abc123',
+    });
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'self-learn' });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('Expected output file is missing or empty');
+    expect(result.reason).toContain('self-learn.md');
+  });
+
+  it('completes self-learn and marks the flow complete', async () => {
+    await flow.enableSelfLearn();
+    await flow.completeThroughValidation();
+    await completeFlowStep(flow.taskDir, {
+      step: 'commit',
+      commit: 'abc123',
+    });
+    const output = path.join(flow.taskDir, 'self-learn.md');
+    await fs.writeFile(output, '# Self Learn\n\nNo blocking findings.\n', 'utf-8');
+
+    const result = await completeFlowStep(flow.taskDir, {
+      step: 'self-learn',
+      output,
+    });
+
+    expect(result.state).toBe('complete');
+    expect(result.completedStep?.id).toBe('self-learn');
+    expect(result.nextStep).toBeUndefined();
   });
 });
 
