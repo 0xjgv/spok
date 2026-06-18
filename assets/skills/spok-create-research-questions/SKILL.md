@@ -70,6 +70,7 @@ Follow this format, using an appropriate number of questions for the task (no mo
    - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-research-questions.md` (legacy date-prefixed orphans from pre-fork runs).
    - The skill argument is the absolute path to the ticket file. Derive `<task-dir>` as its parent directory (the directory already exists — do not create or search for it).
    - Filename is bare: `research-questions.md` (no date prefix).
+   - After writing, confirm the file exists and is non-empty: run `ls -la <task-dir>/research-questions.md`. If missing or empty, re-write before continuing. Include the absolute path in your response.
 
 3. **Read the final output template**
 

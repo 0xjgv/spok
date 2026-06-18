@@ -43,6 +43,7 @@ Then wait for the user's research query.
 
 3. **Spawn parallel sub-agent tasks for comprehensive research:**
    - Create multiple Task agents to research different aspects concurrently
+   - Do not run agents in the background — FOREGROUND AGENTS ONLY.
    - We now have specialized agents that know how to do specific research tasks:
 
    **For codebase research:**
@@ -86,6 +87,7 @@ Then wait for the user's research query.
 
    - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-research.md` (legacy date-prefixed orphans from pre-fork runs).
    - Write the document to `<task-dir>/research.md`
+   - After writing, confirm the file exists and is non-empty: run `ls -la <task-dir>/research.md`. If missing or empty, re-write before continuing. Include the absolute path in your response.
 
 7. **Note cloud permalinks:**
    Cloud permalinks are automatically provided when you write artifacts. Include them in your final output.

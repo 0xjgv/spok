@@ -9,8 +9,8 @@ function commandNames(stdout: string): string[] {
   const names: string[] = [];
   for (const line of lines.slice(commandsIndex + 1)) {
     if (line.trim() === '') break;
-    if (/^  \S/u.test(line)) {
-      names.push(line.trim().split(/\s+/)[0]);
+    if (line.startsWith('  ') && line.length > 2 && line[2].trim() !== '') {
+      names.push(line.trim().split(' ')[0]);
     }
   }
   return names;

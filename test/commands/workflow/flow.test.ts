@@ -180,6 +180,10 @@ describe('deterministic workflow step state', () => {
     expect(result.completedStep?.status).toBe('completed');
     expect(result.nextStep?.id).toBe('research-questions');
   });
+});
+
+describe('deterministic workflow state resumption', () => {
+  const flow = useFlowHarness();
 
   it('validates the expected output before advancing to the next step', async () => {
     await flow.completeProblemValidation();
