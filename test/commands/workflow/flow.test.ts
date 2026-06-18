@@ -23,28 +23,33 @@ interface FlowHarness {
   completeThroughValidation(): Promise<void>;
 }
 
-const EXPECTED_STEP_MODELS = [
-  { id: 'validate-problem', model: 'fable' },
-  { id: 'research-questions', model: 'fable' },
-  { id: 'research', model: 'sonnet' },
-  { id: 'design-discussion', model: 'fable' },
-  { id: 'structure-outline', model: 'opus' },
-  { id: 'plan', model: 'fable' },
-  { id: 'implement', model: 'opus' },
-  { id: 'simplify', model: 'sonnet' },
-  { id: 'validate', model: 'fable' },
-  { id: 'commit', model: 'haiku' },
+const EXPECTED_STEP_ROUTING = [
+  { id: 'validate-problem', model: 'opus', effort: 'xhigh' },
+  { id: 'research-questions', model: 'opus', effort: 'xhigh' },
+  { id: 'research', model: 'sonnet', effort: undefined },
+  { id: 'design-discussion', model: 'opus', effort: 'xhigh' },
+  { id: 'structure-outline', model: 'opus', effort: 'xhigh' },
+  { id: 'plan', model: 'opus', effort: 'xhigh' },
+  { id: 'implement', model: 'opus', effort: 'xhigh' },
+  { id: 'simplify', model: 'sonnet', effort: undefined },
+  { id: 'validate', model: 'opus', effort: 'xhigh' },
+  { id: 'commit', model: 'haiku', effort: undefined },
 ];
 
-function expectStepModels(steps: Array<{ id: string; model?: string }>) {
-  expect(steps.map(({ id, model }) => ({ id, model }))).toEqual(EXPECTED_STEP_MODELS);
+function expectStepRouting(steps: Array<{ id: string; model?: string; effort?: string }>) {
+  expect(steps.map(({ id, model, effort }) => ({ id, model, effort }))).toEqual(
+    EXPECTED_STEP_ROUTING
+  );
 }
 
 function useFlowHarness(): FlowHarness {
   let tempDir: string;
   let taskDir: string;
+  let originalCodexHome: string | undefined;
 
   beforeEach(async () => {
+    originalCodexHome = process.env.CODEX_HOME;
+    delete process.env.CODEX_HOME;
     tempDir = path.join(os.tmpdir(), `spok-flow-${randomUUID()}`);
     taskDir = path.join(tempDir, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
     await fs.mkdir(taskDir, { recursive: true });
@@ -52,6 +57,11 @@ function useFlowHarness(): FlowHarness {
   });
 
   afterEach(async () => {
+    if (originalCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = originalCodexHome;
+    }
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
@@ -114,17 +124,37 @@ describe('deterministic workflow step state', () => {
     expect(result.step).toMatchObject({
       id: 'validate-problem',
       skill: 'spok-validate-problem',
-      model: 'fable',
+      model: 'opus',
+      effort: 'xhigh',
       argument: path.join(flow.taskDir, 'ticket.md'),
       expectedOutput: path.join(flow.taskDir, 'problem-validation.md'),
       status: 'ready',
     });
-    expectStepModels(result.steps);
+    expectStepRouting(result.steps);
 
     const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
     await expect(fs.stat(statePath)).resolves.toBeTruthy();
     const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
-    expectStepModels(state.steps);
+    expectStepRouting(state.steps);
+  });
+
+  it('routes every step to gpt-5.5 with codex efforts when CODEX_HOME is set', async () => {
+    process.env.CODEX_HOME = path.join(os.tmpdir(), `codex-${randomUUID()}`);
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.steps.map(({ id, model, effort }) => ({ id, model, effort }))).toEqual([
+      { id: 'validate-problem', model: 'gpt-5.5', effort: 'xhigh' },
+      { id: 'research-questions', model: 'gpt-5.5', effort: 'xhigh' },
+      { id: 'research', model: 'gpt-5.5', effort: 'medium' },
+      { id: 'design-discussion', model: 'gpt-5.5', effort: 'xhigh' },
+      { id: 'structure-outline', model: 'gpt-5.5', effort: 'xhigh' },
+      { id: 'plan', model: 'gpt-5.5', effort: 'xhigh' },
+      { id: 'implement', model: 'gpt-5.5', effort: 'xhigh' },
+      { id: 'simplify', model: 'gpt-5.5', effort: 'medium' },
+      { id: 'validate', model: 'gpt-5.5', effort: 'xhigh' },
+      { id: 'commit', model: 'gpt-5.5', effort: 'low' },
+    ]);
   });
 
   it('does not create the state file on a status query', async () => {
@@ -132,7 +162,7 @@ describe('deterministic workflow step state', () => {
 
     expect(result.state).toBe('ready');
     expect(result.nextStep?.id).toBe('validate-problem');
-    expectStepModels(result.steps);
+    expectStepRouting(result.steps);
     await expect(fs.stat(path.join(flow.taskDir, WORKFLOW_STATE_FILE))).rejects.toThrow();
   });
 
@@ -150,6 +180,10 @@ describe('deterministic workflow step state', () => {
     expect(result.completedStep?.status).toBe('completed');
     expect(result.nextStep?.id).toBe('research-questions');
   });
+});
+
+describe('deterministic workflow state resumption', () => {
+  const flow = useFlowHarness();
 
   it('validates the expected output before advancing to the next step', async () => {
     await flow.completeProblemValidation();
@@ -184,7 +218,8 @@ describe('deterministic workflow step state', () => {
     expect(result.step).toMatchObject({
       id: 'design-discussion',
       skill: 'spok-create-design-discussion',
-      model: 'fable',
+      model: 'opus',
+      effort: 'xhigh',
       argument: flow.taskDir,
       expectedOutput: path.join(flow.taskDir, 'design-discussion.md'),
     });
@@ -237,12 +272,13 @@ describe('deterministic workflow step state', () => {
     expect(result.state).toBe('ready');
     expect(result.step).toMatchObject({
       id: 'design-discussion',
-      model: 'fable',
+      model: 'opus',
+      effort: 'xhigh',
       status: 'ready',
     });
-    expectStepModels(result.steps);
+    expectStepRouting(result.steps);
     const normalizedState = JSON.parse(await fs.readFile(statePath, 'utf-8'));
-    expectStepModels(normalizedState.steps);
+    expectStepRouting(normalizedState.steps);
   });
 });
 
@@ -363,7 +399,8 @@ describe('flow command output', () => {
     expect(logs).toEqual([
       'Next step: validate-problem',
       'Skill: spok-validate-problem',
-      'Model: fable',
+      'Model: opus',
+      'Effort: xhigh',
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
       `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
     ]);
@@ -405,8 +442,8 @@ describe('flow command output', () => {
     const response = JSON.parse(logs[0]);
     expect(response).toMatchObject({
       state: 'ready',
-      nextStep: { id: 'validate-problem', model: 'fable' },
+      nextStep: { id: 'validate-problem', model: 'opus', effort: 'xhigh' },
     });
-    expectStepModels(response.steps);
+    expectStepRouting(response.steps);
   });
 });

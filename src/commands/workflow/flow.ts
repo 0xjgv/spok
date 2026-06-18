@@ -6,22 +6,46 @@ export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 export type FlowRunState = 'ready' | 'blocked' | 'complete';
 export type FlowStepStatus = 'pending' | 'ready' | 'completed';
 export type FlowCompletionKind = 'file' | 'summary' | 'commit';
-export type FlowModel = 'fable' | 'sonnet' | 'opus' | 'haiku';
+export type FlowModel = 'sonnet' | 'opus' | 'haiku' | 'gpt-5.5';
+export type FlowEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+type FlowTool = 'claude' | 'codex';
+type FlowTier = 'heavy' | 'mid' | 'cheap';
+interface Routing {
+  model: FlowModel;
+  effort?: FlowEffort;
+}
 
 const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
 
-const FLOW_STEP_MODEL_BY_ID = {
-  [PROBLEM_VALIDATION_STEP_ID]: 'fable',
-  'research-questions': 'fable',
-  research: 'sonnet',
-  'design-discussion': 'fable',
-  'structure-outline': 'opus',
-  plan: 'fable',
-  implement: 'opus',
-  simplify: 'sonnet',
-  validate: 'fable',
-  commit: 'haiku',
-} as const satisfies Record<string, FlowModel>;
+const FLOW_STEP_TIER_BY_ID = {
+  [PROBLEM_VALIDATION_STEP_ID]: 'heavy',
+  'research-questions': 'heavy',
+  research: 'mid',
+  'design-discussion': 'heavy',
+  'structure-outline': 'heavy',
+  plan: 'heavy',
+  implement: 'heavy',
+  simplify: 'mid',
+  validate: 'heavy',
+  commit: 'cheap',
+} as const satisfies Record<string, FlowTier>;
+
+const ROUTING_MATRIX: Record<FlowTool, Record<FlowTier, Routing>> = {
+  claude: {
+    heavy: { model: 'opus', effort: 'xhigh' },
+    mid: { model: 'sonnet' },
+    cheap: { model: 'haiku' },
+  },
+  codex: {
+    heavy: { model: 'gpt-5.5', effort: 'xhigh' },
+    mid: { model: 'gpt-5.5', effort: 'medium' },
+    cheap: { model: 'gpt-5.5', effort: 'low' },
+  },
+};
+
+function detectTool(): FlowTool {
+  return process.env.CODEX_HOME?.trim() ? 'codex' : 'claude';
+}
 
 export interface FlowStepResult {
   output?: string;
@@ -34,6 +58,7 @@ export interface FlowStep {
   id: string;
   skill: string;
   model: FlowModel;
+  effort?: FlowEffort;
   argument: string;
   expectedOutput?: string;
   status: FlowStepStatus;
@@ -77,6 +102,7 @@ interface StepDefinition {
   id: string;
   skill: string;
   model: FlowModel;
+  effort?: FlowEffort;
   argument: string;
   expectedOutput?: string;
   completionKind: FlowCompletionKind;
@@ -102,6 +128,9 @@ function getStatePath(taskDir: string): string {
 }
 
 function buildStepDefinitions(taskDir: string): StepDefinition[] {
+  const tool = detectTool();
+  const route = (id: keyof typeof FLOW_STEP_TIER_BY_ID): Routing =>
+    ROUTING_MATRIX[tool][FLOW_STEP_TIER_BY_ID[id]];
   const ticket = path.join(taskDir, 'ticket.md');
   const problemValidation = path.join(taskDir, 'problem-validation.md');
   const researchQuestions = path.join(taskDir, 'research-questions.md');
@@ -115,7 +144,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: PROBLEM_VALIDATION_STEP_ID,
       skill: 'spok-validate-problem',
-      model: FLOW_STEP_MODEL_BY_ID[PROBLEM_VALIDATION_STEP_ID],
+      ...route(PROBLEM_VALIDATION_STEP_ID),
       argument: ticket,
       expectedOutput: problemValidation,
       completionKind: 'file',
@@ -123,7 +152,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'research-questions',
       skill: 'spok-create-research-questions',
-      model: FLOW_STEP_MODEL_BY_ID['research-questions'],
+      ...route('research-questions'),
       argument: ticket,
       expectedOutput: researchQuestions,
       completionKind: 'file',
@@ -131,7 +160,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'research',
       skill: 'spok-create-research',
-      model: FLOW_STEP_MODEL_BY_ID.research,
+      ...route('research'),
       argument: researchQuestions,
       expectedOutput: research,
       completionKind: 'file',
@@ -139,7 +168,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'design-discussion',
       skill: 'spok-create-design-discussion',
-      model: FLOW_STEP_MODEL_BY_ID['design-discussion'],
+      ...route('design-discussion'),
       argument: taskDir,
       expectedOutput: designDiscussion,
       completionKind: 'file',
@@ -147,7 +176,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'structure-outline',
       skill: 'spok-create-structure-outline',
-      model: FLOW_STEP_MODEL_BY_ID['structure-outline'],
+      ...route('structure-outline'),
       argument: taskDir,
       expectedOutput: structureOutline,
       completionKind: 'file',
@@ -155,7 +184,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'plan',
       skill: 'spok-create-plan',
-      model: FLOW_STEP_MODEL_BY_ID.plan,
+      ...route('plan'),
       argument: taskDir,
       expectedOutput: plan,
       completionKind: 'file',
@@ -163,21 +192,21 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'implement',
       skill: 'spok-implement-plan',
-      model: FLOW_STEP_MODEL_BY_ID.implement,
+      ...route('implement'),
       argument: taskDir,
       completionKind: 'summary',
     },
     {
       id: 'simplify',
       skill: 'spok-simplify',
-      model: FLOW_STEP_MODEL_BY_ID.simplify,
+      ...route('simplify'),
       argument: taskDir,
       completionKind: 'summary',
     },
     {
       id: 'validate',
       skill: 'spok-validate-implementation',
-      model: FLOW_STEP_MODEL_BY_ID.validate,
+      ...route('validate'),
       argument: taskDir,
       expectedOutput: validation,
       completionKind: 'file',
@@ -185,7 +214,7 @@ function buildStepDefinitions(taskDir: string): StepDefinition[] {
     {
       id: 'commit',
       skill: 'spok-ci-commit',
-      model: FLOW_STEP_MODEL_BY_ID.commit,
+      ...route('commit'),
       argument: taskDir,
       completionKind: 'commit',
     },
@@ -201,6 +230,7 @@ function stepFromDefinition(
     id: definition.id,
     skill: definition.skill,
     model: definition.model,
+    effort: definition.effort,
     argument: definition.argument,
     expectedOutput: definition.expectedOutput,
     status,
@@ -669,6 +699,9 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
   console.log(`Next step: ${step.id}`);
   console.log(`Skill: ${step.skill}`);
   console.log(`Model: ${step.model}`);
+  if (step.effort) {
+    console.log(`Effort: ${step.effort}`);
+  }
   console.log(`Argument: ${step.argument}`);
   if (step.expectedOutput) {
     console.log(`Expected output: ${step.expectedOutput}`);

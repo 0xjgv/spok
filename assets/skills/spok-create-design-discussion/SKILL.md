@@ -24,6 +24,7 @@ You are now in the Design Discussion phase. Based on the research findings and t
 
 4. **Spawn parallel sub-tasks for comprehensive research**:
    - Create multiple Task agents to research different aspects concurrently
+   - Do not run agents in the background — FOREGROUND AGENTS ONLY.
    - Use the right agent for each type of research:
 
    **For deeper investigation:**
@@ -69,6 +70,7 @@ You are now in the Design Discussion phase. Based on the research findings and t
    - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-design-discussion.md` (legacy date-prefixed orphans from pre-fork runs).
    - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
    - Filename is bare: `design-discussion.md` (no date prefix).
+   - After writing, confirm the file exists and is non-empty: run `ls -la <task-dir>/design-discussion.md`. If missing or empty, re-write before continuing. Include the absolute path in your response.
 
 3. **Read the final output template**
 

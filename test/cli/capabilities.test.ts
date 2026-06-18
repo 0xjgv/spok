@@ -22,10 +22,16 @@ interface CapabilitiesManifest {
   commands: ManifestCommand[];
 }
 
+// Keep telemetry enabled (to exercise the first-run notice path) but stop the
+// spawned CLI from making the real ~7s PostHog network flush, which otherwise
+// makes this suite flaky under parallel load. See offline-telemetry.mjs.
+const offlineTelemetryPreload = new URL('../helpers/offline-telemetry.mjs', import.meta.url).href;
+
 function jsonTelemetryEnv(configHome: string): NodeJS.ProcessEnv {
   return {
     CI: 'false',
     DO_NOT_TRACK: '0',
+    NODE_OPTIONS: `--import ${offlineTelemetryPreload}`,
     SPOK_TELEMETRY: '1',
     XDG_CONFIG_HOME: configHome,
   };
