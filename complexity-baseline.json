@@ -2,6 +2,7 @@
   "version": 1,
   "offenders": [
     "(anonymous)@src/prompts/searchable-multi-select.ts",
+    "(anonymous)@test/commands/workflow/flow.test.ts",
     "(anonymous)@test/core/archive.test.ts",
     "(anonymous)@test/core/artifact-graph/graph.test.ts",
     "(anonymous)@test/core/artifact-graph/instruction-loader.test.ts",
@@ -33,6 +34,7 @@
     "(anonymous)@test/utils/marker-updates.test.ts",
     "(anonymous)@test/utils/shell-detection.test.ts",
     "applyDeltaOperations@src/core/specs-apply.ts",
+    "commandNames@test/cli/version.test.ts",
     "createSearchableMultiSelect@src/prompts/searchable-multi-select.ts",
     "parseTasksFile@src/commands/workflow/instructions.ts",
     "printInstructionsText@src/commands/workflow/instructions.ts"

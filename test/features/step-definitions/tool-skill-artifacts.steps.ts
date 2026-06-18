@@ -61,6 +61,15 @@ Given('a staged flow task', async function (this: SkillArtifactWorld) {
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
 });
 
+Given('the Claude harness is active', function (this: SkillArtifactWorld) {
+  delete process.env.CODEX_HOME; // cleared so the spawned CLI detects claude
+});
+
+Given('the Codex harness is active', function (this: SkillArtifactWorld) {
+  assert.ok(this.codexHome, 'codexHome must be set by Given a new project');
+  process.env.CODEX_HOME = this.codexHome; // explicit for legibility; already set by 'a new project'
+});
+
 Given(
   'an existing Spok setup for the tools {string} without the workflow skill {string}',
   async function (this: SkillArtifactWorld, tools: string, skillName: string) {

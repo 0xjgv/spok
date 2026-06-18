@@ -35,14 +35,26 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow complete"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "subagent_type: general-purpose"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "model: <step.model>"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "effort: <step.effort>"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next --json is the source of truth"
 
-  Scenario: Flow next prints the routed model for the first step
+  Scenario: Flow next prints the Claude-routed model and effort for the first step
     Given a new project
+    And the Claude harness is active
     And a staged flow task
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: validate-problem"
-    And the Spok CLI output contains "Model: fable"
+    And the Spok CLI output contains "Model: opus"
+    And the Spok CLI output contains "Effort: xhigh"
+
+  Scenario: Flow next prints the Codex-routed model and effort for the first step
+    Given a new project
+    And the Codex harness is active
+    And a staged flow task
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Next step: validate-problem"
+    And the Spok CLI output contains "Model: gpt-5.5"
+    And the Spok CLI output contains "Effort: xhigh"
 
   Scenario: Global skills install writes to home-scoped tool directories
     Given a new project
