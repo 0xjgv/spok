@@ -121,22 +121,25 @@ function resolveConfigPath(projectRoot: string): ConfigCandidate | null {
 function parseSchemaField(
   rawSchema: unknown,
   diagnostics: ProjectConfigDiagnostic[],
-  file: string
+  file: string,
+  required: boolean
 ): string | undefined {
   const result = z.string().min(1).safeParse(rawSchema);
   if (result.success) {
     return result.data;
   }
 
-  if (rawSchema !== undefined) {
-    diagnostics.push({
-      level: 'error',
-      message: 'schema must be a non-empty string',
-      path: 'schema',
-      file,
-      fix: 'Set schema to a valid schema name, for example: schema = "spec-driven".',
-    });
+  if (rawSchema === undefined && !required) {
+    return undefined;
   }
+
+  diagnostics.push({
+    level: 'error',
+    message: rawSchema === undefined ? 'schema is required' : 'schema must be a non-empty string',
+    path: 'schema',
+    file,
+    fix: 'Set schema to a valid schema name, for example: schema = "spec-driven".',
+  });
   return undefined;
 }
 
@@ -435,6 +438,48 @@ function collectTomlMultilineString(lines: string[], startIndex: number, initial
   throw new Error('Unterminated TOML multiline string');
 }
 
+function getTomlTable(root: Record<string, unknown>, tableName: string): Record<string, unknown> {
+  const parts = tableName.split('.').map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    throw new Error(`Invalid TOML table: ${tableName}`);
+  }
+
+  let target = root;
+  for (const part of parts) {
+    const existing = target[part];
+    if (existing !== undefined && (typeof existing !== 'object' || existing === null || Array.isArray(existing))) {
+      throw new Error(`Invalid TOML table target: ${tableName}`);
+    }
+    if (existing === undefined) {
+      target[part] = {};
+    }
+    target = target[part] as Record<string, unknown>;
+  }
+
+  return target;
+}
+
+function assignTomlValue(target: Record<string, unknown>, key: string, value: unknown): void {
+  const parts = key.split('.').map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    throw new Error(`Invalid TOML key: ${key}`);
+  }
+
+  let current = target;
+  for (const part of parts.slice(0, -1)) {
+    const existing = current[part];
+    if (existing !== undefined && (typeof existing !== 'object' || existing === null || Array.isArray(existing))) {
+      throw new Error(`Invalid TOML dotted key target: ${key}`);
+    }
+    if (existing === undefined) {
+      current[part] = {};
+    }
+    current = current[part] as Record<string, unknown>;
+  }
+
+  current[parts[parts.length - 1]] = value;
+}
+
 function parseTomlFallback(content: string): Record<string, unknown> {
   const root: Record<string, unknown> = {};
   const lines = content.split(/\r?\n/u);
@@ -449,9 +494,7 @@ function parseTomlFallback(content: string): Record<string, unknown> {
     }
     if (line.startsWith('[') && line.endsWith(']')) {
       const tableName = line.slice(1, -1).trim();
-      const table: Record<string, unknown> = {};
-      root[tableName] = table;
-      currentTable = table;
+      currentTable = getTomlTable(root, tableName);
       index += 1;
       continue;
     }
@@ -464,12 +507,12 @@ function parseTomlFallback(content: string): Record<string, unknown> {
     const valueStart = line.slice(equalsIndex + 1);
     if (valueStart.trim().startsWith('"""')) {
       const collected = collectTomlMultilineString(lines, index, valueStart);
-      currentTable[key] = collected.value;
+      assignTomlValue(currentTable, key, collected.value);
       index = collected.nextIndex;
       continue;
     }
     const collected = collectTomlValue(lines, index, valueStart);
-    currentTable[key] = parseTomlValue(collected.value);
+    assignTomlValue(currentTable, key, parseTomlValue(collected.value));
     index = collected.nextIndex;
   }
 
@@ -517,7 +560,7 @@ function parseProjectConfigObject(
   // the rest of the config. Only fields that validate successfully are set.
   const config: Partial<ProjectConfig> = {};
 
-  const schema = parseSchemaField(rawConfig.schema, diagnostics, file);
+  const schema = parseSchemaField(rawConfig.schema, diagnostics, file, Object.keys(rawConfig).length > 0);
   if (schema !== undefined) {
     config.schema = schema;
   }

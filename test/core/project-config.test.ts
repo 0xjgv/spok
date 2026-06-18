@@ -222,6 +222,32 @@ flow:
         expect(diagnosticMessages()).toContain('flow.self_learn must be boolean');
       });
 
+      it('should diagnose missing schema when config has other fields', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.toml'),
+          `[flow]
+self_learn = true
+`
+        );
+
+        const result = readProjectConfigWithDiagnostics(tempDir);
+
+        expect(result.config).toEqual({
+          flow: {
+            self_learn: true,
+          },
+        });
+        expect(result.diagnostics).toContainEqual(
+          expect.objectContaining({
+            level: 'error',
+            message: 'schema is required',
+            path: 'schema',
+          })
+        );
+      });
+
       it('should diagnose unknown config keys without discarding valid fields', () => {
         const configDir = path.join(tempDir, 'spok');
         fs.mkdirSync(configDir, { recursive: true });
@@ -523,6 +549,25 @@ context: |
             self_learn: true,
           },
         });
+      });
+
+      it('should parse TOML dotted flow self-learn key', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.toml'),
+          'schema = "spec-driven"\nflow.self_learn = true\n'
+        );
+
+        const result = readProjectConfigWithDiagnostics(tempDir);
+
+        expect(result.config).toEqual({
+          schema: 'spec-driven',
+          flow: {
+            self_learn: true,
+          },
+        });
+        expect(result.diagnostics).toEqual([]);
       });
 
       it('should prefer .yaml when both exist', () => {

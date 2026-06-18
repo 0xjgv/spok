@@ -74,6 +74,17 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "Config: spok/config.toml"
     And the Spok CLI output contains "flow.self_learn must be boolean"
 
+  Scenario: Doctor reports missing project config schema
+    Given a new project
+    And project config contains:
+      """
+      [flow]
+      self_learn = true
+      """
+    When I run the Spok CLI in the project with "doctor"
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "schema is required"
+
   Scenario: Apply delegates inner flow sequencing to deterministic flow commands
     Given a new project
     When I initialize Spok for the tools "claude"
