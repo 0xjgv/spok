@@ -319,8 +319,16 @@ async function cmdAcceptance(): Promise<void> {
     return;
   }
   // cucumber-js runs on Node; invoking its bin through the Bun runtime lets
-  // TypeScript step definitions resolve without a separate loader.
-  await run('Acceptance (cucumber)', ['bun', './node_modules/@cucumber/cucumber/bin/cucumber.js']);
+  // TypeScript step definitions resolve without a separate loader. Point it at
+  // TEST_DIR/features explicitly — cucumber's default discovery only scans a
+  // root-level features/ dir, so without this the gate finds 0 scenarios.
+  await run('Acceptance (cucumber)', [
+    'bun',
+    './node_modules/@cucumber/cucumber/bin/cucumber.js',
+    `${TEST_DIR}/features`,
+    '--import',
+    `${TEST_DIR}/features/step-definitions/**/*.ts`,
+  ]);
 }
 
 async function cmdArch(): Promise<void> {
