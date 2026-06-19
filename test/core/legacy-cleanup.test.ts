@@ -667,7 +667,7 @@ ${SPOK_MARKERS.end}`);
       const summary = formatCleanupSummary(result);
       expect(summary).toContain('Needs your attention');
       expect(summary).toContain('spok/project.md');
-      expect(summary).toContain('config.yaml');
+      expect(summary).toContain('config.toml');
     });
 
     it('should include errors', () => {
@@ -823,8 +823,8 @@ ${SPOK_MARKERS.end}`);
       expect(summary).toContain('Needs your attention');
       expect(summary).toContain('• spok/project.md');
       expect(summary).toContain('won\'t delete this file');
-      expect(summary).toContain('config.yaml');
-      expect(summary).toContain('"context:"');
+      expect(summary).toContain('config.toml');
+      expect(summary).toContain('"context"');
     });
 
     it('should include attention section with other legacy artifacts', () => {
@@ -894,8 +894,8 @@ ${SPOK_MARKERS.end}`);
       expect(hint).toContain('Needs your attention');
       expect(hint).toContain('spok/project.md');
       expect(hint).toContain('won\'t delete this file');
-      expect(hint).toContain('config.yaml');
-      expect(hint).toContain('"context:"');
+      expect(hint).toContain('config.toml');
+      expect(hint).toContain('"context"');
     });
 
     it('should include actionable instructions', () => {

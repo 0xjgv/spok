@@ -399,32 +399,34 @@ The system MUST expire sessions after 15 minutes of inactivity.
 
 ## Project Configuration
 
-`spok/config.yaml` lets you inject project context and per-artifact rules into every `/spok-propose` artifact generation.
+`spok/config.toml` lets you inject project context and per-artifact rules into every `/spok-propose` artifact generation. Existing `spok/config.yaml` and `spok/config.yml` files are still accepted.
 
-```yaml
-schema: spec-driven
+```toml
+schema = "spec-driven"
 
-context: |
-  Tech stack: TypeScript, React, Node.js, PostgreSQL
-  API style: RESTful, documented in docs/api.md
-  Testing: Jest + React Testing Library
-  We value backwards compatibility for all public APIs
+context = """
+Tech stack: TypeScript, React, Node.js, PostgreSQL
+API style: RESTful, documented in docs/api.md
+Testing: Jest + React Testing Library
+We value backwards compatibility for all public APIs
+"""
 
-rules:
-  proposal:
-    - Include rollback plan
-    - Identify affected teams
-  specs:
-    - Use Given/When/Then format
-    - Reference existing patterns before inventing new ones
-  design:
-    - Document fallback strategies
+[rules]
+proposal = [
+  "Include rollback plan",
+  "Identify affected teams",
+]
+specs = [
+  "Use Given/When/Then format",
+  "Reference existing patterns before inventing new ones",
+]
+design = ["Document fallback strategies"]
 ```
 
 **How it's used:**
 
-- `context:` is injected into the instructions for every artifact.
-- `rules.<artifact-id>:` is injected only when that artifact is being generated.
+- `context` is injected into the instructions for every artifact.
+- `rules.<artifact-id>` is injected only when that artifact is being generated.
 - These are constraints for the AI, not content that ends up inside the artifact file.
 
 `/spok-propose` fetches the merged template + context + rules for each artifact through `spok instructions <artifact> --change <name> --json` — you can run that command directly if you want to inspect what the skill sees.

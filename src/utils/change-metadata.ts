@@ -165,7 +165,7 @@ export function readChangeMetadata(
  * Resolution order:
  * 1. Explicit schema (if provided)
  * 2. Schema from .spok.yaml metadata (if exists)
- * 3. Schema from spok/config.yaml (if exists)
+ * 3. Schema from Spok project config (if exists)
  * 4. Default 'spec-driven'
  *
  * @param changeDir - The path to the change directory

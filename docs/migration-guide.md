@@ -69,7 +69,7 @@ These verbs were removed entirely:
 | `spok feedback` | Use GitHub issues directly |
 | `spok completion` | Removed |
 | `spok spec` | Removed |
-| `spok config` | Edit `spok/config.yaml` directly |
+| `spok config` | Edit `spok/config.toml` directly |
 | `spok schema` / `spok schemas` | Schemas are an internal concept; `spec-driven` is the only one |
 | `spok workspace` | Removed — see note below |
 | `spok experimental` | Removed |
@@ -137,7 +137,7 @@ Active and archived changes from 0.x are preserved as-is.
 - **`spok/changes/<name>/`** — Existing change folders work with the new skills. Re-run `/spok-propose` against the same name to get a chunked `tasks.md`, or hand-convert the existing one (see above).
 - **`spok/changes/archive/`** — Untouched.
 - **`spok/specs/`** — Untouched.
-- **`spok/config.yaml`** — The `schema:`, `context:`, and `rules:` keys still work. Drop any `profile:` or workflow-selection keys.
+- **`spok/config.toml`** — New projects use TOML. Existing `spok/config.yaml` and `spok/config.yml` files still work; drop any `profile:` or workflow-selection keys.
 
 ## Running the cleanup
 
@@ -163,26 +163,23 @@ This:
 2. Installs the four user-facing skills (`spok-explore`, `spok-propose`, `spok-apply`, `spok-archive`).
 3. Vendors the helper skill closure (`spok-flow`, `spok-create-scoped-chunks`, and the rest).
 
-## Updated `config.yaml` shape
+## Updated `config.toml` shape
 
-Spok 1.0 still uses `spok/config.yaml`. Drop any profile/workflow keys and stick with this shape:
+Spok now creates `spok/config.toml`. Drop any profile/workflow keys and stick with this shape:
 
-```yaml
-schema: spec-driven    # The only built-in schema
+```toml
+schema = "spec-driven" # The only built-in schema
 
-context: |
-  Project background, tech stack, key constraints.
-  Injected into every artifact instruction.
+context = """
+Project background, tech stack, key constraints.
+Injected into every artifact instruction.
+"""
 
-rules:
-  proposal:
-    - Include rollback plan
-  specs:
-    - Use Given/When/Then format
-  design:
-    - Document fallback strategies
-  tasks:
-    - Keep each chunk to a single end-to-end-testable slice
+[rules]
+proposal = ["Include rollback plan"]
+specs = ["Use Given/When/Then format"]
+design = ["Document fallback strategies"]
+tasks = ["Keep each chunk to a single end-to-end-testable slice"]
 ```
 
 See [Customization](customization.md) for details.

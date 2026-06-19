@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { existsSync, promises as fs } from 'node:fs';
-import { readProjectConfig } from '../../core/project-config.js';
+import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
 
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 
@@ -134,10 +134,7 @@ function findProjectRootForTaskDir(taskDir: string): string | undefined {
   let current = taskDir;
 
   while (true) {
-    if (
-      existsSync(path.join(current, 'spok', 'config.yaml')) ||
-      existsSync(path.join(current, 'spok', 'config.yml'))
-    ) {
+    if (PROJECT_CONFIG_FILE_NAMES.some((fileName) => existsSync(path.join(current, 'spok', fileName)))) {
       return current;
     }
 

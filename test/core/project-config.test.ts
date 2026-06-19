@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import {
   readProjectConfig,
+  readProjectConfigWithDiagnostics,
   validateConfigRules,
   suggestSchemas,
 } from '../../src/core/project-config.js';
@@ -11,6 +12,10 @@ import {
 describe('project-config', () => {
   let tempDir: string;
   let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+
+  function diagnosticMessages(): string[] {
+    return readProjectConfigWithDiagnostics(tempDir).diagnostics.map((diagnostic) => diagnostic.message);
+  }
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spok-test-config-'));
@@ -133,9 +138,7 @@ rules:
             proposal: ['Valid rule'],
           },
         });
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining("Invalid 'schema' field")
-        );
+        expect(diagnosticMessages()).toContain('schema must be a non-empty string');
       });
 
       it('should return partial config when context is invalid', () => {
@@ -159,9 +162,7 @@ rules:
             proposal: ['Valid rule'],
           },
         });
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining("Invalid 'context' field")
-        );
+        expect(diagnosticMessages()).toContain('context must be a string');
       });
 
       it('should return partial config when rules is not an object', () => {
@@ -181,9 +182,7 @@ rules: ["not", "an", "object"]
           schema: 'spec-driven',
           context: 'Valid context',
         });
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining("Invalid 'rules' field")
-        );
+        expect(diagnosticMessages()).toContain('rules must be an object');
       });
 
       it('should return partial config when flow is not an object', () => {
@@ -201,9 +200,7 @@ flow: true
         expect(config).toEqual({
           schema: 'spec-driven',
         });
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining("Invalid 'flow' field")
-        );
+        expect(diagnosticMessages()).toContain('flow must be an object');
       });
 
       it('should return partial config when flow self_learn is not boolean', () => {
@@ -222,8 +219,70 @@ flow:
         expect(config).toEqual({
           schema: 'spec-driven',
         });
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining("Invalid 'flow.self_learn' field")
+        expect(diagnosticMessages()).toContain('flow.self_learn must be boolean');
+      });
+
+      it('should diagnose missing schema when config has other fields', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.toml'),
+          `[flow]
+self_learn = true
+`
+        );
+
+        const result = readProjectConfigWithDiagnostics(tempDir);
+
+        expect(result.config).toEqual({
+          flow: {
+            self_learn: true,
+          },
+        });
+        expect(result.diagnostics).toContainEqual(
+          expect.objectContaining({
+            level: 'error',
+            message: 'schema is required',
+            path: 'schema',
+          })
+        );
+      });
+
+      it('should diagnose unknown config keys without discarding valid fields', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.toml'),
+          `schema = "spec-driven"
+unknown = true
+
+[flow]
+self_learn = false
+surprise = true
+`
+        );
+
+        const result = readProjectConfigWithDiagnostics(tempDir);
+
+        expect(result.config).toEqual({
+          schema: 'spec-driven',
+          flow: {
+            self_learn: false,
+          },
+        });
+        expect(result.diagnostics).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              level: 'warning',
+              message: 'unknown config key unknown; ignoring it',
+              path: 'unknown',
+            }),
+            expect.objectContaining({
+              level: 'warning',
+              message: 'unknown flow key flow.surprise; ignoring it',
+              path: 'flow.surprise',
+            }),
+          ])
         );
       });
 
@@ -246,9 +305,7 @@ rules:
           schema: 'spec-driven',
           context: 'Valid context',
         });
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining("Invalid 'rules' field")
-        );
+        expect(diagnosticMessages()).toContain('rules must be an object');
       });
 
       it('should filter out invalid rules for specific artifact', () => {
@@ -275,9 +332,7 @@ rules:
             design: ['Another valid rule'],
           },
         });
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining("Rules for 'specs' must be an array of strings")
-        );
+        expect(diagnosticMessages()).toContain('rules.specs must be an array of strings');
       });
 
       it('should filter out empty string rules', () => {
@@ -303,9 +358,7 @@ rules:
             proposal: ['Valid rule', 'Another valid rule'],
           },
         });
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining("Some rules for 'proposal' are empty strings")
-        );
+        expect(diagnosticMessages()).toContain('rules.proposal contains empty strings; ignoring them');
       });
 
       it('should skip artifact if all rules are empty strings', () => {
@@ -341,10 +394,23 @@ rules:
         const config = readProjectConfig(tempDir);
 
         expect(config).toBeNull();
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('Failed to parse spok/config.yaml'),
-          expect.anything()
-        );
+        expect(diagnosticMessages().some((message) =>
+          message.startsWith('Failed to parse spok/config.yaml:')
+        )).toBe(true);
+      });
+
+      it('should handle completely invalid TOML gracefully', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(path.join(configDir, 'config.toml'), 'schema = "unclosed');
+
+        const result = readProjectConfigWithDiagnostics(tempDir);
+
+        expect(result.config).toBeNull();
+        expect(result.format).toBe('toml');
+        expect(result.diagnostics.some((diagnostic) =>
+          diagnostic.message.startsWith('Failed to parse spok/config.toml:')
+        )).toBe(true);
       });
 
       it('should warn when config is not a YAML object', () => {
@@ -355,9 +421,7 @@ rules:
         const config = readProjectConfig(tempDir);
 
         expect(config).toBeNull();
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('not a valid YAML object')
-        );
+        expect(diagnosticMessages()).toContain('spok/config.yaml is not a valid YAML object');
       });
 
       it('should handle empty config file', () => {
@@ -402,11 +466,8 @@ rules:
 
         expect(config).toEqual({ schema: 'spec-driven' });
         expect(config?.context).toBeUndefined();
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('Context too large (51.0KB, limit: 50KB)')
-        );
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('Ignoring context field')
+        expect(diagnosticMessages()).toContain(
+          'context is too large (51.0KB, limit: 50KB); ignoring context'
         );
       });
 
@@ -443,13 +504,72 @@ context: |
         const config = readProjectConfig(tempDir);
 
         expect(config?.context).toBeUndefined();
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('Context too large')
-        );
+        expect(diagnosticMessages().some((message) =>
+          message.startsWith('context is too large')
+        )).toBe(true);
       });
     });
 
-    describe('.yml/.yaml precedence', () => {
+    describe('config file precedence', () => {
+      it('should prefer TOML over YAML when both exist', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.toml'),
+          'schema = "spec-driven"\ncontext = "from toml"\n'
+        );
+        fs.writeFileSync(
+          path.join(configDir, 'config.yaml'),
+          'schema: custom-schema\ncontext: from yaml\n'
+        );
+
+        const result = readProjectConfigWithDiagnostics(tempDir);
+
+        expect(result.config?.schema).toBe('spec-driven');
+        expect(result.config?.context).toBe('from toml');
+        expect(result.format).toBe('toml');
+        expect(result.diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+          'multiple Spok config files found; using spok/config.toml'
+        );
+      });
+
+      it('should parse TOML flow self-learn when enabled', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.toml'),
+          'schema = "spec-driven"\n\n[flow]\nself_learn = true\n'
+        );
+
+        const config = readProjectConfig(tempDir);
+
+        expect(config).toEqual({
+          schema: 'spec-driven',
+          flow: {
+            self_learn: true,
+          },
+        });
+      });
+
+      it('should parse TOML dotted flow self-learn key', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.toml'),
+          'schema = "spec-driven"\nflow.self_learn = true\n'
+        );
+
+        const result = readProjectConfigWithDiagnostics(tempDir);
+
+        expect(result.config).toEqual({
+          schema: 'spec-driven',
+          flow: {
+            self_learn: true,
+          },
+        });
+        expect(result.diagnostics).toEqual([]);
+      });
+
       it('should prefer .yaml when both exist', () => {
         const configDir = path.join(tempDir, 'spok');
         fs.mkdirSync(configDir, { recursive: true });
@@ -482,7 +602,7 @@ context: |
         expect(config?.context).toBe('from yml');
       });
 
-      it('should return null when neither .yaml nor .yml exist', () => {
+      it('should return null when no config file exists', () => {
         const configDir = path.join(tempDir, 'spok');
         fs.mkdirSync(configDir, { recursive: true });
 
@@ -664,7 +784,7 @@ rules:
       const message = suggestSchemas('wrong-schema', availableSchemas);
 
       expect(message).toContain(
-        "Fix: Edit spok/config.yaml and change 'schema: wrong-schema' to a valid schema name"
+        'Fix: Edit spok/config.toml and set schema = "valid-schema-name"'
       );
     });
 

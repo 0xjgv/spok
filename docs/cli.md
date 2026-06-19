@@ -12,7 +12,7 @@ For slash commands, see [Commands](commands.md). For workflow patterns, see [Wor
 
 | Surface | Verbs | Purpose |
 |---------|-------|---------|
-| **User-facing** | `version`, `init`, `update`, `archive`, `list` | Inspect, setup, refresh, finalize, browse |
+| **User-facing** | `version`, `init`, `doctor`, `update`, `archive`, `list` | Inspect, setup, diagnose, refresh, finalize, browse |
 | **Agent discovery** | `capabilities` | Machine-readable CLI manifest for agents and scripts |
 | **Internal plumbing** | `new`, `status`, `instructions` | Called by skills; safe to inspect, not meant for daily human use |
 
@@ -78,7 +78,7 @@ spok init --force
 spok/
 ├── specs/              # Your specifications (source of truth)
 ├── changes/            # Proposed changes
-└── config.yaml         # Project configuration
+└── config.toml         # Project configuration
 
 .claude/skills/spok-explore/SKILL.md     # User-facing skills
 .claude/skills/spok-propose/SKILL.md
@@ -127,7 +127,7 @@ spok update
 spok update --force
 ```
 
-`spok update` overwrites managed skill files but never touches `spok/specs/`, `spok/changes/`, or `spok/config.yaml`.
+`spok update` overwrites managed skill files but never touches `spok/specs/`, `spok/changes/`, or your project config (`spok/config.toml`, with `config.yaml`/`config.yml` still accepted for existing projects).
 
 ---
 
@@ -274,6 +274,29 @@ spok capabilities --json
     }
   ]
 }
+```
+
+---
+
+### `spok doctor`
+
+Check project configuration and setup. Use this when the CLI warns about an invalid config or when settings do not appear to apply.
+
+```
+spok doctor [options]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+spok doctor
+spok doctor --json
 ```
 
 ---
@@ -432,9 +455,9 @@ spok instructions design --change add-dark-mode --json
 **Output includes:**
 
 - The artifact's template content
-- Project context from `spok/config.yaml` `context:`
+- Project context from `spok/config.toml` `context`
 - Content from already-completed dependency artifacts
-- Per-artifact rules from `spok/config.yaml` `rules:`
+- Per-artifact rules from `spok/config.toml` `rules`
 
 ---
 
