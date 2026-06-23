@@ -7,15 +7,18 @@ import { randomUUID } from 'node:crypto';
 // Mock posthog-node before importing the module
 vi.mock('posthog-node', () => {
   return {
-    PostHog: vi.fn().mockImplementation(() => ({
-      capture: vi.fn(),
-      shutdown: vi.fn().mockResolvedValue(undefined),
-    })),
+    // Use a function (not an arrow) so `new PostHog()` records the instance on
+    // `this`, making it readable via `PostHog.mock.results[].value`.
+    PostHog: vi.fn().mockImplementation(function (this: any) {
+      this.capture = vi.fn();
+      this.captureException = vi.fn();
+      this.shutdown = vi.fn().mockResolvedValue(undefined);
+    }),
   };
 });
 
 // Import after mocking
-import { isTelemetryEnabled, maybeShowTelemetryNotice, shutdown, trackCommand } from '../../src/telemetry/index.js';
+import { isTelemetryEnabled, maybeShowTelemetryNotice, shutdown, trackCommand, trackError } from '../../src/telemetry/index.js';
 import { PostHog } from 'posthog-node';
 
 describe('telemetry/index', () => {
@@ -37,6 +40,15 @@ describe('telemetry/index', () => {
 
     // Clear all mocks
     vi.clearAllMocks();
+
+    // Re-establish the PostHog mock implementation. afterEach's
+    // restoreAllMocks() strips the vi.mock factory implementation, so without
+    // this the constructor would be a no-op in later tests.
+    (PostHog as any).mockImplementation(function (this: any) {
+      this.capture = vi.fn();
+      this.captureException = vi.fn();
+      this.shutdown = vi.fn().mockResolvedValue(undefined);
+    });
 
     // Spy on console.log for notice tests
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -198,6 +210,70 @@ describe('telemetry/index', () => {
       const response = await fetchFn('https://edge.spok.dev/batch/', { method: 'POST' });
 
       expect(response).toBe(expectedResponse);
+    });
+  });
+
+  describe('trackError', () => {
+    it('should not track when telemetry is disabled', async () => {
+      process.env.SPOK_TELEMETRY = '0';
+
+      await trackError('test', '1.0.0', new Error('boom'));
+
+      expect(PostHog).not.toHaveBeenCalled();
+    });
+
+    function lastClient(): any {
+      return (PostHog as any).mock.results.at(-1).value;
+    }
+
+    it('should capture a sanitized exception with classification properties', async () => {
+      delete process.env.SPOK_TELEMETRY;
+      delete process.env.DO_NOT_TRACK;
+      delete process.env.CI;
+
+      const err: NodeJS.ErrnoException = new Error(`ENOENT: ${process.env.HOME}/secret.txt missing`);
+      err.code = 'ENOENT';
+
+      await trackError('init', '1.2.3', err);
+
+      const instance = lastClient();
+      expect(instance.captureException).toHaveBeenCalledTimes(1);
+
+      const [sentError, distinctId, props] = instance.captureException.mock.calls[0];
+      expect(distinctId).toEqual(expect.any(String));
+      expect(props).toMatchObject({
+        command: 'init',
+        version: '1.2.3',
+        surface: 'cli',
+        error_name: 'Error',
+        error_code: 'ENOENT',
+        error_kind: 'user_error',
+        $ip: null,
+      });
+      // Sanitized: the raw message and home path must not leak.
+      expect(sentError.message).toBe('Error [ENOENT]');
+      expect(sentError.message).not.toContain('secret.txt');
+    });
+
+    it('should classify programmer errors as crashes', async () => {
+      delete process.env.SPOK_TELEMETRY;
+      delete process.env.DO_NOT_TRACK;
+      delete process.env.CI;
+
+      await trackError('flow:next', '1.0.0', new TypeError('x is not a function'));
+
+      expect(lastClient().captureException.mock.calls[0][2].error_kind).toBe('crash');
+    });
+
+    it('should honor a kind override for uncaught failures', async () => {
+      delete process.env.SPOK_TELEMETRY;
+      delete process.env.DO_NOT_TRACK;
+      delete process.env.CI;
+
+      // A plain Error would classify as user_error; the override forces crash.
+      await trackError('init', '1.0.0', new Error('boom'), 'crash');
+
+      expect(lastClient().captureException.mock.calls[0][2].error_kind).toBe('crash');
     });
   });
 

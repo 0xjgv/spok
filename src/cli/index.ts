@@ -25,11 +25,43 @@ import {
   type FlowCommandOptions,
   type FlowCompleteCommandOptions,
 } from '../commands/workflow/index.js';
-import { maybeShowTelemetryNotice, trackCommand, shutdown } from '../telemetry/index.js';
+import { maybeShowTelemetryNotice, trackCommand, trackError, shutdown } from '../telemetry/index.js';
 
 const program = new Command();
 const require = createRequire(import.meta.url);
 const { version } = require('../../package.json');
+
+// Resolved command path for the running invocation, set in the preAction hook.
+// Used to attribute errors and crashes to the command the user actually ran.
+let currentCommandPath = 'spok';
+
+/**
+ * Report a thrown command error to telemetry, then exit non-zero.
+ *
+ * Flushing before exit is required: `process.exit` would otherwise terminate
+ * the process before the pending telemetry request completes, dropping the
+ * failure event exactly when it matters most.
+ */
+async function failCommand(error: unknown): Promise<never> {
+  console.log();
+  ora().fail(`Error: ${(error as Error).message}`);
+  await trackError(currentCommandPath, version, error);
+  await shutdown();
+  process.exit(1);
+}
+
+/**
+ * Report an uncaught exception or unhandled rejection as a crash, then exit.
+ */
+function reportCrash(error: unknown): void {
+  void (async () => {
+    console.log();
+    ora().fail(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    await trackError(currentCommandPath, version, error, 'crash');
+    await shutdown();
+    process.exit(1);
+  })();
+}
 
 type CommandVisibility = 'user' | 'skill' | 'internal';
 
@@ -267,13 +299,14 @@ program
 
 // Apply global flags and telemetry before any command runs
 program.hook('preAction', async (_thisCommand, actionCommand) => {
+  currentCommandPath = getCommandPath(actionCommand);
+
   if (!hasJsonOption(actionCommand)) {
     await maybeShowTelemetryNotice();
     maybeWarnProjectConfig(actionCommand);
   }
 
-  const commandPath = getCommandPath(actionCommand);
-  await trackCommand(commandPath, version);
+  await trackCommand(currentCommandPath, version);
 });
 
 program.hook('postAction', async () => {
@@ -339,9 +372,7 @@ program
       });
       await initCommand.execute(targetPath);
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -363,9 +394,7 @@ program
       const updateCommand = new UpdateCommand({ force: options?.force });
       await updateCommand.execute(resolvedPath);
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -396,9 +425,7 @@ const skillsInstallCmd = skillsCmd
       });
       await installCommand.execute();
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -439,9 +466,7 @@ program
       const sort = options?.sort === 'name' ? 'name' : 'recent';
       await listCommand.execute('.', mode, { sort, json: options?.json });
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -469,9 +494,7 @@ program
       const archiveCommand = new ArchiveCommand();
       await archiveCommand.execute(changeName, options);
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -489,9 +512,7 @@ program
     try {
       await statusCommand(options);
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -509,9 +530,7 @@ program
         await instructionsCommand(artifactId, options);
       }
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -527,9 +546,7 @@ flowCmd
     try {
       await flowStatusCommand(taskDir, options);
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -541,9 +558,7 @@ flowCmd
     try {
       await flowNextCommand(taskDir, options);
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -559,9 +574,7 @@ flowCmd
     try {
       await flowCompleteCommand(taskDir, options);
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
 
@@ -578,10 +591,11 @@ newCmd
     try {
       await newChangeCommand(name, options);
     } catch (error) {
-      console.log();
-      ora().fail(`Error: ${(error as Error).message}`);
-      process.exit(1);
+      await failCommand(error);
     }
   });
+
+process.on('uncaughtException', reportCrash);
+process.on('unhandledRejection', reportCrash);
 
 program.parse();
