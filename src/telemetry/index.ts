@@ -2,8 +2,9 @@
  * Telemetry module for anonymous usage analytics.
  *
  * Privacy-first design:
- * - Only tracks command name and version
- * - No arguments, file paths, or content
+ * - Tracks command name and version on every run
+ * - On failure, tracks the error class, error code, and a path-redacted stack
+ * - No arguments, raw error messages, file paths, or content
  * - Opt-out via SPOK_TELEMETRY=0 or DO_NOT_TRACK=1
  * - Auto-disabled in CI environments
  * - Anonymous ID is a random UUID with no relation to the user
@@ -11,6 +12,9 @@
 import { PostHog } from 'posthog-node';
 import { randomUUID } from 'crypto';
 import { getTelemetryConfig, updateTelemetryConfig } from './config.js';
+import { classifyError, sanitizeError, type ErrorKind } from './errors.js';
+
+export type { ErrorKind } from './errors.js';
 
 // PostHog API key - public key for client-side analytics
 // This is safe to embed as it only allows sending events, not reading data
@@ -130,6 +134,47 @@ export async function trackCommand(commandName: string, version: string): Promis
         surface: 'cli',
         $ip: null, // Explicitly disable IP tracking
       },
+    });
+  } catch {
+    // Silent failure - telemetry should never break CLI
+  }
+}
+
+/**
+ * Track a failed command execution.
+ *
+ * Sends a path-redacted exception so PostHog's error tracking can group issues,
+ * plus classification properties (error class, code, and whether it is an
+ * expected user error or a bug). Never sends raw messages, arguments, or paths.
+ *
+ * @param commandName - The command name (e.g., 'init', 'flow:next')
+ * @param version - The Spok version
+ * @param error - The thrown value
+ * @param kindOverride - Force a kind (e.g. 'crash' for uncaught failures)
+ */
+export async function trackError(
+  commandName: string,
+  version: string,
+  error: unknown,
+  kindOverride?: ErrorKind
+): Promise<void> {
+  if (!isTelemetryEnabled()) {
+    return;
+  }
+
+  try {
+    const userId = await getOrCreateAnonymousId();
+    const client = getClient();
+    const { name, code, kind } = classifyError(error);
+
+    client.captureException(sanitizeError(error), userId, {
+      command: commandName,
+      version: version,
+      surface: 'cli',
+      error_name: name,
+      error_code: code,
+      error_kind: kindOverride ?? kind,
+      $ip: null, // Explicitly disable IP tracking
     });
   } catch {
     // Silent failure - telemetry should never break CLI
