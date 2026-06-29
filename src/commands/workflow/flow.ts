@@ -3,6 +3,7 @@ import { existsSync, promises as fs } from 'node:fs';
 import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
 
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
+export const FLOW_EVENT_LOG_FILE = 'flow-events.jsonl';
 
 export type FlowRunState = 'ready' | 'blocked' | 'complete';
 export type FlowStepStatus = 'pending' | 'ready' | 'completed';
@@ -18,6 +19,7 @@ interface Routing {
 
 const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
 const SELF_LEARN_STEP_ID = 'self-learn';
+const FLOW_EVENT_DIR = '.spok';
 
 const FLOW_STEP_TIER_BY_ID = {
   [PROBLEM_VALIDATION_STEP_ID]: 'heavy',
@@ -111,6 +113,17 @@ interface StepDefinition {
   completionKind: FlowCompletionKind;
 }
 
+interface FlowEvent {
+  schemaVersion: 1;
+  timestamp: string;
+  event: 'flow_status' | 'flow_next' | 'flow_complete';
+  state: FlowRunState;
+  step?: string;
+  completedStep?: string;
+  code?: string;
+  reason?: string;
+}
+
 interface LoadResult {
   taskDir: string;
   statePath: string;
@@ -128,6 +141,10 @@ function resolveTaskDir(taskDir: string): string {
 
 function getStatePath(taskDir: string): string {
   return path.join(taskDir, WORKFLOW_STATE_FILE);
+}
+
+export function getFlowEventLogPath(taskDir: string): string {
+  return path.join(taskDir, FLOW_EVENT_DIR, FLOW_EVENT_LOG_FILE);
 }
 
 function findProjectRootForTaskDir(taskDir: string): string | undefined {
@@ -384,6 +401,55 @@ async function pathIsDirectory(targetPath: string): Promise<boolean> {
   }
 }
 
+function flowBlockCode(reason: string): string {
+  if (reason.startsWith('Task directory does not exist:')) return 'missing_task_dir';
+  if (reason.startsWith('Missing required ticket file:')) return 'missing_ticket';
+  if (reason.startsWith('Invalid workflow state JSON:')) return 'invalid_state_json';
+  if (reason.startsWith('Missing completed artifact for step ')) return 'missing_completed_artifact';
+  if (reason.startsWith('Expected step ')) return 'wrong_step';
+  if (reason.startsWith('Unknown workflow step:')) return 'unknown_step';
+  if (reason.startsWith('Expected output path ')) return 'wrong_output_path';
+  if (reason.startsWith('Expected output file is missing or empty for step ')) return 'missing_output';
+  if (reason.includes('must set Flow Decision to proceed')) return 'flow_decision_not_proceed';
+  if (reason.includes('must provide a non-empty --summary')) return 'missing_summary';
+  if (reason.includes('must provide a commit SHA')) return 'missing_commit';
+  return 'blocked';
+}
+
+async function appendFlowEvent(taskDir: string, event: FlowEvent): Promise<void> {
+  try {
+    if (!(await pathIsDirectory(taskDir))) return;
+
+    const eventLogPath = getFlowEventLogPath(taskDir);
+    await fs.mkdir(path.dirname(eventLogPath), { recursive: true });
+    await fs.appendFile(eventLogPath, `${JSON.stringify(event)}\n`, 'utf-8');
+  } catch {
+    // Best-effort background signal. Flow behavior must never depend on it.
+  }
+}
+
+async function recordFlowResponse(
+  response: FlowResponse,
+  eventName: FlowEvent['event']
+): Promise<void> {
+  const event: FlowEvent = {
+    schemaVersion: 1,
+    timestamp: nowIso(),
+    event: eventName,
+    state: response.state,
+  };
+
+  const step = response.step?.id ?? response.nextStep?.id;
+  if (step) event.step = step;
+  if (response.completedStep?.id) event.completedStep = response.completedStep.id;
+  if (response.reason) {
+    event.code = flowBlockCode(response.reason);
+    event.reason = response.reason;
+  }
+
+  await appendFlowEvent(response.taskDir, event);
+}
+
 async function writeState(state: WorkflowState): Promise<void> {
   state.updatedAt = nowIso();
   await fs.writeFile(getStatePath(state.taskDir), `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
@@ -608,35 +674,47 @@ async function completeStepResult(
 export async function getFlowStatus(taskDirInput: string): Promise<FlowResponse> {
   const loaded = await loadOrCreateState(taskDirInput);
   if (!loaded.state) {
-    return buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+    const response = buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+    await recordFlowResponse(response, 'flow_status');
+    return response;
   }
 
   const missingArtifact = await validateCompletedArtifacts(loaded.state);
   if (missingArtifact) {
-    return blockedResponse(loaded.state, missingArtifact);
+    const response = blockedResponse(loaded.state, missingArtifact);
+    await recordFlowResponse(response, 'flow_status');
+    return response;
   }
 
-  return buildResponse(loaded.state);
+  const response = buildResponse(loaded.state);
+  await recordFlowResponse(response, 'flow_status');
+  return response;
 }
 
 /** Owns state-file creation and refresh; blocked outcomes leave the file untouched. */
 export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
   const loaded = await loadOrCreateState(taskDirInput);
   if (!loaded.state) {
-    return buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+    const response = buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+    await recordFlowResponse(response, 'flow_next');
+    return response;
   }
 
   const missingArtifact = await validateCompletedArtifacts(loaded.state);
   if (missingArtifact) {
-    return blockedResponse(loaded.state, missingArtifact);
+    const response = blockedResponse(loaded.state, missingArtifact);
+    await recordFlowResponse(response, 'flow_next');
+    return response;
   }
 
   await writeState(loaded.state);
   const response = buildResponse(loaded.state);
-  return {
+  const nextResponse = {
     ...response,
     step: response.nextStep,
   };
+  await recordFlowResponse(nextResponse, 'flow_next');
+  return nextResponse;
 }
 
 export async function completeFlowStep(
@@ -645,31 +723,46 @@ export async function completeFlowStep(
 ): Promise<FlowResponse> {
   const loaded = await loadOrCreateState(taskDirInput);
   if (!loaded.state) {
-    return buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+    const response = buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+    await recordFlowResponse(response, 'flow_complete');
+    return response;
   }
 
   const priorArtifactError = await validateCompletedArtifacts(loaded.state);
   if (priorArtifactError) {
-    return blockedResponse(loaded.state, priorArtifactError);
+    const response = blockedResponse(loaded.state, priorArtifactError);
+    await recordFlowResponse(response, 'flow_complete');
+    return response;
   }
 
   const currentStep = getCurrentStep(loaded.state);
   if (!currentStep) {
-    return buildResponse(loaded.state);
+    const response = buildResponse(loaded.state);
+    await recordFlowResponse(response, 'flow_complete');
+    return response;
   }
 
   if (input.step !== currentStep.id) {
-    return blockedResponse(loaded.state, `Expected step ${currentStep.id}, got ${input.step}.`);
+    const response = blockedResponse(
+      loaded.state,
+      `Expected step ${currentStep.id}, got ${input.step}.`
+    );
+    await recordFlowResponse(response, 'flow_complete');
+    return response;
   }
 
   const definition = getDefinitionById(loaded.state.taskDir, currentStep.id);
   if (!definition) {
-    return blockedResponse(loaded.state, `Unknown workflow step: ${currentStep.id}.`);
+    const response = blockedResponse(loaded.state, `Unknown workflow step: ${currentStep.id}.`);
+    await recordFlowResponse(response, 'flow_complete');
+    return response;
   }
 
   const result = await completeStepResult(definition, input);
   if (typeof result === 'string') {
-    return blockedResponse(loaded.state, result);
+    const response = blockedResponse(loaded.state, result);
+    await recordFlowResponse(response, 'flow_complete');
+    return response;
   }
 
   currentStep.status = 'completed';
@@ -677,9 +770,11 @@ export async function completeFlowStep(
   markNextStepReady(loaded.state);
   await writeState(loaded.state);
 
-  return buildResponse(loaded.state, {
+  const response = buildResponse(loaded.state, {
     completedStep: currentStep,
   });
+  await recordFlowResponse(response, 'flow_complete');
+  return response;
 }
 
 export async function flowStatusCommand(

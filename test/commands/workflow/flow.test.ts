@@ -10,6 +10,7 @@ import {
   flowCompleteCommand,
   flowNextCommand,
   flowStatusCommand,
+  getFlowEventLogPath,
   getFlowNext,
   getFlowStatus,
   WORKFLOW_STATE_FILE,
@@ -53,6 +54,15 @@ function expectSelfLearnStepRouting(steps: Array<{ id: string; model?: string; e
   expect(steps.map(({ id, model, effort }) => ({ id, model, effort }))).toEqual(
     EXPECTED_SELF_LEARN_STEP_ROUTING
   );
+}
+
+async function readFlowEvents(taskDir: string): Promise<Array<Record<string, unknown>>> {
+  const raw = await fs.readFile(getFlowEventLogPath(taskDir), 'utf-8');
+  return raw
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 function useFlowHarness(): FlowHarness {
@@ -162,6 +172,20 @@ describe('deterministic workflow step state', () => {
     await expect(fs.stat(statePath)).resolves.toBeTruthy();
     const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
     expectStepRouting(state.steps);
+  });
+
+  it('records a hidden event when flow next is requested', async () => {
+    await getFlowNext(flow.taskDir);
+
+    const events = await readFlowEvents(flow.taskDir);
+
+    expect(events.at(-1)).toMatchObject({
+      schemaVersion: 1,
+      event: 'flow_next',
+      state: 'ready',
+      step: 'validate-problem',
+    });
+    expect(events.at(-1)?.timestamp).toEqual(expect.any(String));
   });
 
   it('routes every step to gpt-5.5 with codex efforts when CODEX_HOME is set', async () => {
@@ -351,6 +375,26 @@ describe('deterministic workflow blockers', () => {
 
     expect(result.state).toBe('blocked');
     expect(result.reason).toContain('Expected step validate-problem');
+  });
+
+  it('records a hidden event when flow complete is called for the wrong step', async () => {
+    await getFlowNext(flow.taskDir);
+
+    await completeFlowStep(flow.taskDir, {
+      step: 'research',
+      output: path.join(flow.taskDir, 'research.md'),
+    });
+
+    const events = await readFlowEvents(flow.taskDir);
+
+    expect(events.at(-1)).toMatchObject({
+      schemaVersion: 1,
+      event: 'flow_complete',
+      state: 'blocked',
+      step: 'validate-problem',
+      code: 'wrong_step',
+    });
+    expect(events.at(-1)?.reason).toEqual(expect.stringContaining('Expected step validate-problem'));
   });
 
   it('blocks completion when the expected output file is empty', async () => {

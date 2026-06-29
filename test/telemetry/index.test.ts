@@ -7,15 +7,42 @@ import { randomUUID } from 'node:crypto';
 // Mock posthog-node before importing the module
 vi.mock('posthog-node', () => {
   return {
-    PostHog: vi.fn().mockImplementation(() => ({
-      capture: vi.fn(),
-      shutdown: vi.fn().mockResolvedValue(undefined),
-    })),
+    PostHog: vi.fn().mockImplementation(function () {
+      const client = {
+        capture: (payload: unknown) => {
+          const key = Symbol.for('spok.test.posthog.captureCalls');
+          ((globalThis as any)[key] ??= []).push(payload);
+        },
+        shutdown: vi.fn().mockResolvedValue(undefined),
+      };
+      const key = Symbol.for('spok.test.posthog.clients');
+      ((globalThis as any)[key] ??= []).push(client);
+      return client;
+    }),
   };
 });
 
+function posthogClients(): Array<{
+  capture: (payload: unknown) => void;
+  shutdown: ReturnType<typeof vi.fn>;
+}> {
+  const key = Symbol.for('spok.test.posthog.clients');
+  return ((globalThis as any)[key] ??= []);
+}
+
+function posthogCaptureCalls(): unknown[] {
+  const key = Symbol.for('spok.test.posthog.captureCalls');
+  return ((globalThis as any)[key] ??= []);
+}
+
 // Import after mocking
-import { isTelemetryEnabled, maybeShowTelemetryNotice, shutdown, trackCommand } from '../../src/telemetry/index.js';
+import {
+  isTelemetryEnabled,
+  maybeShowTelemetryNotice,
+  shutdown,
+  trackCommand,
+  trackTelemetryEvent,
+} from '../../src/telemetry/index.js';
 import { PostHog } from 'posthog-node';
 
 describe('telemetry/index', () => {
@@ -37,6 +64,8 @@ describe('telemetry/index', () => {
 
     // Clear all mocks
     vi.clearAllMocks();
+    posthogClients().length = 0;
+    posthogCaptureCalls().length = 0;
 
     // Spy on console.log for notice tests
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -118,6 +147,40 @@ describe('telemetry/index', () => {
       await trackCommand('test', '1.0.0');
 
       expect(PostHog).toHaveBeenCalled();
+    });
+
+    it('should track redacted CLI events when telemetry is enabled', async () => {
+      delete process.env.SPOK_TELEMETRY;
+      delete process.env.DO_NOT_TRACK;
+      delete process.env.CI;
+
+      await trackTelemetryEvent('cli_help_checked', '1.0.0', {
+        command: 'flow complete',
+        invocation: 'help_option',
+      });
+
+      expect(posthogCaptureCalls()).toContainEqual({
+        distinctId: expect.any(String),
+        event: 'cli_help_checked',
+        properties: {
+          command: 'flow complete',
+          invocation: 'help_option',
+          version: '1.0.0',
+          surface: 'cli',
+          $ip: null,
+        },
+      });
+    });
+
+    it('should not track redacted CLI events when telemetry is disabled', async () => {
+      process.env.SPOK_TELEMETRY = '0';
+
+      await trackTelemetryEvent('cli_invalid_invocation', '1.0.0', {
+        command: 'flow <unknown>',
+        code: 'unknown_flow_subcommand',
+      });
+
+      expect(PostHog).not.toHaveBeenCalled();
     });
 
     it('should construct PostHog with bounded silent-failure settings', async () => {
@@ -203,7 +266,7 @@ describe('telemetry/index', () => {
 
   describe('shutdown', () => {
     it('should not throw when no client exists', async () => {
-      await expect(shutdown()).resolves.not.toThrow();
+      await expect(shutdown()).resolves.toBeUndefined();
     });
 
     it('should handle shutdown errors silently', async () => {
@@ -213,7 +276,7 @@ describe('telemetry/index', () => {
       };
       (PostHog as any).mockImplementation(() => mockPostHog);
 
-      await expect(shutdown()).resolves.not.toThrow();
+      await expect(shutdown()).resolves.toBeUndefined();
     });
   });
 });

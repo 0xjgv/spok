@@ -22,6 +22,9 @@ const TELEMETRY_REQUEST_TIMEOUT_MS = 1000;
 let posthogClient: PostHog | null = null;
 let anonymousId: string | null = null;
 
+type TelemetryPrimitive = string | number | boolean | null | undefined;
+export type TelemetryProperties = Record<string, TelemetryPrimitive>;
+
 async function safeTelemetryFetch(url: string, options: RequestInit): Promise<Response> {
   try {
     const response = await fetch(url, options);
@@ -113,6 +116,23 @@ function getClient(): PostHog {
  * @param version - The Spok version
  */
 export async function trackCommand(commandName: string, version: string): Promise<void> {
+  await trackTelemetryEvent('command_executed', version, {
+    command: commandName,
+  });
+}
+
+/**
+ * Track a low-cardinality CLI signal.
+ *
+ * Keep properties aggregate and redacted: labels, categories, booleans, and
+ * version data only. Do not send paths, raw args, prompts, artifact content, or
+ * command output.
+ */
+export async function trackTelemetryEvent(
+  eventName: string,
+  version: string,
+  properties: TelemetryProperties = {}
+): Promise<void> {
   if (!isTelemetryEnabled()) {
     return;
   }
@@ -123,9 +143,9 @@ export async function trackCommand(commandName: string, version: string): Promis
 
     client.capture({
       distinctId: userId,
-      event: 'command_executed',
+      event: eventName,
       properties: {
-        command: commandName,
+        ...properties,
         version: version,
         surface: 'cli',
         $ip: null, // Explicitly disable IP tracking

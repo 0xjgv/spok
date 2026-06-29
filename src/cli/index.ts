@@ -25,7 +25,8 @@ import {
   type FlowCommandOptions,
   type FlowCompleteCommandOptions,
 } from '../commands/workflow/index.js';
-import { maybeShowTelemetryNotice, trackCommand, shutdown } from '../telemetry/index.js';
+import { maybeShowTelemetryNotice, trackCommand, trackTelemetryEvent, shutdown } from '../telemetry/index.js';
+import { collectCliSignals } from './signals.js';
 
 const program = new Command();
 const require = createRequire(import.meta.url);
@@ -113,6 +114,13 @@ const CONFIG_WARNING_COMMANDS = new Set([
   'flow:next',
   'flow:complete',
 ]);
+
+async function trackStartupSignals(args: string[]): Promise<void> {
+  const signals = collectCliSignals(args);
+  for (const signal of signals) {
+    await trackTelemetryEvent(signal.event, version, signal.properties);
+  }
+}
 
 /**
  * Get the full command path for nested commands.
@@ -584,4 +592,6 @@ newCmd
     }
   });
 
+await trackStartupSignals(process.argv.slice(2));
+await shutdown();
 program.parse();
