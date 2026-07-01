@@ -30,11 +30,11 @@ const EXPECTED_STEP_ROUTING = [
   { id: 'validate-problem', model: 'opus', effort: 'xhigh' },
   { id: 'research-questions', model: 'opus', effort: 'xhigh' },
   { id: 'research', model: 'sonnet', effort: undefined },
-  { id: 'design-discussion', model: 'opus', effort: 'xhigh' },
-  { id: 'structure-outline', model: 'opus', effort: 'xhigh' },
-  { id: 'plan', model: 'opus', effort: 'xhigh' },
+  { id: 'design-discussion', model: 'fable', effort: 'xhigh' },
+  { id: 'structure-outline', model: 'fable', effort: 'xhigh' },
+  { id: 'plan', model: 'fable', effort: 'xhigh' },
   { id: 'implement', model: 'opus', effort: 'xhigh' },
-  { id: 'simplify', model: 'sonnet', effort: undefined },
+  { id: 'simplify', model: 'opus', effort: 'xhigh' },
   { id: 'validate', model: 'opus', effort: 'xhigh' },
   { id: 'commit', model: 'haiku', effort: undefined },
 ];
@@ -194,15 +194,15 @@ describe('deterministic workflow step state', () => {
     const result = await getFlowNext(flow.taskDir);
 
     expect(result.steps.map(({ id, model, effort }) => ({ id, model, effort }))).toEqual([
-      { id: 'validate-problem', model: 'gpt-5.5', effort: 'xhigh' },
-      { id: 'research-questions', model: 'gpt-5.5', effort: 'xhigh' },
+      { id: 'validate-problem', model: 'gpt-5.5', effort: 'high' },
+      { id: 'research-questions', model: 'gpt-5.5', effort: 'high' },
       { id: 'research', model: 'gpt-5.5', effort: 'medium' },
       { id: 'design-discussion', model: 'gpt-5.5', effort: 'xhigh' },
       { id: 'structure-outline', model: 'gpt-5.5', effort: 'xhigh' },
       { id: 'plan', model: 'gpt-5.5', effort: 'xhigh' },
-      { id: 'implement', model: 'gpt-5.5', effort: 'xhigh' },
-      { id: 'simplify', model: 'gpt-5.5', effort: 'medium' },
-      { id: 'validate', model: 'gpt-5.5', effort: 'xhigh' },
+      { id: 'implement', model: 'gpt-5.5', effort: 'high' },
+      { id: 'simplify', model: 'gpt-5.5', effort: 'high' },
+      { id: 'validate', model: 'gpt-5.5', effort: 'high' },
       { id: 'commit', model: 'gpt-5.5', effort: 'low' },
     ]);
   });
@@ -286,7 +286,7 @@ describe('deterministic workflow state resumption', () => {
     expect(result.step).toMatchObject({
       id: 'design-discussion',
       skill: 'spok-create-design-discussion',
-      model: 'opus',
+      model: 'fable',
       effort: 'xhigh',
       argument: flow.taskDir,
       expectedOutput: path.join(flow.taskDir, 'design-discussion.md'),
@@ -340,7 +340,7 @@ describe('deterministic workflow state resumption', () => {
     expect(result.state).toBe('ready');
     expect(result.step).toMatchObject({
       id: 'design-discussion',
-      model: 'opus',
+      model: 'fable',
       effort: 'xhigh',
       status: 'ready',
     });

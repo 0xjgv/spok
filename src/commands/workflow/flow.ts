@@ -8,10 +8,10 @@ export const FLOW_EVENT_LOG_FILE = 'flow-events.jsonl';
 export type FlowRunState = 'ready' | 'blocked' | 'complete';
 export type FlowStepStatus = 'pending' | 'ready' | 'completed';
 export type FlowCompletionKind = 'file' | 'summary' | 'commit';
-export type FlowModel = 'sonnet' | 'opus' | 'haiku' | 'gpt-5.5';
+export type FlowModel = 'fable' | 'opus' | 'sonnet' | 'haiku' | 'gpt-5.5';
 export type FlowEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 type FlowTool = 'claude' | 'codex';
-type FlowTier = 'heavy' | 'mid' | 'cheap';
+type FlowTier = 'max' | 'heavy' | 'mid' | 'cheap';
 interface Routing {
   model: FlowModel;
   effort?: FlowEffort;
@@ -25,11 +25,11 @@ const FLOW_STEP_TIER_BY_ID = {
   [PROBLEM_VALIDATION_STEP_ID]: 'heavy',
   'research-questions': 'heavy',
   research: 'mid',
-  'design-discussion': 'heavy',
-  'structure-outline': 'heavy',
-  plan: 'heavy',
+  'design-discussion': 'max',
+  'structure-outline': 'max',
+  plan: 'max',
   implement: 'heavy',
-  simplify: 'mid',
+  simplify: 'heavy',
   validate: 'heavy',
   commit: 'cheap',
   [SELF_LEARN_STEP_ID]: 'mid',
@@ -37,12 +37,14 @@ const FLOW_STEP_TIER_BY_ID = {
 
 const ROUTING_MATRIX: Record<FlowTool, Record<FlowTier, Routing>> = {
   claude: {
+    max: { model: 'fable', effort: 'xhigh' },
     heavy: { model: 'opus', effort: 'xhigh' },
     mid: { model: 'sonnet' },
     cheap: { model: 'haiku' },
   },
   codex: {
-    heavy: { model: 'gpt-5.5', effort: 'xhigh' },
+    max: { model: 'gpt-5.5', effort: 'xhigh' },
+    heavy: { model: 'gpt-5.5', effort: 'high' },
     mid: { model: 'gpt-5.5', effort: 'medium' },
     cheap: { model: 'gpt-5.5', effort: 'low' },
   },
