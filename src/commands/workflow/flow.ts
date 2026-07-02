@@ -5,13 +5,13 @@ import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 export const FLOW_EVENT_LOG_FILE = 'flow-events.jsonl';
 
-export type FlowRunState = 'ready' | 'blocked' | 'complete';
-export type FlowStepStatus = 'pending' | 'ready' | 'completed';
-export type FlowCompletionKind = 'file' | 'summary' | 'commit';
-export type FlowModel = 'fable' | 'opus' | 'sonnet' | 'haiku' | 'gpt-5.5';
+export type FlowModel = 'haiku' | 'sonnet' | 'opus' | 'gpt-5.5' | 'fable';
 export type FlowEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-type FlowTool = 'claude' | 'codex';
+export type FlowCompletionKind = 'file' | 'summary' | 'commit';
+export type FlowStepStatus = 'pending' | 'ready' | 'completed';
+export type FlowRunState = 'ready' | 'blocked' | 'complete';
 type FlowTier = 'max' | 'heavy' | 'mid' | 'cheap';
+type FlowTool = 'claude' | 'codex';
 interface Routing {
   model: FlowModel;
   effort?: FlowEffort;
@@ -21,6 +21,7 @@ const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
 const SELF_LEARN_STEP_ID = 'self-learn';
 const FLOW_EVENT_DIR = '.spok';
 
+// Spok flow model map
 const FLOW_STEP_TIER_BY_ID = {
   [PROBLEM_VALIDATION_STEP_ID]: 'heavy',
   'research-questions': 'heavy',
@@ -28,7 +29,7 @@ const FLOW_STEP_TIER_BY_ID = {
   'design-discussion': 'max',
   'structure-outline': 'max',
   plan: 'max',
-  implement: 'heavy',
+  implement: 'mid',
   simplify: 'heavy',
   validate: 'heavy',
   commit: 'cheap',
@@ -55,10 +56,10 @@ function detectTool(): FlowTool {
 }
 
 export interface FlowStepResult {
-  output?: string;
-  summary?: string;
-  commit?: string;
   completedAt: string;
+  summary?: string;
+  output?: string;
+  commit?: string;
 }
 
 export interface FlowStep {
