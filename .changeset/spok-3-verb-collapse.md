@@ -1,5 +1,5 @@
 ---
-"@fission-ai/openspec": major
+"spok": major
 ---
 
 ### Breaking Changes — Spok 3-Verb Collapse

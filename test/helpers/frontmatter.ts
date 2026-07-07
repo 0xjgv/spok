@@ -6,12 +6,13 @@
  * fence is unterminated. Shared by doc/skill frontmatter assertion tests.
  */
 export function extractFrontmatter(content: string): string {
-  if (!content.startsWith('---\n')) {
+  const normalized = content.replace(/\r\n/g, '\n');
+  if (!normalized.startsWith('---\n')) {
     throw new Error('no frontmatter');
   }
-  const end = content.indexOf('\n---', 4);
+  const end = normalized.indexOf('\n---', 4);
   if (end === -1) {
     throw new Error('unterminated frontmatter');
   }
-  return content.slice(4, end);
+  return normalized.slice(4, end);
 }

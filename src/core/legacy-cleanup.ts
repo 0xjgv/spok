@@ -231,7 +231,7 @@ export async function detectRetiredSkillDirs(projectPath: string): Promise<strin
   for (const tool of AI_TOOLS) {
     if (!tool.skillsDir) continue;
     for (const dirName of RETIRED_SKILL_DIRS) {
-      const relPath = path.join(tool.skillsDir, 'skills', dirName);
+      const relPath = FileSystemUtils.toPosixPath(path.join(tool.skillsDir, 'skills', dirName));
       const fullPath = path.join(projectPath, relPath);
       if (await FileSystemUtils.directoryExists(fullPath)) {
         found.push(relPath);

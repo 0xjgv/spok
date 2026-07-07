@@ -1,5 +1,5 @@
 ---
-"@fission-ai/openspec": minor
+"spok": minor
 ---
 
 ### New Features

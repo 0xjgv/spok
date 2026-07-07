@@ -1,5 +1,5 @@
 ---
-"@fission-ai/openspec": patch
+"spok": patch
 ---
 
 ### Fixed

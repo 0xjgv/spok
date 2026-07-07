@@ -96,7 +96,7 @@ flow:
         expect.objectContaining({ change: 'demo' })
       );
     });
-    expect(console.error).toHaveBeenCalledWith('Warning: invalid Spok config at spok/config.yaml');
+    expect(console.error).toHaveBeenCalledWith(`Warning: invalid Spok config at ${path.join('spok', 'config.yaml')}`);
     expect(console.error).toHaveBeenCalledWith('- schema: schema must be a non-empty string');
     expect(console.error).toHaveBeenCalledWith('- flow.self_learn: flow.self_learn must be boolean');
     expect(console.error).toHaveBeenCalledWith('Run `spok doctor` for a full configuration report.');
