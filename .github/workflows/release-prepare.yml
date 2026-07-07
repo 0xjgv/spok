@@ -58,6 +58,7 @@ jobs:
       # Opens/updates the Version Packages PR; publishes when the Version PR merges
       - name: Create/Update Version PR
         id: changesets
+        if: env.RELEASE_APP_ID != '' && env.RELEASE_APP_PRIVATE_KEY != ''
         uses: changesets/action@v1
         with:
           title: 'chore(release): version packages'
