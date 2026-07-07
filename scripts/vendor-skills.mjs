@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * One-shot vendor script that copies the flow+chunks skill closure into
  * assets/skills/spok-*. Cross-references between skills are rewritten so the
@@ -36,7 +35,7 @@ const SKILLS = [
 ];
 
 /**
- * Spok-specific forks — not copied from ~/.claude/skills; maintained in assets/skills/.
+ * Spok-specific forks - not copied from ~/.claude/skills; maintained in assets/skills/.
  * Includes the 7 downstream flow skills because they now route artifacts to
  * `<task-dir>` rather than `.humanlayer/tasks/`, a fork-only divergence.
  */
@@ -95,7 +94,7 @@ function escapeRegExp(value) {
 /** @param {string} content @param {string} skillName */
 function rewriteSkillName(content, skillName) {
   if (skillName === 'flow') {
-    // "flow" is a common English word — do not rewrite phrases like "data flow".
+    // "flow" is a common English word - do not rewrite phrases like "data flow".
     return content.replace(/(?<![\w-])flow(?![\w-])/g, (match, offset, str) => {
       const prefix = str.slice(Math.max(0, offset - 5), offset);
       if (prefix === 'data ') return 'flow';
@@ -164,7 +163,7 @@ async function writeCodeReviewStub(destDir) {
   await fs.mkdir(dir, { recursive: true });
   const content = `---
 name: spok-code-review
-description: Run a code review at the requested rigor. Vendored stub — relies on the user-installed code-review tooling. Argument: rigor level (e.g., "high").
+description: Run a code review at the requested rigor. Vendored stub - relies on the user-installed code-review tooling. Argument: rigor level (e.g., "high").
 license: MIT
 metadata:
   author: spok
@@ -210,7 +209,7 @@ async function main() {
         stubbed++;
         continue;
       }
-      console.warn(`vendor-skills: SKIP ${skill} — source not found at ${srcDir}`);
+      console.warn(`vendor-skills: SKIP ${skill} - source not found at ${srcDir}`);
       continue;
     }
 
@@ -221,7 +220,7 @@ async function main() {
     vendored++;
   }
 
-  console.log(`vendor-skills: done — vendored=${vendored} stubbed=${stubbed}`);
+  console.log(`vendor-skills: done - vendored=${vendored} stubbed=${stubbed}`);
 }
 
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
