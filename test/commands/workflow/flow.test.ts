@@ -449,6 +449,10 @@ describe('deterministic workflow blockers', () => {
     expect(result.reason).toContain('Expected output path');
     expect(result.reason).toContain('problem-validation.md');
   });
+});
+
+describe('deterministic workflow completion blockers', () => {
+  const flow = useFlowHarness();
 
   it('blocks commit completion without a commit SHA', async () => {
     await flow.completeThroughValidation();

@@ -116,6 +116,107 @@ interface StepDefinition {
   completionKind: FlowCompletionKind;
 }
 
+type RoutedStepId = keyof typeof FLOW_STEP_TIER_BY_ID;
+
+interface FlowStepPaths {
+  taskDir: string;
+  ticket: string;
+  problemValidation: string;
+  researchQuestions: string;
+  research: string;
+  designDiscussion: string;
+  structureOutline: string;
+  plan: string;
+  validation: string;
+  selfLearn: string;
+}
+
+interface StepDefinitionSpec {
+  id: RoutedStepId;
+  skill: string;
+  argument: keyof FlowStepPaths;
+  expectedOutput?: keyof FlowStepPaths;
+  completionKind: FlowCompletionKind;
+}
+
+const BASE_STEP_DEFINITION_SPECS = [
+  {
+    id: PROBLEM_VALIDATION_STEP_ID,
+    skill: 'spok-validate-problem',
+    argument: 'ticket',
+    expectedOutput: 'problemValidation',
+    completionKind: 'file',
+  },
+  {
+    id: 'research-questions',
+    skill: 'spok-create-research-questions',
+    argument: 'ticket',
+    expectedOutput: 'researchQuestions',
+    completionKind: 'file',
+  },
+  {
+    id: 'research',
+    skill: 'spok-create-research',
+    argument: 'researchQuestions',
+    expectedOutput: 'research',
+    completionKind: 'file',
+  },
+  {
+    id: 'design-discussion',
+    skill: 'spok-create-design-discussion',
+    argument: 'taskDir',
+    expectedOutput: 'designDiscussion',
+    completionKind: 'file',
+  },
+  {
+    id: 'structure-outline',
+    skill: 'spok-create-structure-outline',
+    argument: 'taskDir',
+    expectedOutput: 'structureOutline',
+    completionKind: 'file',
+  },
+  {
+    id: 'plan',
+    skill: 'spok-create-plan',
+    argument: 'taskDir',
+    expectedOutput: 'plan',
+    completionKind: 'file',
+  },
+  {
+    id: 'implement',
+    skill: 'spok-implement-plan',
+    argument: 'taskDir',
+    completionKind: 'summary',
+  },
+  {
+    id: 'simplify',
+    skill: 'spok-simplify',
+    argument: 'taskDir',
+    completionKind: 'summary',
+  },
+  {
+    id: 'validate',
+    skill: 'spok-validate-implementation',
+    argument: 'taskDir',
+    expectedOutput: 'validation',
+    completionKind: 'file',
+  },
+  {
+    id: 'commit',
+    skill: 'spok-ci-commit',
+    argument: 'taskDir',
+    completionKind: 'commit',
+  },
+] as const satisfies readonly StepDefinitionSpec[];
+
+const SELF_LEARN_STEP_DEFINITION_SPEC = {
+  id: SELF_LEARN_STEP_ID,
+  skill: 'spok-self-learn',
+  argument: 'taskDir',
+  expectedOutput: 'selfLearn',
+  completionKind: 'file',
+} as const satisfies StepDefinitionSpec;
+
 interface FlowEvent {
   schemaVersion: 1;
   timestamp: string;
@@ -170,112 +271,44 @@ function isSelfLearnEnabled(taskDir: string): boolean {
   return readProjectConfig(projectRoot)?.flow?.self_learn === true;
 }
 
+function buildFlowStepPaths(taskDir: string): FlowStepPaths {
+  return {
+    taskDir,
+    ticket: path.join(taskDir, 'ticket.md'),
+    problemValidation: path.join(taskDir, 'problem-validation.md'),
+    researchQuestions: path.join(taskDir, 'research-questions.md'),
+    research: path.join(taskDir, 'research.md'),
+    designDiscussion: path.join(taskDir, 'design-discussion.md'),
+    structureOutline: path.join(taskDir, 'structure-outline.md'),
+    plan: path.join(taskDir, 'plan.md'),
+    validation: path.join(taskDir, 'validation.md'),
+    selfLearn: path.join(taskDir, 'self-learn.md'),
+  };
+}
+
+function buildStepDefinition(
+  spec: StepDefinitionSpec,
+  paths: FlowStepPaths,
+  tool: FlowTool
+): StepDefinition {
+  const routing = ROUTING_MATRIX[tool][FLOW_STEP_TIER_BY_ID[spec.id]];
+  return {
+    id: spec.id,
+    skill: spec.skill,
+    ...routing,
+    argument: paths[spec.argument],
+    expectedOutput: spec.expectedOutput ? paths[spec.expectedOutput] : undefined,
+    completionKind: spec.completionKind,
+  };
+}
+
 function buildStepDefinitions(taskDir: string): StepDefinition[] {
+  const paths = buildFlowStepPaths(taskDir);
   const tool = detectTool();
-  const route = (id: keyof typeof FLOW_STEP_TIER_BY_ID): Routing =>
-    ROUTING_MATRIX[tool][FLOW_STEP_TIER_BY_ID[id]];
-  const ticket = path.join(taskDir, 'ticket.md');
-  const problemValidation = path.join(taskDir, 'problem-validation.md');
-  const researchQuestions = path.join(taskDir, 'research-questions.md');
-  const research = path.join(taskDir, 'research.md');
-  const designDiscussion = path.join(taskDir, 'design-discussion.md');
-  const structureOutline = path.join(taskDir, 'structure-outline.md');
-  const plan = path.join(taskDir, 'plan.md');
-  const validation = path.join(taskDir, 'validation.md');
-  const self_learn = path.join(taskDir, 'self-learn.md');
-
-  const steps: StepDefinition[] = [
-    {
-      id: PROBLEM_VALIDATION_STEP_ID,
-      skill: 'spok-validate-problem',
-      ...route(PROBLEM_VALIDATION_STEP_ID),
-      argument: ticket,
-      expectedOutput: problemValidation,
-      completionKind: 'file',
-    },
-    {
-      id: 'research-questions',
-      skill: 'spok-create-research-questions',
-      ...route('research-questions'),
-      argument: ticket,
-      expectedOutput: researchQuestions,
-      completionKind: 'file',
-    },
-    {
-      id: 'research',
-      skill: 'spok-create-research',
-      ...route('research'),
-      argument: researchQuestions,
-      expectedOutput: research,
-      completionKind: 'file',
-    },
-    {
-      id: 'design-discussion',
-      skill: 'spok-create-design-discussion',
-      ...route('design-discussion'),
-      argument: taskDir,
-      expectedOutput: designDiscussion,
-      completionKind: 'file',
-    },
-    {
-      id: 'structure-outline',
-      skill: 'spok-create-structure-outline',
-      ...route('structure-outline'),
-      argument: taskDir,
-      expectedOutput: structureOutline,
-      completionKind: 'file',
-    },
-    {
-      id: 'plan',
-      skill: 'spok-create-plan',
-      ...route('plan'),
-      argument: taskDir,
-      expectedOutput: plan,
-      completionKind: 'file',
-    },
-    {
-      id: 'implement',
-      skill: 'spok-implement-plan',
-      ...route('implement'),
-      argument: taskDir,
-      completionKind: 'summary',
-    },
-    {
-      id: 'simplify',
-      skill: 'spok-simplify',
-      ...route('simplify'),
-      argument: taskDir,
-      completionKind: 'summary',
-    },
-    {
-      id: 'validate',
-      skill: 'spok-validate-implementation',
-      ...route('validate'),
-      argument: taskDir,
-      expectedOutput: validation,
-      completionKind: 'file',
-    },
-    {
-      id: 'commit',
-      skill: 'spok-ci-commit',
-      ...route('commit'),
-      argument: taskDir,
-      completionKind: 'commit',
-    },
-  ];
-
-  if (isSelfLearnEnabled(taskDir)) {
-    steps.push({
-      id: SELF_LEARN_STEP_ID,
-      skill: 'spok-self-learn',
-      ...route(SELF_LEARN_STEP_ID),
-      argument: taskDir,
-      expectedOutput: self_learn,
-      completionKind: 'file',
-    });
-  }
-
-  return steps;
+  const specs = isSelfLearnEnabled(taskDir)
+    ? [...BASE_STEP_DEFINITION_SPECS, SELF_LEARN_STEP_DEFINITION_SPEC]
+    : BASE_STEP_DEFINITION_SPECS;
+  return specs.map((spec) => buildStepDefinition(spec, paths, tool));
 }
 
 function stepFromDefinition(

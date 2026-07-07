@@ -123,7 +123,7 @@ Feature: Tool skill artifacts
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: validate-problem"
     And the Spok CLI output contains "Model: gpt-5.5"
-    And the Spok CLI output contains "Effort: xhigh"
+    And the Spok CLI output contains "Effort: high"
 
   Scenario: Global skills install writes to home-scoped tool directories
     Given a new project
