@@ -85,7 +85,8 @@ jobs:
           bun-version: latest
 
       - name: Print environment diagnostics
-        run: bun -e "console.log(JSON.stringify({ platform: process.platform, arch: process.arch, bun: Bun.version }))"
+        run: |
+          bun -e "console.log(JSON.stringify({ platform: process.platform, arch: process.arch, bun: Bun.version }))"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

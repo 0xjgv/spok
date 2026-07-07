@@ -17,21 +17,30 @@ jobs:
   prepare:
     if: github.repository == '0xjgv/spok'
     runs-on: ubuntu-latest
+    env:
+      RELEASE_APP_ID: ${{ vars.APP_ID }}
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
     steps:
       # Generate GitHub App token first - used for checkout and changesets
       # This allows git operations to trigger CI workflows on the version PR
       # (GITHUB_TOKEN cannot trigger workflows by design)
       - name: Generate GitHub App Token
         id: app-token
+        if: env.RELEASE_APP_ID != '' && env.RELEASE_APP_PRIVATE_KEY != ''
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ vars.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          app-id: ${{ env.RELEASE_APP_ID }}
+          private-key: ${{ env.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Warn when GitHub App credentials are missing
+        if: env.RELEASE_APP_ID == '' || env.RELEASE_APP_PRIVATE_KEY == ''
+        run: |
+          echo "::warning::APP_ID or APP_PRIVATE_KEY is not configured; using GITHUB_TOKEN fallback for release preparation."
 
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -57,5 +66,5 @@ jobs:
           # so package.json already contains the bumped version.
           publish: bun run release:ci
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           # npm authentication handled via OIDC trusted publishing (no token needed)

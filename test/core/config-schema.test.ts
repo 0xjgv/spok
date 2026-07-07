@@ -7,6 +7,7 @@ import {
   coerceValue,
   formatValueYaml,
   validateConfig,
+  validateConfigKeyPath,
   GlobalConfigSchema,
   DEFAULT_CONFIG,
 } from '../../src/core/config-schema.js';
@@ -51,6 +52,34 @@ describe('config-schema', () => {
     it('should handle array values', () => {
       const obj = { arr: [1, 2, 3] };
       expect(getNestedValue(obj, 'arr')).toEqual([1, 2, 3]);
+    });
+  });
+
+  describe('validateConfigKeyPath', () => {
+    it('accepts known top-level keys and feature flag entries', () => {
+      expect(validateConfigKeyPath('profile')).toEqual({ valid: true });
+      expect(validateConfigKeyPath('delivery')).toEqual({ valid: true });
+      expect(validateConfigKeyPath('workflows')).toEqual({ valid: true });
+      expect(validateConfigKeyPath('featureFlags.someFlag')).toEqual({ valid: true });
+    });
+
+    it('rejects empty, unknown, and unsupported nested key paths', () => {
+      expect(validateConfigKeyPath('')).toEqual({
+        valid: false,
+        reason: 'Key path must not be empty',
+      });
+      expect(validateConfigKeyPath('featureFlags.flag.extra')).toEqual({
+        valid: false,
+        reason: 'featureFlags values are booleans and do not support nested keys',
+      });
+      expect(validateConfigKeyPath('profile.name')).toEqual({
+        valid: false,
+        reason: '"profile" does not support nested keys',
+      });
+      expect(validateConfigKeyPath('unknown')).toEqual({
+        valid: false,
+        reason: 'Unknown top-level key "unknown"',
+      });
     });
   });
 

@@ -570,6 +570,35 @@ context: |
         expect(result.diagnostics).toEqual([]);
       });
 
+      it('should parse TOML string arrays with commas, comments, and escapes', () => {
+        const configDir = path.join(tempDir, 'spok');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, 'config.toml'),
+          `schema = "spec-driven"
+
+[rules]
+proposal = ["Use commas, inside quotes", 'Keep # hash literal', "Escaped \\"quote\\"",]
+specs = [
+  "Line one", # comment after item
+  "Line, two",
+  'single, comma',
+]
+`
+        );
+
+        const result = readProjectConfigWithDiagnostics(tempDir);
+
+        expect(result.config).toEqual({
+          schema: 'spec-driven',
+          rules: {
+            proposal: ['Use commas, inside quotes', 'Keep # hash literal', 'Escaped "quote"'],
+            specs: ['Line one', 'Line, two', 'single, comma'],
+          },
+        });
+        expect(result.diagnostics).toEqual([]);
+      });
+
       it('should prefer .yaml when both exist', () => {
         const configDir = path.join(tempDir, 'spok');
         fs.mkdirSync(configDir, { recursive: true });

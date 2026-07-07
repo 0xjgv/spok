@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
-import { UpdateCommand } from '../../src/core/update.js';
+import { scanInstalledWorkflows, UpdateCommand } from '../../src/core/update.js';
 
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
@@ -79,5 +79,24 @@ describe('UpdateCommand', () => {
     await expect(pathExists(path.join(testDir, '.claude', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
     expect(vi.mocked(console.log)).toHaveBeenCalledWith('  /spok-explore  Think through an idea');
     expect(vi.mocked(console.log)).toHaveBeenCalledWith('  /spok-propose  Start a new change');
+  });
+
+  it('scans installed workflow skills and managed commands in workflow order', async () => {
+    await fs.mkdir(path.join(testDir, '.claude', 'skills', 'spok-apply'), { recursive: true });
+    await fs.writeFile(path.join(testDir, '.claude', 'skills', 'spok-apply', 'SKILL.md'), 'skill');
+    await fs.mkdir(path.join(testDir, '.agents', 'skills', 'spok-archive'), { recursive: true });
+    await fs.writeFile(path.join(testDir, '.agents', 'skills', 'spok-archive', 'SKILL.md'), 'skill');
+    await fs.mkdir(path.join(testDir, '.claude', 'commands'), { recursive: true });
+    await fs.writeFile(path.join(testDir, '.claude', 'commands', 'spok-propose.md'), 'command');
+
+    expect(scanInstalledWorkflows(testDir, ['missing-tool', 'claude', 'codex', 'agents'])).toEqual([
+      'propose',
+      'apply',
+      'archive',
+    ]);
+  });
+
+  it('returns no installed workflows when selected tools have no artifacts', () => {
+    expect(scanInstalledWorkflows(testDir, ['missing-tool', 'agents'])).toEqual([]);
   });
 });

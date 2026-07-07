@@ -590,5 +590,73 @@ The system MUST support mixed case delta headers.
       expect(report.summary.warnings).toBe(0);
       expect(report.summary.info).toBe(0);
     });
+
+    it('should report cross-section conflicts in delta specs', async () => {
+      const changeDir = path.join(testDir, 'test-change-conflicts');
+      const specsDir = path.join(changeDir, 'specs', 'test-spec');
+      await fs.mkdir(specsDir, { recursive: true });
+
+      const deltaSpec = `# Test Spec
+
+## RENAMED Requirements
+FROM: ### Requirement: Old Name
+TO: ### Requirement: New Name
+
+## MODIFIED Requirements
+
+### Requirement: Shared Name
+The system SHALL update the shared behavior.
+
+#### Scenario: Shared update
+**Given** shared behavior
+**When** validation runs
+**Then** a conflict is reported
+
+### Requirement: Old Name
+The system SHALL update the renamed old behavior.
+
+#### Scenario: Old name update
+**Given** renamed behavior
+**When** validation runs
+**Then** a conflict is reported
+
+## ADDED Requirements
+
+### Requirement: Shared Name
+The system SHALL add shared behavior.
+
+#### Scenario: Shared add
+**Given** shared behavior
+**When** validation runs
+**Then** a conflict is reported
+
+### Requirement: New Name
+The system SHALL add the renamed target.
+
+#### Scenario: New name add
+**Given** renamed behavior
+**When** validation runs
+**Then** a conflict is reported
+
+## REMOVED Requirements
+### Requirement: Shared Name
+`;
+      const specPath = path.join(specsDir, 'spec.md');
+      await fs.writeFile(specPath, deltaSpec);
+
+      const report = await new Validator(true).validateChangeDeltaSpecs(changeDir);
+      const messages = report.issues.map((issue) => issue.message);
+
+      expect(report.valid).toBe(false);
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          'Requirement present in both MODIFIED and REMOVED: "Shared Name"',
+          'Requirement present in both MODIFIED and ADDED: "Shared Name"',
+          'Requirement present in both ADDED and REMOVED: "Shared Name"',
+          'MODIFIED references old name from RENAMED. Use new header for "New Name"',
+          'RENAMED TO collides with ADDED for "New Name"',
+        ])
+      );
+    });
   });
 });
