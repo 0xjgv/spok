@@ -4,10 +4,8 @@
  */
 
 import chalk from 'chalk';
+import { stripVTControlCharacters } from 'node:util';
 import { WELCOME_ANIMATION } from './ascii-patterns.js';
-
-// Minimum terminal width for side-by-side layout
-const MIN_WIDTH = 60;
 
 // Width of the ASCII art column (with padding)
 const ART_COLUMN_WIDTH = 24;
@@ -61,16 +59,21 @@ function renderFrame(artLines: string[], textLines: string[]): string {
 /**
  * Checks if the terminal supports animation
  */
-function canAnimate(): boolean {
+function canAnimate(renderedFrame: string): boolean {
   // Must be TTY
   if (!process.stdout.isTTY) return false;
 
   // Respect NO_COLOR
   if (process.env.NO_COLOR) return false;
 
-  // Check terminal width
+  // Reserve the final terminal column to avoid automatic line wrapping
   const columns = process.stdout.columns || 80;
-  if (columns < MIN_WIDTH) return false;
+  const frameWidth = Math.max(
+    ...stripVTControlCharacters(renderedFrame)
+      .split('\n')
+      .map((line) => line.length)
+  );
+  if (columns <= frameWidth) return false;
 
   return true;
 }
@@ -121,11 +124,11 @@ function waitForEnter(): Promise<void> {
  */
 export async function showWelcomeScreen(): Promise<void> {
   const textLines = getWelcomeText();
+  const staticFrame = renderFrame(WELCOME_ANIMATION.frames[3], textLines);
 
-  if (!canAnimate()) {
+  if (!canAnimate(staticFrame)) {
     // Fallback: show static welcome
-    const frame = WELCOME_ANIMATION.frames[3]; // Peak frame
-    process.stdout.write('\n' + renderFrame(frame, textLines) + '\n\n');
+    process.stdout.write('\n' + staticFrame + '\n\n');
     return;
   }
 
