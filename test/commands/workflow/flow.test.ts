@@ -29,11 +29,11 @@ interface FlowHarness {
 const EXPECTED_STEP_ROUTING = [
   { id: 'validate-problem', model: 'opus', effort: 'xhigh' },
   { id: 'research-questions', model: 'opus', effort: 'xhigh' },
-  { id: 'research', model: 'sonnet', effort: undefined },
+  { id: 'research', model: 'sonnet', effort: 'xhigh' },
   { id: 'design-discussion', model: 'fable', effort: 'xhigh' },
   { id: 'structure-outline', model: 'fable', effort: 'xhigh' },
   { id: 'plan', model: 'fable', effort: 'xhigh' },
-  { id: 'implement', model: 'sonnet', effort: undefined },
+  { id: 'implement', model: 'sonnet', effort: 'xhigh' },
   { id: 'simplify', model: 'opus', effort: 'xhigh' },
   { id: 'validate', model: 'opus', effort: 'xhigh' },
   { id: 'commit', model: 'haiku', effort: undefined },
@@ -41,7 +41,7 @@ const EXPECTED_STEP_ROUTING = [
 
 const EXPECTED_SELF_LEARN_STEP_ROUTING = [
   ...EXPECTED_STEP_ROUTING,
-  { id: 'self-learn', model: 'sonnet', effort: undefined },
+  { id: 'self-learn', model: 'sonnet', effort: 'xhigh' },
 ];
 
 function expectStepRouting(steps: Array<{ id: string; model?: string; effort?: string }>) {
@@ -188,22 +188,22 @@ describe('deterministic workflow step state', () => {
     expect(events.at(-1)?.timestamp).toEqual(expect.any(String));
   });
 
-  it('routes every step to gpt-5.5 with codex efforts when CODEX_HOME is set', async () => {
+  it('routes every step to GPT-5.6 models with Codex efforts when CODEX_HOME is set', async () => {
     process.env.CODEX_HOME = path.join(os.tmpdir(), `codex-${randomUUID()}`);
 
     const result = await getFlowNext(flow.taskDir);
 
     expect(result.steps.map(({ id, model, effort }) => ({ id, model, effort }))).toEqual([
-      { id: 'validate-problem', model: 'gpt-5.5', effort: 'high' },
-      { id: 'research-questions', model: 'gpt-5.5', effort: 'high' },
-      { id: 'research', model: 'gpt-5.5', effort: 'medium' },
-      { id: 'design-discussion', model: 'gpt-5.5', effort: 'xhigh' },
-      { id: 'structure-outline', model: 'gpt-5.5', effort: 'xhigh' },
-      { id: 'plan', model: 'gpt-5.5', effort: 'xhigh' },
-      { id: 'implement', model: 'gpt-5.5', effort: 'medium' },
-      { id: 'simplify', model: 'gpt-5.5', effort: 'high' },
-      { id: 'validate', model: 'gpt-5.5', effort: 'high' },
-      { id: 'commit', model: 'gpt-5.5', effort: 'low' },
+      { id: 'validate-problem', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'research-questions', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'research', model: 'gpt-5.6-terra', effort: 'xhigh' },
+      { id: 'design-discussion', model: 'gpt-5.6-sol', effort: 'max' },
+      { id: 'structure-outline', model: 'gpt-5.6-sol', effort: 'max' },
+      { id: 'plan', model: 'gpt-5.6-sol', effort: 'max' },
+      { id: 'implement', model: 'gpt-5.6-terra', effort: 'xhigh' },
+      { id: 'simplify', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'validate', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'commit', model: 'gpt-5.6-terra', effort: 'low' },
     ]);
   });
 
