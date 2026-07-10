@@ -5,7 +5,7 @@ import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 export const FLOW_EVENT_LOG_FILE = 'flow-events.jsonl';
 
-export type FlowModel = 'haiku' | 'sonnet' | 'opus' | 'gpt-5.5' | 'fable';
+export type FlowModel = 'haiku' | 'sonnet' | 'opus' | 'gpt-5.6-terra' | 'gpt-5.6-sol' | 'fable';
 export type FlowEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type FlowCompletionKind = 'file' | 'summary' | 'commit';
 export type FlowStepStatus = 'pending' | 'ready' | 'completed';
@@ -40,14 +40,14 @@ const ROUTING_MATRIX: Record<FlowTool, Record<FlowTier, Routing>> = {
   claude: {
     max: { model: 'fable', effort: 'xhigh' },
     heavy: { model: 'opus', effort: 'xhigh' },
-    mid: { model: 'sonnet' },
+    mid: { model: 'sonnet', effort: 'xhigh' },
     cheap: { model: 'haiku' },
   },
   codex: {
-    max: { model: 'gpt-5.5', effort: 'xhigh' },
-    heavy: { model: 'gpt-5.5', effort: 'high' },
-    mid: { model: 'gpt-5.5', effort: 'medium' },
-    cheap: { model: 'gpt-5.5', effort: 'low' },
+    max: { model: 'gpt-5.6-sol', effort: 'max' },
+    heavy: { model: 'gpt-5.6-sol', effort: 'xhigh' },
+    mid: { model: 'gpt-5.6-terra', effort: 'xhigh' },
+    cheap: { model: 'gpt-5.6-terra', effort: 'low' },
   },
 };
 
