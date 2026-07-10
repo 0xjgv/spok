@@ -1,9 +1,6 @@
 ---
 version: 0.1.0
 ---
-
-# Spok
-
 <p align="center">
   <a href="https://github.com/0xjgv/spok">
     <picture>
