@@ -37,11 +37,20 @@ That's the whole surface. Explore is a thinking-only mode for investigating idea
 
 **Requires [Bun](https://bun.sh) 1.3.0 or higher.**
 
-Install Spok globally:
+The npm package has not been published. Install Spok from source:
 
 ```bash
-bun add -g spok@latest
+mkdir -p "$HOME/.local/share"
+git clone https://github.com/0xjgv/spok.git "$HOME/.local/share/spok"
+cd "$HOME/.local/share/spok"
+bun install
+bun run build
+mkdir -p "$HOME/.bun/bin"
+ln -sf "$PWD/bin/spok.js" "$HOME/.bun/bin/spok"
+spok version
 ```
+
+Keep the source checkout at `$HOME/.local/share/spok`; the global `spok` command links to it.
 
 Then initialize Spok inside your project:
 
@@ -62,8 +71,6 @@ Use `/spok-explore <topic>` first when you want to think through an idea before 
 
 > [!NOTE]
 > Not sure if your tool is supported? [View the full list](docs/supported-tools.md). Spok supports 25+ tools and growing.
->
-> [See installation options](docs/installation.md).
 
 ## See It In Action
 
@@ -156,10 +163,13 @@ AI coding assistants are powerful, but they get unpredictable when requirements 
 
 ## Updating Spok
 
-Upgrade the package:
+Pull and rebuild the source checkout:
 
 ```bash
-bun add -g spok@latest
+cd "$HOME/.local/share/spok"
+git pull --ff-only
+bun install
+bun run build
 ```
 
 Refresh agent instructions:
