@@ -128,7 +128,7 @@ export function getArchiveSkillTemplate(): SkillTemplate {
   };
 }
 
-export function getOpsxArchiveCommandTemplate(): CommandTemplate {
+export function getArchiveCommandTemplate(): CommandTemplate {
   return {
     name: 'Spok: Archive',
     description: 'Archive a completed change, applying any delta specs first',

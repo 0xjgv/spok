@@ -1,12 +1,6 @@
 ---
-version: 0.1.0
+"spok": major
 ---
-
-# Spok Changelog
-
-This changelog starts with the current Spok release line. Earlier inherited release history is intentionally omitted.
-
-## Unreleased
 
 ### Breaking Changes
 

@@ -270,15 +270,6 @@ ${SPOK_MARKERS.end}`);
       expect(result.directories).toContain('.claude/commands/spok');
     });
 
-    it('should detect retired commands/opsx directory', async () => {
-      const dirPath = path.join(testDir, '.claude', 'commands', 'opsx');
-      await fs.mkdir(dirPath, { recursive: true });
-      await fs.writeFile(path.join(dirPath, 'propose.md'), 'content');
-
-      const result = await detectLegacySlashCommands(testDir);
-      expect(result.directories).toContain('.claude/commands/opsx');
-    });
-
     it('should detect legacy Cursor slash command files', async () => {
       const dirPath = path.join(testDir, '.cursor', 'commands');
       await fs.mkdir(dirPath, { recursive: true });
@@ -347,15 +338,6 @@ ${SPOK_MARKERS.end}`);
       expect(result.files).toContain('.continue/prompts/spok-apply.prompt');
     });
 
-    it('should detect legacy OpenCode opsx-* command files', async () => {
-      const dirPath = path.join(testDir, '.opencode', 'command');
-      await fs.mkdir(dirPath, { recursive: true });
-      await fs.writeFile(path.join(dirPath, 'opsx-propose.md'), 'content');
-
-      const result = await detectLegacySlashCommands(testDir);
-      expect(result.files).toContain('.opencode/command/opsx-propose.md');
-    });
-
     it('should detect legacy OpenCode spok-* command files', async () => {
       const dirPath = path.join(testDir, '.opencode', 'command');
       await fs.mkdir(dirPath, { recursive: true });
@@ -365,16 +347,6 @@ ${SPOK_MARKERS.end}`);
       expect(result.files).toContain('.opencode/command/spok-new.md');
     });
 
-    it('should detect both opsx-* and spok-* OpenCode command files', async () => {
-      const dirPath = path.join(testDir, '.opencode', 'command');
-      await fs.mkdir(dirPath, { recursive: true });
-      await fs.writeFile(path.join(dirPath, 'opsx-propose.md'), 'content');
-      await fs.writeFile(path.join(dirPath, 'spok-new.md'), 'content');
-
-      const result = await detectLegacySlashCommands(testDir);
-      expect(result.files).toContain('.opencode/command/opsx-propose.md');
-      expect(result.files).toContain('.opencode/command/spok-new.md');
-    });
   });
 
   describe('detectLegacyStructureFiles', () => {
@@ -928,18 +900,18 @@ ${SPOK_MARKERS.end}`);
     it('should include expected tool patterns', () => {
       expect(LEGACY_SLASH_COMMAND_PATHS['claude']).toEqual({
         type: 'directory',
-        path: ['.claude/commands/spok', '.claude/commands/opsx'],
-        pattern: ['.claude/commands/spok-*.md', '.claude/commands/opsx-*.md'],
+        path: '.claude/commands/spok',
+        pattern: '.claude/commands/spok-*.md',
       });
 
       expect(LEGACY_SLASH_COMMAND_PATHS['cursor']).toEqual({
         type: 'files',
-        pattern: ['.cursor/commands/spok-*.md', '.cursor/commands/opsx-*.md'],
+        pattern: '.cursor/commands/spok-*.md',
       });
 
       expect(LEGACY_SLASH_COMMAND_PATHS['windsurf']).toEqual({
         type: 'files',
-        pattern: ['.windsurf/workflows/spok-*.md', '.windsurf/workflows/opsx-*.md'],
+        pattern: '.windsurf/workflows/spok-*.md',
       });
     });
 
@@ -951,7 +923,7 @@ ${SPOK_MARKERS.end}`);
         expect(registeredTools.has(tool)).toBe(true);
       }
 
-      // Bob was added for retired opsx-* flat command cleanup
+      // Bob uses flat command cleanup.
       expect(LEGACY_SLASH_COMMAND_PATHS).toHaveProperty('bob');
     });
   });
@@ -1099,23 +1071,6 @@ ${SPOK_MARKERS.end}`);
       expect(tools).toHaveLength(1);
     });
 
-    it('should handle opencode opsx-* legacy files', () => {
-      const detection = {
-        configFiles: [],
-        configFilesToUpdate: [],
-        slashCommandDirs: [],
-        slashCommandFiles: ['.opencode/command/opsx-propose.md'],
-        hasOpenspecAgents: false,
-        hasProjectMd: false,
-        hasRootAgentsWithMarkers: false,
-        hasLegacyArtifacts: true,
-      };
-
-      const tools = getToolsFromLegacyArtifacts(detection);
-      expect(tools).toContain('opencode');
-      expect(tools).toHaveLength(1);
-    });
-
     it('should handle opencode spok-* legacy files', () => {
       const detection = {
         configFiles: [],
@@ -1133,13 +1088,13 @@ ${SPOK_MARKERS.end}`);
       expect(tools).toHaveLength(1);
     });
 
-    it('should deduplicate opencode when both opsx-* and spok-* files exist', () => {
+    it('should deduplicate opencode when multiple command files exist', () => {
       const detection = {
         configFiles: [],
         configFilesToUpdate: [],
         slashCommandDirs: [],
         slashCommandFiles: [
-          '.opencode/command/opsx-propose.md',
+          '.opencode/command/spok-propose.md',
           '.opencode/command/spok-new.md',
         ],
         hasOpenspecAgents: false,

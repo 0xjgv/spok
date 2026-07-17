@@ -21,27 +21,25 @@ The user-facing workflow now has four slash commands. Exploration is optional; s
 
 `/spok-explore` investigates ideas without implementing. `/spok-propose` writes `proposal.md`, `specs/`, `design.md`, and a chunked `tasks.md`. `/spok-apply` ships one unchecked chunk end-to-end through a vendored research → design → plan → implement → review → commit flow, then ticks the box. `/spok-archive` applies your delta specs and moves the change to `spok/changes/archive/`.
 
-There is no `/opsx:*` namespace anymore. There is no profile system. There is no separate sync step.
+Only the `/spok-*` slash-command namespace is supported. There is no profile system. There is no separate sync step.
 
 ## What disappeared
 
 ### Slash commands and skills
 
-Everything in the `/opsx:*` namespace was removed. The workflow skills below also no longer exist.
+The earlier slash-command workflows were removed or folded into the current surface.
 
-| Removed | Replacement |
-|---------|-------------|
-| `/opsx:propose` | `/spok-propose` |
-| `/opsx:apply` | `/spok-apply` |
-| `/opsx:archive` | `/spok-archive` |
-| `/opsx:sync` | Folded into `/spok-archive` (sync is unconditional) |
-| `/opsx:explore` | `/spok-explore` |
-| `/opsx:new` | Internal, now `spok new change` (called by `/spok-propose`) |
-| `/opsx:continue` | No replacement — the chunked `tasks.md` from `/spok-propose` replaces incremental artifact creation |
-| `/opsx:ff` | Folded into `/spok-propose` |
-| `/opsx:verify` | No replacement — the `spok-flow` skill includes a review step per chunk |
-| `/opsx:bulk-archive` | Run `/spok-archive` per change |
-| `/opsx:onboard` | No replacement |
+| Current surface | Migration note |
+|-----------------|----------------|
+| `/spok-propose` | Replaces the proposal entry point and fast-forward planning |
+| `/spok-apply` | Replaces task application |
+| `/spok-archive` | Replaces archive and sync; sync is unconditional |
+| `/spok-explore` | Replaces the exploratory workflow |
+| `spok new change` | Internal; called by `/spok-propose` |
+| Incremental artifact creation | No replacement — the chunked `tasks.md` from `/spok-propose` replaces it |
+| Standalone verification | No replacement — the `spok-flow` skill includes a review step per chunk |
+| Bulk archive | Run `/spok-archive` per change |
+| Guided onboarding | No replacement |
 
 Retired skill directories that `spok init`/`spok update` will clean up:
 
@@ -124,9 +122,9 @@ Already-completed work doesn't need to be re-shipped — once a chunk's checkbox
 
 ## Archive: sync is unconditional
 
-In 0.x, `/opsx:archive` asked whether you wanted to sync delta specs before archiving.
+In 0.x, the archive workflow asked whether you wanted to sync delta specs before archiving.
 
-In 1.0, `/spok-archive` syncs unconditionally. There is no separate `/opsx:sync` command and no prompt. If a change has delta specs, they are applied to the main specs as part of archiving.
+In 1.0, `/spok-archive` syncs unconditionally. There is no separate sync command and no prompt. If a change has delta specs, they are applied to the main specs as part of archiving.
 
 If you've been syncing manually, just stop. Run `/spok-archive` when the change is done and let it handle the merge.
 
@@ -186,7 +184,7 @@ See [Customization](customization.md) for details.
 
 ## Common pitfalls
 
-### "Command not found: /opsx:propose"
+### Legacy workflow command not found
 
 You're on the new version but your AI tool is still showing legacy commands. Run `spok update`, then restart your AI tool so it re-scans skills.
 

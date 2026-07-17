@@ -25,14 +25,14 @@ describe('workflow surface docs', () => {
     expect(commands).toContain('self-discovery escape hatch');
   });
 
-  it('maps old explore to current explore without retiring the current skill', async () => {
+  it('documents current explore without retiring the skill', async () => {
     const migrationGuide = await readDoc('docs/migration-guide.md');
     const retiredSkills = migrationGuide.slice(
       migrationGuide.indexOf('Retired skill directories'),
       migrationGuide.indexOf('### CLI subcommands')
     );
 
-    expect(migrationGuide).toContain('| `/opsx:explore` | `/spok-explore` |');
+    expect(migrationGuide).toContain('| `/spok-explore` | Replaces the exploratory workflow |');
     expect(retiredSkills).not.toContain('spok-explore');
   });
 });

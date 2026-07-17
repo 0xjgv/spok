@@ -24,6 +24,12 @@ Feature: Tool skill artifacts
     And Spok creates the workflow skill "spok-explore" under ".agents/skills"
     And Spok does not create command or prompt files for the selected tools
 
+  Scenario: Update removes retired Spok command artifacts
+    Given a new project
+    And retired Spok command artifacts exist
+    When I update Spok with force
+    Then Spok removes the retired command artifacts
+
   Scenario: Setup guidance presents explore before proposing a change
     Given a new project
     When I initialize Spok for the tools "claude"

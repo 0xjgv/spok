@@ -111,7 +111,7 @@ After the chunking skill finishes, summarize:
 - If a change with that name already exists, ask whether to continue it or create a new one.
 - Verify each artifact file exists after writing before proceeding to the next.`;
 
-export function getOpsxProposeSkillTemplate(): SkillTemplate {
+export function getProposeSkillTemplate(): SkillTemplate {
   return {
     name: 'spok-propose',
     description: 'Propose a new change: scaffold proposal/specs/design via the Spok CLI artifact graph, then invoke spok-create-scoped-chunks to slice the work into independently shippable chunks and write tasks.md.',
@@ -122,7 +122,7 @@ export function getOpsxProposeSkillTemplate(): SkillTemplate {
   };
 }
 
-export function getOpsxProposeCommandTemplate(): CommandTemplate {
+export function getProposeCommandTemplate(): CommandTemplate {
   return {
     name: 'Spok: Propose',
     description: 'Propose a new change and produce a chunked tasks.md',

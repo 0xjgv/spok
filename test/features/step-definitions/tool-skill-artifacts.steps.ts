@@ -17,6 +17,7 @@ interface SkillArtifactWorld {
   setupGuidance?: string;
   flowTaskDir?: string;
   cliResult?: RunCLIResult;
+  retiredCommandArtifacts?: string[];
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -165,6 +166,21 @@ Given(
   }
 );
 
+Given('retired Spok command artifacts exist', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  await fs.mkdir(path.join(this.projectDir, 'spok'), { recursive: true });
+  this.retiredCommandArtifacts = [
+    path.join('.claude', 'commands', 'spok', 'propose.md'),
+    path.join('.claude', 'commands', 'spok-propose.md'),
+  ];
+
+  for (const relativePath of this.retiredCommandArtifacts) {
+    const artifactPath = path.join(this.projectDir, relativePath);
+    await fs.mkdir(path.dirname(artifactPath), { recursive: true });
+    await fs.writeFile(artifactPath, 'retired command\n', 'utf-8');
+  }
+});
+
 When('I initialize Spok for the tools {string}', async function (this: SkillArtifactWorld, tools: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   this.setupGuidance = await captureConsoleLog(async () => {
@@ -277,6 +293,15 @@ Then('Spok does not create {string}', async function (this: SkillArtifactWorld, 
 Then('Spok creates file {string}', async function (this: SkillArtifactWorld, relativePath: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.equal(await pathExists(path.join(this.projectDir, relativePath)), true);
+});
+
+Then('Spok removes the retired command artifacts', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.retiredCommandArtifacts, 'retired command artifacts must be created first');
+
+  for (const relativePath of this.retiredCommandArtifacts) {
+    assert.equal(await pathExists(path.join(this.projectDir, relativePath)), false);
+  }
 });
 
 Then('Spok does not create command or prompt files for the selected tools', async function (this: SkillArtifactWorld) {

@@ -62,7 +62,6 @@ User-facing documentation SHALL list `spok-explore` as the pre-proposal explorat
 - **WHEN** the command reference is read
 - **THEN** it lists `/spok-explore` with the other user-facing Spok workflow invocations
 
-#### Scenario: Migration docs map old explore to current explore
+#### Scenario: Migration docs describe current explore
 - **WHEN** the migration guide is read
-- **THEN** it maps the prior `/opsx:explore` workflow to `/spok-explore`
-
+- **THEN** it lists `/spok-explore` as the current pre-proposal exploration workflow

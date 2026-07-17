@@ -96,7 +96,6 @@ describe('skill-generation', () => {
       expect(content).toContain('spok list --json');
       expect(content).toContain('spok status --change "<name>" --json');
       expect(content).toContain('Do not auto-capture');
-      expect(content).not.toContain('/opsx:explore');
     });
 
     it('should include CLI self-discovery guidance in generated workflow skills', () => {
@@ -289,28 +288,28 @@ describe('skill-generation', () => {
       const template = {
         name: 'transform-test',
         description: 'Test transform callback',
-        instructions: 'Use /opsx:propose to start and /opsx:apply to implement.',
+        instructions: 'Use /legacy:propose to start and /legacy:apply to implement.',
       };
 
-      const transformer = (text: string) => text.replace(/\/opsx:/g, '/opsx-');
+      const transformer = (text: string) => text.replace(/\/legacy:/g, '/legacy-');
       const content = generateSkillContent(template, '0.23.0', transformer);
 
-      expect(content).toContain('/opsx-propose');
-      expect(content).toContain('/opsx-apply');
-      expect(content).not.toContain('/opsx:propose');
-      expect(content).not.toContain('/opsx:apply');
+      expect(content).toContain('/legacy-propose');
+      expect(content).toContain('/legacy-apply');
+      expect(content).not.toContain('/legacy:propose');
+      expect(content).not.toContain('/legacy:apply');
     });
 
     it('should not transform instructions when callback is undefined', () => {
       const template = {
         name: 'no-transform-test',
         description: 'Test without transform',
-        instructions: 'Use /opsx:propose to start.',
+        instructions: 'Use /legacy:propose to start.',
       };
 
       const content = generateSkillContent(template, '0.23.0', undefined);
 
-      expect(content).toContain('/opsx:propose');
+      expect(content).toContain('/legacy:propose');
     });
 
     it('should support custom transformInstructions logic', () => {

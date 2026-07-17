@@ -8,11 +8,11 @@ import {
   getApplySkillTemplate,
   getArchiveSkillTemplate,
   getExploreSkillTemplate,
-  getOpsxProposeSkillTemplate,
-  getOpsxApplyCommandTemplate,
-  getOpsxArchiveCommandTemplate,
+  getProposeSkillTemplate,
+  getApplyCommandTemplate,
+  getArchiveCommandTemplate,
   getExploreCommandTemplate,
-  getOpsxProposeCommandTemplate,
+  getProposeCommandTemplate,
   type SkillTemplate,
 } from '../templates/skill-templates.js';
 import type { CommandContent } from '../command-generation/index.js';
@@ -30,7 +30,7 @@ export interface SkillTemplateEntry {
  * Command template with ID mapping.
  */
 export interface CommandTemplateEntry {
-  template: ReturnType<typeof getOpsxApplyCommandTemplate>;
+  template: ReturnType<typeof getApplyCommandTemplate>;
   id: string;
 }
 
@@ -52,7 +52,7 @@ function formatYamlScalar(value: string): string {
 export function getSkillTemplates(workflowFilter?: readonly string[]): SkillTemplateEntry[] {
   const all: SkillTemplateEntry[] = [
     { template: getExploreSkillTemplate(), dirName: 'spok-explore', workflowId: 'explore' },
-    { template: getOpsxProposeSkillTemplate(), dirName: 'spok-propose', workflowId: 'propose' },
+    { template: getProposeSkillTemplate(), dirName: 'spok-propose', workflowId: 'propose' },
     { template: getApplySkillTemplate(), dirName: 'spok-apply', workflowId: 'apply' },
     { template: getArchiveSkillTemplate(), dirName: 'spok-archive', workflowId: 'archive' },
   ];
@@ -71,9 +71,9 @@ export function getSkillTemplates(workflowFilter?: readonly string[]): SkillTemp
 export function getCommandTemplates(workflowFilter?: readonly string[]): CommandTemplateEntry[] {
   const all: CommandTemplateEntry[] = [
     { template: getExploreCommandTemplate(), id: 'explore' },
-    { template: getOpsxProposeCommandTemplate(), id: 'propose' },
-    { template: getOpsxApplyCommandTemplate(), id: 'apply' },
-    { template: getOpsxArchiveCommandTemplate(), id: 'archive' },
+    { template: getProposeCommandTemplate(), id: 'propose' },
+    { template: getApplyCommandTemplate(), id: 'apply' },
+    { template: getArchiveCommandTemplate(), id: 'archive' },
   ];
 
   if (!workflowFilter) return all;

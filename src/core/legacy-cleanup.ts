@@ -30,59 +30,59 @@ export const LEGACY_CONFIG_FILES = [
  * Some tools used a directory structure, others used individual files.
  */
 export const LEGACY_SLASH_COMMAND_PATHS: Record<string, LegacySlashCommandPattern> = {
-  // Directory-based: retired spok/ and opsx/ command folders
+  // Directory-based: retired spok/ command folders
   'claude': {
     type: 'directory',
-    path: ['.claude/commands/spok', '.claude/commands/opsx'],
-    pattern: ['.claude/commands/spok-*.md', '.claude/commands/opsx-*.md'],
+    path: '.claude/commands/spok',
+    pattern: '.claude/commands/spok-*.md',
   },
   'codebuddy': {
     type: 'directory',
-    path: ['.codebuddy/commands/spok', '.codebuddy/commands/opsx'],
-    pattern: ['.codebuddy/commands/spok-*.md', '.codebuddy/commands/opsx-*.md'],
+    path: '.codebuddy/commands/spok',
+    pattern: '.codebuddy/commands/spok-*.md',
   },
   'qoder': {
     type: 'directory',
-    path: ['.qoder/commands/spok', '.qoder/commands/opsx'],
-    pattern: ['.qoder/commands/spok-*.md', '.qoder/commands/opsx-*.md'],
+    path: '.qoder/commands/spok',
+    pattern: '.qoder/commands/spok-*.md',
   },
   'lingma': {
     type: 'directory',
-    path: ['.lingma/commands/spok', '.lingma/commands/opsx'],
-    pattern: ['.lingma/commands/spok-*.md', '.lingma/commands/opsx-*.md'],
+    path: '.lingma/commands/spok',
+    pattern: '.lingma/commands/spok-*.md',
   },
   'crush': {
     type: 'directory',
-    path: ['.crush/commands/spok', '.crush/commands/opsx'],
-    pattern: ['.crush/commands/spok-*.md', '.crush/commands/opsx-*.md'],
+    path: '.crush/commands/spok',
+    pattern: '.crush/commands/spok-*.md',
   },
   'gemini': {
     type: 'directory',
-    path: ['.gemini/commands/spok', '.gemini/commands/opsx'],
-    pattern: ['.gemini/commands/spok-*.toml', '.gemini/commands/opsx-*.toml'],
+    path: '.gemini/commands/spok',
+    pattern: '.gemini/commands/spok-*.toml',
   },
   'costrict': { type: 'directory', path: '.cospec/spok/commands' },
 
-  // File-based: retired spok-* and opsx-* slash command files
-  'cursor': { type: 'files', pattern: ['.cursor/commands/spok-*.md', '.cursor/commands/opsx-*.md'] },
-  'windsurf': { type: 'files', pattern: ['.windsurf/workflows/spok-*.md', '.windsurf/workflows/opsx-*.md'] },
-  'kilocode': { type: 'files', pattern: ['.kilocode/workflows/spok-*.md', '.kilocode/workflows/opsx-*.md'] },
-  'kiro': { type: 'files', pattern: ['.kiro/prompts/spok-*.prompt.md', '.kiro/prompts/opsx-*.prompt.md'] },
-  'github-copilot': { type: 'files', pattern: ['.github/prompts/spok-*.prompt.md', '.github/prompts/opsx-*.prompt.md'] },
-  'amazon-q': { type: 'files', pattern: ['.amazonq/prompts/spok-*.md', '.amazonq/prompts/opsx-*.md'] },
-  'cline': { type: 'files', pattern: ['.clinerules/workflows/spok-*.md', '.clinerules/workflows/opsx-*.md'] },
-  'roocode': { type: 'files', pattern: ['.roo/commands/spok-*.md', '.roo/commands/opsx-*.md'] },
-  'auggie': { type: 'files', pattern: ['.augment/commands/spok-*.md', '.augment/commands/opsx-*.md'] },
-  'factory': { type: 'files', pattern: ['.factory/commands/spok-*.md', '.factory/commands/opsx-*.md'] },
-  'opencode': { type: 'files', pattern: ['.opencode/command/opsx-*.md', '.opencode/command/spok-*.md'] },
-  'continue': { type: 'files', pattern: ['.continue/prompts/spok-*.prompt', '.continue/prompts/opsx-*.prompt'] },
-  'antigravity': { type: 'files', pattern: ['.agent/workflows/spok-*.md', '.agent/workflows/opsx-*.md'] },
-  'iflow': { type: 'files', pattern: ['.iflow/commands/spok-*.md', '.iflow/commands/opsx-*.md'] },
-  'junie': { type: 'files', pattern: ['.junie/commands/opsx-*.md', '.junie/commands/spok-*.md'] },
-  'qwen': { type: 'files', pattern: ['.qwen/commands/spok-*.toml', '.qwen/commands/opsx-*.toml'] },
-  'codex': { type: 'files', pattern: ['.codex/prompts/spok-*.md', '.codex/prompts/opsx-*.md'] },
-  'bob': { type: 'files', pattern: ['.bob/commands/spok-*.md', '.bob/commands/opsx-*.md'] },
-  'pi': { type: 'files', pattern: ['.pi/prompts/spok-*.md', '.pi/prompts/opsx-*.md'] },
+  // File-based: retired spok-* slash command files
+  'cursor': { type: 'files', pattern: '.cursor/commands/spok-*.md' },
+  'windsurf': { type: 'files', pattern: '.windsurf/workflows/spok-*.md' },
+  'kilocode': { type: 'files', pattern: '.kilocode/workflows/spok-*.md' },
+  'kiro': { type: 'files', pattern: '.kiro/prompts/spok-*.prompt.md' },
+  'github-copilot': { type: 'files', pattern: '.github/prompts/spok-*.prompt.md' },
+  'amazon-q': { type: 'files', pattern: '.amazonq/prompts/spok-*.md' },
+  'cline': { type: 'files', pattern: '.clinerules/workflows/spok-*.md' },
+  'roocode': { type: 'files', pattern: '.roo/commands/spok-*.md' },
+  'auggie': { type: 'files', pattern: '.augment/commands/spok-*.md' },
+  'factory': { type: 'files', pattern: '.factory/commands/spok-*.md' },
+  'opencode': { type: 'files', pattern: '.opencode/command/spok-*.md' },
+  'continue': { type: 'files', pattern: '.continue/prompts/spok-*.prompt' },
+  'antigravity': { type: 'files', pattern: '.agent/workflows/spok-*.md' },
+  'iflow': { type: 'files', pattern: '.iflow/commands/spok-*.md' },
+  'junie': { type: 'files', pattern: '.junie/commands/spok-*.md' },
+  'qwen': { type: 'files', pattern: '.qwen/commands/spok-*.toml' },
+  'codex': { type: 'files', pattern: '.codex/prompts/spok-*.md' },
+  'bob': { type: 'files', pattern: '.bob/commands/spok-*.md' },
+  'pi': { type: 'files', pattern: '.pi/prompts/spok-*.md' },
 };
 
 /**

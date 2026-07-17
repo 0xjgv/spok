@@ -162,7 +162,7 @@ export function getApplySkillTemplate(): SkillTemplate {
   };
 }
 
-export function getOpsxApplyCommandTemplate(): CommandTemplate {
+export function getApplyCommandTemplate(): CommandTemplate {
   return {
     name: 'Spok: Apply',
     description: 'Ship the next chunk from tasks.md via spok-flow',

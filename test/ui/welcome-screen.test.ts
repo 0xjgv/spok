@@ -3,7 +3,7 @@ import { getWelcomeText } from '../../src/ui/welcome-screen.js';
 
 describe('welcome-screen', () => {
   describe('getWelcomeText', () => {
-    it('advertises the workflow skills, not retired opsx commands', () => {
+    it('advertises the workflow skills with hyphenated commands', () => {
       const lines = getWelcomeText();
       const text = lines.join('\n');
 
@@ -11,8 +11,6 @@ describe('welcome-screen', () => {
       expect(text).toContain('/spok-propose');
       expect(text).toContain('/spok-apply');
       expect(text).toContain('/spok-archive');
-      expect(text).not.toContain('/opsx:');
-      expect(text).not.toContain('/opsx-');
       expect(text).not.toContain('/spok:');
     });
 

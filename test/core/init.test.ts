@@ -47,7 +47,6 @@ async function expectExploreSkillContent(testDir: string): Promise<void> {
   expect(exploreSkill).toContain('spok status --change "<name>" --json');
   expect(exploreSkill).toContain('spok capabilities --json');
   expect(exploreSkill).toContain('Do not auto-capture');
-  expect(exploreSkill).not.toContain('/opsx:explore');
 }
 
 describe('InitCommand', () => {
