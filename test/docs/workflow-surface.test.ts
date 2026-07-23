@@ -25,6 +25,19 @@ describe('workflow surface docs', () => {
     expect(commands).toContain('self-discovery escape hatch');
   });
 
+  it('documents MEMORY.md as presence-based, capped, and human-promoted', async () => {
+    const workflows = await readDoc('docs/workflows.md');
+    const commands = await readDoc('docs/commands.md');
+
+    expect(workflows).toContain('spok/MEMORY.md');
+    expect(workflows).toContain('presence-based');
+    expect(workflows).toContain('At most 20 rules are inlined');
+    expect(workflows).toContain('never writes `spok/MEMORY.md`');
+    expect(workflows).toContain('`flow.self_learn` stays opt-in');
+    expect(commands).toContain('up to 20');
+    expect(commands).toContain('prose in the file is ignored by design');
+  });
+
   it('documents current explore without retiring the skill', async () => {
     const migrationGuide = await readDoc('docs/migration-guide.md');
     const retiredSkills = migrationGuide.slice(

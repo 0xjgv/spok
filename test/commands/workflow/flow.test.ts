@@ -69,6 +69,13 @@ async function readFlowEvents(taskDir: string): Promise<Array<Record<string, unk
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+async function writeMemory(projectRoot: string, text: string): Promise<void> {
+  const configDir = path.join(projectRoot, 'spok');
+  await fs.mkdir(configDir, { recursive: true });
+  await fs.writeFile(path.join(configDir, 'config.yaml'), 'schema: spec-driven\n', 'utf-8');
+  await fs.writeFile(path.join(configDir, 'MEMORY.md'), text, 'utf-8');
+}
+
 function useFlowHarness(): FlowHarness {
   let tempDir: string;
   let taskDir: string;
@@ -621,6 +628,94 @@ describe('deterministic workflow completion blockers', () => {
   });
 });
 
+describe('flow step prompt composition', () => {
+  const flow = useFlowHarness();
+
+  const MEMORY_HEADER = '# Memory\n\nProse for humans only.\n\n## Rules\n\n';
+
+  it('composes a dispatchable prompt without a memory file', async () => {
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step?.prompt).toContain('`spok-validate-problem`');
+    expect(result.step?.prompt).toContain(path.join(flow.taskDir, 'ticket.md'));
+    expect(result.step?.prompt).toContain('return the absolute path');
+    expect(result.step?.prompt).not.toContain('MEMORY.md');
+    expect(result.memoryPath).toBeUndefined();
+    expect(result.memoryWarning).toBeUndefined();
+  });
+
+  it('inlines conforming rules and drops surrounding prose', async () => {
+    await writeMemory(flow.projectRoot, `${MEMORY_HEADER}- \`flow-ts-first\` — Read flow.ts before editing steps.\n`);
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step?.prompt).toContain('- Read flow.ts before editing steps.');
+    expect(result.step?.prompt).not.toContain('Prose for humans only.');
+    expect(result.step?.prompt).not.toContain('flow-ts-first');
+    expect(result.memoryPath).toBe(path.join(flow.projectRoot, 'spok', 'MEMORY.md'));
+    expect(result.memoryRuleCount).toBe(1);
+    expect(result.memoryRuleTotal).toBe(1);
+    expect(result.memoryWarning).toBeUndefined();
+  });
+
+  it('caps inlined rules at 20 and reports the remainder', async () => {
+    const rules = Array.from(
+      { length: 25 },
+      (_, index) => `- \`rule-${index}\` — Rule number ${index}.`
+    ).join('\n');
+    await writeMemory(flow.projectRoot, `${MEMORY_HEADER}${rules}\n`);
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step?.prompt).toContain('Rule number 19.');
+    expect(result.step?.prompt).not.toContain('Rule number 20.');
+    expect(result.memoryRuleCount).toBe(20);
+    expect(result.memoryRuleTotal).toBe(25);
+    expect(result.memoryWarning).toContain('5 rule(s) past the 20-rule cap ignored');
+  });
+
+  it('counts malformed rule bullets in the warning and keeps them out of the prompt', async () => {
+    await writeMemory(flow.projectRoot, 
+      `${MEMORY_HEADER}- \`good\` — A conforming rule.\n- \`broken\` missing the dash entirely.\n`
+    );
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step?.prompt).toContain('- A conforming rule.');
+    expect(result.step?.prompt).not.toContain('missing the dash entirely');
+    expect(result.memoryRuleCount).toBe(1);
+    expect(result.memoryWarning).toContain(
+      '1 bullet(s) dropped for not matching the rule grammar'
+    );
+  });
+
+  it('carries the no-commit clause on the implement prompt and asks for a summary', async () => {
+    await flow.completeProblemValidation();
+    await flow.completeFileStep('research-questions', 'research-questions.md');
+    await flow.completeFileStep('research', 'research.md');
+    await flow.completeFileStep('design-discussion', 'design-discussion.md');
+    await flow.completeFileStep('structure-outline', 'structure-outline.md');
+    await flow.completeFileStep('plan', 'plan.md');
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step?.id).toBe('implement');
+    expect(result.step?.prompt).toContain('do NOT create any commits');
+    expect(result.step?.prompt).toContain('return a concise summary');
+    expect(result.step?.prompt).not.toContain('absolute path');
+  });
+
+  it('never persists the prompt into the state file', async () => {
+    await writeMemory(flow.projectRoot, `${MEMORY_HEADER}- \`probe\` — Probe rule text.\n`);
+
+    await getFlowNext(flow.taskDir);
+
+    const raw = await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8');
+    expect(raw).not.toContain('"prompt"');
+    expect(raw).not.toContain('Probe rule text');
+  });
+});
+
 describe('flow command output', () => {
   const flow = useFlowHarness();
   let logs: string[];
@@ -648,6 +743,17 @@ describe('flow command output', () => {
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
       `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
     ]);
+  });
+
+  it('prints the memory summary and warning in text mode', async () => {
+    await writeMemory(flow.projectRoot, '# Memory\n\n## Rules\n\n- `probe` — Probe rule text.\n- `bad` no dash.\n');
+
+    await flowNextCommand(flow.taskDir);
+
+    expect(logs).toContain(
+      `Memory: ${path.join(flow.projectRoot, 'spok', 'MEMORY.md')} (1 of 1 rules)`
+    );
+    expect(logs.some((line) => line.startsWith('Memory warning:'))).toBe(true);
   });
 
   it('prints blocked reasons in text mode', async () => {

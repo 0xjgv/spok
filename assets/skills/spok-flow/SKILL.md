@@ -2,7 +2,7 @@
 name: spok-flow
 description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk, with an optional post-commit self-learn gate. Driven by spok-apply.
 argument-hint: <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
-version: 0.5.1
+version: 0.6.0
 ---
 # Flow Instructions
 
@@ -43,11 +43,14 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    - `effort` is present when the step carries a reasoning-effort hint; relay it to the Agent tool when present.
    - `argument` is the exact argument to pass to that skill.
    - `expectedOutput` is present for file-producing steps.
+   - `prompt` is the **complete subagent prompt**, composed by the CLI. It already
+     carries the skill invocation, the return contract, any step-specific clause,
+     and the repository rules from `spok/MEMORY.md`. Do not rewrite, summarize, or
+     add to it.
 
-4. Launch a subagent for the step with the **Agent** tool, passing `subagent_type: general-purpose`, `model: <step.model>`, and (when present) `effort: <step.effort>`:
+   If the response carries `memoryWarning`, surface it to the user once and continue.
 
-   > Call the `<step.skill>` skill with `<step.argument>` as the argument using the **Skill** tool.
-   > When complete, return the **absolute path** of the document that was created (file-producing steps) or a concise summary (other steps).
+4. Launch a subagent for the step with the **Agent** tool, passing `subagent_type: general-purpose`, `model: <step.model>`, (when present) `effort: <step.effort>`, and `<step.prompt>` **verbatim** as the prompt.
 
    Run subagents **sequentially in the foreground** — each step depends on the previous step's validated artifact or recorded result. Do not invoke the step skill inline: the subagent keeps each step's context isolated.
 
@@ -73,8 +76,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      ```
 
    - `self-learn` is an optional file-producing advisory gate returned only when
-     project config enables `flow.self_learn: true`. Invoke `spok-self-learn`,
-     write `<task-dir>/self-learn.md`, and complete it like any other
+     project config enables `flow.self_learn: true`. Complete it like any other
      file-producing step. Its findings do not fail or amend the commit.
 
 6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly.
@@ -82,8 +84,8 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 Do not restate or assume the step order — `spok flow next` is the only source of truth.
 Do not derive or override model routing inside this skill — `spok flow next --json` is the source of truth, including `step.model` and `step.effort`.
 In plain terms: spok flow next --json is the source of truth for model routing.
-
-For `implement`, tell `spok-implement-plan` that it is running inside `spok-flow`: it must implement and verify the plan, return a summary, and must not create commits. The final commit belongs only to the `commit` step.
+Step-specific instructions — including the `implement` no-commit rule — are composed
+into `step.prompt` by the CLI. Do not restate them.
 
 <guidance>
 ## Important guidelines

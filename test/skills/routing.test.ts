@@ -60,6 +60,43 @@ describe('spok fork-skill artifact routing', () => {
   }
 });
 
+describe('spok-flow prompt dispatch contract', () => {
+  async function readFlowSkill(): Promise<string> {
+    return fs.readFile(path.join(SKILLS_DIR, 'spok-flow', 'SKILL.md'), 'utf-8');
+  }
+
+  it('dispatches the CLI-composed prompt verbatim', async () => {
+    const body = await readFlowSkill();
+
+    expect(body).toContain('`<step.prompt>` **verbatim**');
+    expect(body).toContain('spok/MEMORY.md');
+    expect(body).toContain('memoryWarning');
+  });
+
+  it('leaves step-specific clauses to the CLI', async () => {
+    const body = await readFlowSkill();
+
+    expect(body).not.toContain('must not create commits');
+    expect(body).not.toContain('Invoke `spok-self-learn`');
+  });
+});
+
+describe('spok-self-learn promotion contract', () => {
+  it('emits capped, slugged candidate rules and human-approved promotions', async () => {
+    const body = await fs.readFile(
+      path.join(SKILLS_DIR, 'spok-self-learn', 'SKILL.md'),
+      'utf-8',
+    );
+
+    expect(body).toContain('## Candidate Rules');
+    expect(body).toContain('## Promotion Candidates');
+    expect(body).toContain('at most 3 entries');
+    expect(body).toContain('spok/changes/*/.flow/*/self-learn.md');
+    expect(body).toContain('twice or more');
+    expect(body).toContain('Do not edit `spok/MEMORY.md`');
+  });
+});
+
 describe('spok-create-design-discussion visual evidence contract', () => {
   it('routes required evidence to an approved repository packet', async () => {
     const file = path.join(

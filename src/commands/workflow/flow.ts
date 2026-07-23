@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { existsSync, promises as fs } from 'node:fs';
+import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
 
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
@@ -21,6 +21,13 @@ const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
 const VALIDATE_STEP_ID = 'validate';
 const SELF_LEARN_STEP_ID = 'self-learn';
 const FLOW_EVENT_DIR = '.spok';
+
+const MEMORY_FILE = 'MEMORY.md';
+const MAX_MEMORY_RULES = 20;
+// - `slug` — imperative sentence.   (em dash or hyphen, so a typo is not silently fatal)
+const MEMORY_RULE_PATTERN = /^-\s+`([a-z0-9-]+)`\s+(?:—|-)\s+(\S.*)$/;
+// A bullet opening with a backtick is a rule attempt; anything else is prose.
+const MEMORY_RULE_BULLET_PATTERN = /^-\s+`/;
 
 // Spok flow model map
 const FLOW_STEP_TIER_BY_ID = {
@@ -72,6 +79,8 @@ export interface FlowStep {
   expectedOutput?: string;
   status: FlowStepStatus;
   result?: FlowStepResult;
+  /** Derived per response, never persisted: the full subagent prompt to dispatch verbatim. */
+  prompt?: string;
 }
 
 export interface WorkflowState {
@@ -92,6 +101,10 @@ export interface FlowResponse {
   step?: FlowStep;
   completedStep?: FlowStep;
   reason?: string;
+  memoryPath?: string;
+  memoryRuleCount?: number;
+  memoryRuleTotal?: number;
+  memoryWarning?: string;
 }
 
 export interface FlowCompleteInput {
@@ -108,7 +121,7 @@ export interface FlowCommandOptions {
 export interface FlowCompleteCommandOptions extends FlowCommandOptions, FlowCompleteInput {}
 
 interface StepDefinition {
-  id: string;
+  id: RoutedStepId;
   skill: string;
   model: FlowModel;
   effort?: FlowEffort;
@@ -264,6 +277,100 @@ function findProjectRootForTaskDir(taskDir: string): string | undefined {
     if (parent === current) return undefined;
     current = parent;
   }
+}
+
+interface MemoryRead {
+  path: string;
+  rules: string[];
+  ignoredOverCap: number;
+  malformedBullets: number;
+}
+
+/**
+ * Presence-based: `spok/MEMORY.md` is read when it exists. Only lines matching
+ * the rule grammar survive, so the file can carry as much prose as its author
+ * wants without a byte of it reaching a prompt.
+ */
+function readMemory(taskDir: string): MemoryRead | undefined {
+  const projectRoot = findProjectRootForTaskDir(taskDir);
+  if (!projectRoot) return;
+
+  const memoryPath = path.join(projectRoot, 'spok', MEMORY_FILE);
+  if (!existsSync(memoryPath)) return;
+
+  const rules: string[] = [];
+  let conforming = 0;
+  let malformedBullets = 0;
+
+  for (const line of readFileSync(memoryPath, 'utf-8').split('\n')) {
+    const trimmed = line.trim();
+    const match = trimmed.match(MEMORY_RULE_PATTERN);
+    if (!match) {
+      if (MEMORY_RULE_BULLET_PATTERN.test(trimmed)) malformedBullets += 1;
+      continue;
+    }
+
+    conforming += 1;
+    if (rules.length < MAX_MEMORY_RULES) rules.push(match[2]!.trim());
+  }
+
+  return {
+    path: memoryPath,
+    rules,
+    ignoredOverCap: conforming - rules.length,
+    malformedBullets,
+  };
+}
+
+/** Anything dropped is reported: silent truncation would read as full coverage. */
+function buildMemoryWarning(memory: MemoryRead | undefined): string | undefined {
+  if (!memory) return;
+
+  const problems: string[] = [];
+  if (memory.ignoredOverCap > 0) {
+    problems.push(`${memory.ignoredOverCap} rule(s) past the ${MAX_MEMORY_RULES}-rule cap ignored`);
+  }
+  if (memory.malformedBullets > 0) {
+    problems.push(`${memory.malformedBullets} bullet(s) dropped for not matching the rule grammar`);
+  }
+  if (problems.length === 0) return;
+
+  return `${memory.path}: ${problems.join('; ')}.`;
+}
+
+const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
+  implement:
+    'You are running inside spok-flow. Implement and verify the plan, return a ' +
+    'summary of what you did, and do NOT create any commits — the commit step owns that.',
+  [SELF_LEARN_STEP_ID]: 'This gate is advisory. Do not fail, amend, or rewrite the commit.',
+};
+
+/** The whole subagent prompt. The driver dispatches it verbatim and assembles nothing. */
+function buildStepPrompt(definition: StepDefinition, rules: string[]): string {
+  const sections: string[] = [];
+
+  if (rules.length > 0) {
+    sections.push(
+      [`Repository rules from spok/${MEMORY_FILE}. Follow every one of them:`, ...rules.map((rule) => `- ${rule}`)].join(
+        '\n'
+      )
+    );
+  }
+
+  sections.push(
+    `Call the \`${definition.skill}\` skill with \`${definition.argument}\` as the argument using the Skill tool.`
+  );
+
+  sections.push(
+    definition.completionKind === 'file'
+      ? 'When complete, return the absolute path of the document that was created.'
+      : 'When complete, return a concise summary of what you did.'
+  );
+
+  const clause = STEP_PROMPT_CLAUSES[definition.id];
+  if (clause) sections.push(clause);
+
+  return sections.join('\n\n');
 }
 
 function isSelfLearnEnabled(taskDir: string): boolean {
@@ -551,11 +658,29 @@ function getCurrentStep(state: WorkflowState): FlowStep | undefined {
   return state.steps.find((step) => step.status === 'ready');
 }
 
+/**
+ * `getCurrentStep` returns a reference into `state.steps`, so the prompt is
+ * attached to a copy — mutating in place would leak it into workflow-state.json.
+ */
+function withStepPrompt(
+  taskDir: string,
+  step: FlowStep | undefined,
+  rules: string[]
+): FlowStep | undefined {
+  if (!step) return step;
+
+  const definition = getDefinitionById(taskDir, step.id);
+  if (!definition) return step;
+
+  return { ...step, prompt: buildStepPrompt(definition, rules) };
+}
+
 function buildResponse(
   state: WorkflowState,
   extra: Pick<FlowResponse, 'step' | 'completedStep' | 'reason'> = {}
 ): FlowResponse {
-  const nextStep = getCurrentStep(state);
+  const memory = readMemory(state.taskDir);
+  const nextStep = withStepPrompt(state.taskDir, getCurrentStep(state), memory?.rules ?? []);
   return {
     state: state.status,
     taskDir: state.taskDir,
@@ -565,6 +690,10 @@ function buildResponse(
     step: extra.step,
     completedStep: extra.completedStep,
     reason: extra.reason,
+    memoryPath: memory?.path,
+    memoryRuleCount: memory?.rules.length,
+    memoryRuleTotal: memory && memory.rules.length + memory.ignoredOverCap,
+    memoryWarning: buildMemoryWarning(memory),
   };
 }
 
@@ -934,5 +1063,13 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
   console.log(`Argument: ${step.argument}`);
   if (step.expectedOutput) {
     console.log(`Expected output: ${step.expectedOutput}`);
+  }
+  if (response.memoryPath) {
+    console.log(
+      `Memory: ${response.memoryPath} (${response.memoryRuleCount} of ${response.memoryRuleTotal} rules)`
+    );
+  }
+  if (response.memoryWarning) {
+    console.log(`Memory warning: ${response.memoryWarning}`);
   }
 }
