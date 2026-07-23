@@ -26,9 +26,12 @@ interface FlowHarness {
   advanceToValidate(): Promise<void>;
   completeValidate(content: string): ReturnType<typeof completeFlowStep>;
   completeThroughValidation(): Promise<void>;
+  completeRepair(summary?: string): Promise<void>;
 }
 
 const PASS_VALIDATION = '---\nverdict: PASS\n---\n\n# Validation\n';
+const FAIL_VALIDATION =
+  '---\nverdict: FAIL\n---\n\n# Validation\n\n## Blocking Findings\n\n- something broke\n';
 
 const EXPECTED_STEP_ROUTING = [
   { id: 'validate-problem', model: 'opus', effort: 'xhigh' },
@@ -158,6 +161,12 @@ function useFlowHarness(): FlowHarness {
     expect(result.state).not.toBe('blocked');
   }
 
+  async function completeRepair(summary = 'Fixed the blocking findings.') {
+    await getFlowNext(taskDir);
+    const result = await completeFlowStep(taskDir, { step: 'repair', summary });
+    expect(result.state).not.toBe('blocked');
+  }
+
   return {
     get projectRoot() {
       return tempDir;
@@ -172,6 +181,7 @@ function useFlowHarness(): FlowHarness {
     advanceToValidate,
     completeValidate,
     completeThroughValidation,
+    completeRepair,
   };
 }
 
@@ -395,6 +405,58 @@ describe('deterministic workflow state resumption', () => {
     const normalizedState = JSON.parse(await fs.readFile(statePath, 'utf-8'));
     expectStepRouting(normalizedState.steps);
   });
+
+  it('loads a pre-repair-cycle state file as repairAttempts 0 with the linear graph', async () => {
+    const createdAt = '2026-01-01T00:00:00.000Z';
+    const researchQuestions = path.join(flow.taskDir, 'research-questions.md');
+    const research = path.join(flow.taskDir, 'research.md');
+    const problemValidation = path.join(flow.taskDir, 'problem-validation.md');
+    await fs.writeFile(problemValidation, '# Problem Validation\n\n## Flow Decision\n\nproceed\n', 'utf-8');
+    await fs.writeFile(researchQuestions, '# Research Questions\n', 'utf-8');
+    await fs.writeFile(research, '# Research\n', 'utf-8');
+
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    await fs.writeFile(
+      statePath,
+      `${JSON.stringify({
+        version: 1,
+        taskDir: flow.taskDir,
+        status: 'ready',
+        steps: [
+          {
+            id: 'validate-problem',
+            skill: 'spok-validate-problem',
+            argument: path.join(flow.taskDir, 'ticket.md'),
+            expectedOutput: problemValidation,
+            status: 'completed',
+            result: { output: problemValidation, completedAt: createdAt },
+          },
+          {
+            id: 'research-questions',
+            skill: 'spok-create-research-questions',
+            argument: path.join(flow.taskDir, 'ticket.md'),
+            expectedOutput: researchQuestions,
+            status: 'completed',
+            result: { output: researchQuestions, completedAt: createdAt },
+          },
+        ],
+        createdAt,
+        updatedAt: createdAt,
+      }, null, 2)}\n`,
+      'utf-8'
+    );
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.step?.id).toBe('research');
+    expect(result.steps.some((step) => step.id === 'repair')).toBe(false);
+    expectStepRouting(result.steps); // the linear ten-step graph, routing intact
+
+    const normalizedState = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    expect(normalizedState.repairAttempts).toBe(0);
+    expectStepRouting(normalizedState.steps);
+  });
 });
 
 describe('deterministic workflow blockers', () => {
@@ -573,21 +635,20 @@ describe('deterministic workflow completion blockers', () => {
     expect(result.nextStep).toBeUndefined();
   });
 
-  it('blocks validate completion when the recorded verdict is FAIL', async () => {
+  it('completes validate (not a block) on a FAIL with repair attempts remaining', async () => {
     await flow.advanceToValidate();
 
     const result = await flow.completeValidate(
       '---\nverdict: FAIL\n---\n\n## Validation Verdict\n\n**Verdict**: `FAIL`\n'
     );
 
-    expect(result.state).toBe('blocked');
-    expect(result.reason).toContain('recorded a FAIL verdict');
-    expect(result.reason).toContain(path.join(flow.taskDir, 'validation.md'));
-    expect(result.nextStep?.id).toBe('validate');
+    expect(result.state).toBe('ready');
+    expect(result.completedStep).toMatchObject({ id: 'validate', status: 'completed' });
+    expect(result.nextStep?.id).toBe('repair');
 
     const next = await getFlowNext(flow.taskDir);
     expect(next.state).toBe('ready');
-    expect(next.step?.id).toBe('validate');
+    expect(next.step?.id).toBe('repair');
   });
 
   it('blocks validate completion when no verdict is readable', async () => {
@@ -611,7 +672,7 @@ describe('deterministic workflow completion blockers', () => {
     expect(result.reason).toContain('has no readable verdict');
   });
 
-  it('records a validation_verdict_fail event code when a FAIL verdict blocks', async () => {
+  it('records a ready flow_complete event (no block code) when a FAIL routes to repair', async () => {
     await flow.advanceToValidate();
 
     await flow.completeValidate('---\nverdict: FAIL\n---\n\n# Validation\n');
@@ -620,11 +681,199 @@ describe('deterministic workflow completion blockers', () => {
     expect(events.at(-1)).toMatchObject({
       schemaVersion: 1,
       event: 'flow_complete',
+      state: 'ready',
+      step: 'repair',
+      completedStep: 'validate',
+    });
+    expect(events.at(-1)?.code).toBeUndefined();
+  });
+});
+
+describe('bounded repair cycle', () => {
+  const flow = useFlowHarness();
+
+  it('completes validate on a FAIL with attempts remaining and routes to repair', async () => {
+    await flow.advanceToValidate();
+
+    const result = await flow.completeValidate(FAIL_VALIDATION);
+
+    expect(result.state).toBe('ready');
+    expect(result.completedStep).toMatchObject({ id: 'validate', status: 'completed' });
+    expect(result.nextStep).toMatchObject({
+      id: 'repair',
+      skill: 'spok-repair',
+      model: 'opus',
+      effort: 'xhigh',
+      argument: path.join(flow.taskDir, 'validation.md'),
+      status: 'ready',
+      attempt: 1,
+    });
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('persists repairAttempts and the spliced pair, and the first validate never satisfies the second', async () => {
+    await flow.advanceToValidate();
+    await flow.completeValidate(FAIL_VALIDATION);
+
+    const state = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    expect(state.repairAttempts).toBe(1);
+    expect(state.steps.map((step: { id: string }) => step.id)).toEqual([
+      'validate-problem', 'research-questions', 'research', 'design-discussion',
+      'structure-outline', 'plan', 'implement', 'simplify',
+      'validate', 'repair', 'validate', 'commit',
+    ]);
+
+    // Re-derive through the public surface: the completed first validate must
+    // not mark the spliced second validate completed.
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.state).toBe('ready');
+    expect(next.step?.id).toBe('repair');
+    const validates = next.steps.filter((step) => step.id === 'validate');
+    expect(validates.map((step) => step.status)).toEqual(['completed', 'pending']);
+  });
+
+  it('does not re-block mid-cycle on the completed first validate FAIL artifact', async () => {
+    await flow.advanceToValidate();
+    await flow.completeValidate(FAIL_VALIDATION);
+
+    const status = await getFlowStatus(flow.taskDir);
+    expect(status.state).toBe('ready');
+    expect(status.nextStep?.id).toBe('repair');
+  });
+
+  it('composes the repair prompt with the validation path and summary contract', async () => {
+    await flow.advanceToValidate();
+    await flow.completeValidate(FAIL_VALIDATION);
+
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.step?.prompt).toContain('`spok-repair`');
+    expect(next.step?.prompt).toContain(path.join(flow.taskDir, 'validation.md'));
+    expect(next.step?.prompt).toContain('return a concise summary');
+  });
+
+  it('blocks repair completion on an empty summary with missing_summary', async () => {
+    await flow.advanceToValidate();
+    await flow.completeValidate(FAIL_VALIDATION);
+    await getFlowNext(flow.taskDir);
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'repair', summary: '   ' });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('non-empty --summary');
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({ code: 'missing_summary', step: 'repair' });
+  });
+
+  it('returns validate after repair and advances to commit on a PASS', async () => {
+    await flow.advanceToValidate();
+    await flow.completeValidate(FAIL_VALIDATION);
+    await flow.completeRepair();
+
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.step?.id).toBe('validate');
+
+    const result = await flow.completeValidate(PASS_VALIDATION);
+    expect(result.state).toBe('ready');
+    expect(result.nextStep?.id).toBe('commit');
+  });
+
+  it('routes repair to gpt-5.6-sol xhigh when CODEX_HOME is set', async () => {
+    process.env.CODEX_HOME = path.join(os.tmpdir(), `codex-${randomUUID()}`);
+    await flow.advanceToValidate();
+
+    const result = await flow.completeValidate(FAIL_VALIDATION);
+
+    expect(result.nextStep).toMatchObject({ id: 'repair', model: 'gpt-5.6-sol', effort: 'xhigh' });
+  });
+
+  it('re-blocks a completed final validate whose artifact is edited to FAIL after the cycle', async () => {
+    await flow.advanceToValidate();
+    await flow.completeValidate(FAIL_VALIDATION);
+    await flow.completeRepair();
+    await flow.completeValidate(PASS_VALIDATION);
+    await fs.writeFile(path.join(flow.taskDir, 'validation.md'), FAIL_VALIDATION, 'utf-8');
+
+    const status = await getFlowStatus(flow.taskDir);
+    expect(status.state).toBe('blocked');
+    expect(status.reason).toContain('recorded a FAIL verdict');
+  });
+});
+
+describe('repair attempt exhaustion', () => {
+  const flow = useFlowHarness();
+
+  async function burnBothAttempts() {
+    await flow.advanceToValidate();
+    await flow.completeValidate(FAIL_VALIDATION);   // attempt 1 spliced
+    await flow.completeRepair();
+    await flow.completeValidate(FAIL_VALIDATION);   // attempt 2 spliced
+    await flow.completeRepair();
+  }
+
+  it('still dispatches the final validate after the last repair despite the stale FAIL', async () => {
+    await burnBothAttempts();
+    // Deterministically stale: recorded before the last repair completed.
+    const past = new Date(Date.now() - 60_000);
+    await fs.utimes(path.join(flow.taskDir, 'validation.md'), past, past);
+
+    const next = await getFlowNext(flow.taskDir);
+
+    expect(next.state).toBe('ready');
+    expect(next.step).toMatchObject({ id: 'validate', attempt: 2 });
+  });
+
+  it('blocks the third FAIL completion with repair_attempts_exhausted and writes nothing', async () => {
+    await burnBothAttempts();
+    // Written directly (not through the flow.completeValidate harness helper,
+    // which drives its own settling getFlowNext first) so the snapshot below
+    // brackets exactly the completion call this test is verifying.
+    const output = path.join(flow.taskDir, 'validation.md');
+    await fs.writeFile(output, FAIL_VALIDATION, 'utf-8');
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const before = await fs.readFile(statePath, 'utf-8');
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'validate', output });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('exhausted 2 repair attempts');
+    expect(result.reason).toContain(output);
+    await expect(fs.readFile(statePath, 'utf-8')).resolves.toBe(before);
+
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      event: 'flow_complete',
       state: 'blocked',
       step: 'validate',
-      code: 'validation_verdict_fail',
+      code: 'repair_attempts_exhausted',
     });
-    expect(events.at(-1)?.reason).toEqual(expect.stringContaining('recorded a FAIL verdict'));
+    expect(events.at(-1)?.code).not.toBe('validation_verdict_fail');
+  });
+
+  it('re-derives the exhausted block on subsequent flow next and flow status', async () => {
+    await burnBothAttempts();
+    await flow.completeValidate(FAIL_VALIDATION); // fresh FAIL, recorded after the last repair
+
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.state).toBe('blocked');
+    expect(next.reason).toContain('exhausted 2 repair attempts');
+
+    const status = await getFlowStatus(flow.taskDir);
+    expect(status.state).toBe('blocked');
+    expect(status.reason).toContain('exhausted 2 repair attempts');
+
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({ event: 'flow_status', code: 'repair_attempts_exhausted' });
+  });
+
+  it('advances to commit on a PASS on the final attempt', async () => {
+    await burnBothAttempts();
+
+    const result = await flow.completeValidate(PASS_VALIDATION);
+
+    expect(result.state).toBe('ready');
+    expect(result.nextStep?.id).toBe('commit');
   });
 });
 
