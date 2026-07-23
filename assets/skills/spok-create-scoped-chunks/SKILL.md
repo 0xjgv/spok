@@ -57,13 +57,14 @@ Mirror `spok-create-research` step 4 — wait for ALL sub-agents to complete, th
 Each candidate chunk must satisfy ALL of:
 
 - **One user-observable behavior** — name it as a sentence a PM would recognize. Not "refactor X," not "add table Y."
+- **Visual evidence classified** — set exactly `required` for intentional rendered layout, styling, visual-content, or visible interaction-state changes; otherwise set exactly `not-applicable`.
 - **Cross-layer scope** — touches ≥2 of {db, backend, frontend, infra}.
 - **End-to-end test** — name the specific test file/path that proves it works. "Type-check passes" does not count.
 - **Independently shippable** — could merge alone (behind a feature flag if needed) without breaking the app.
 - **Prerequisites listed** — references to earlier chunk slugs. The full graph must be a DAG (no cycles).
 - **Reversible** — one-line rollback (revert the PR, flip the flag off, drop the column, etc.).
 
-Present chunks to the user as plain markdown — chunk list + dependency edges. Iterate based on feedback.
+Present chunks to the user as plain markdown — chunk list, visual-evidence classifications, and dependency edges. Iterate based on feedback. Before accepting the chunk set, ask the human to confirm every visual-evidence classification.
 
 > Per `spok-create-structure-outline`: interpret ALL user feedback as instructions to update the proposal, not to begin implementation. If the user pushes back on a chunk, re-derive cut points; don't just rename.
 
@@ -79,6 +80,7 @@ Use this exact shape (indentation matters — chunk body must be indented under 
 - [ ] 1. <chunk-1 title — one user-observable behavior>
     **Slug:** <chunk-1-slug>
     **Layers:** <e.g., db, backend, frontend>
+    **Visual evidence:** required | not-applicable
     **Prerequisites:** <list of prior chunk slugs or "none">
     **End-to-end test:** <test file path or description>
     **Rollback:** <one-line rollback>

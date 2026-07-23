@@ -32,6 +32,18 @@ describe('skill-vendor', () => {
       path.join(sourceDir, 'spok-helper', 'extra.md'),
       'extra resource\n'
     );
+    fs.mkdirSync(path.join(sourceDir, 'spok-helper', 'references'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(
+        sourceDir,
+        'spok-helper',
+        'references',
+        'design_evidence_template.html'
+      ),
+      Buffer.from('<!doctype html>\n<meta charset="utf-8">\nCurrent → Target\n')
+    );
 
     fs.mkdirSync(path.join(sourceDir, 'not-spok'), { recursive: true });
     fs.writeFileSync(
@@ -85,6 +97,29 @@ describe('skill-vendor', () => {
       expect(
         fs.existsSync(path.join(projectRoot, '.claude/skills/not-spok'))
       ).toBe(false);
+    });
+
+    it('copies nested HTML resources byte-for-byte', async () => {
+      const projectRoot = path.join(tempDir, 'project');
+      fs.mkdirSync(projectRoot, { recursive: true });
+      const sourcePath = path.join(
+        sourceDir,
+        'spok-helper',
+        'references',
+        'design_evidence_template.html'
+      );
+
+      await installVendoredSkills(projectRoot, '.claude', sourceDir);
+
+      const installedPath = path.join(
+        projectRoot,
+        '.claude',
+        'skills',
+        'spok-helper',
+        'references',
+        'design_evidence_template.html'
+      );
+      expect(fs.readFileSync(installedPath)).toEqual(fs.readFileSync(sourcePath));
     });
 
     it('is idempotent — re-running overwrites existing files', async () => {

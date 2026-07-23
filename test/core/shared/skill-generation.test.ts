@@ -107,6 +107,19 @@ describe('skill-generation', () => {
         expect(content).toContain('CLI self-discovery');
       }
     });
+
+    it('should preserve visual evidence metadata in the generated apply skill', () => {
+      const [apply] = getSkillTemplates(['apply']);
+      const content = generateSkillContent(apply.template, '1.3.1');
+
+      expect(content).toContain('`visualEvidence` — the `**Visual evidence:**` field');
+      expect(content).toContain('values `required` and `not-applicable`');
+      expect(content).toContain('`not-applicable` for legacy chunks');
+      expect(content).toContain('If the field is present with any other value');
+      expect(content).toContain('## Visual Evidence');
+      expect(content).toContain('- Classification: <required | not-applicable>');
+      expect(content).toContain('- Packet: spok/evidence/<change>/<chunk>/');
+    });
   });
 
   describe('getCommandTemplates', () => {

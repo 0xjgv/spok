@@ -103,6 +103,19 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.toml. To enable it, add:"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
 
+  Scenario: Visual chunks preserve a browser-review design contract
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "**Visual evidence:** required | not-applicable"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "## Visual Evidence"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "spok/evidence/<change>/<chunk>/"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "open the generated `index.html`"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Print the absolute path"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "status back to `pending`"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "explicit human approval"
+    And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Current"
+    And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Target"
+
   Scenario: Flow self-learn gate runs after commit when enabled
     Given a new project
     And self-learn is enabled in project config

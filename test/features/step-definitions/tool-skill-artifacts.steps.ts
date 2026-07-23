@@ -326,6 +326,27 @@ Then(
   }
 );
 
+Then(
+  'the workflow skill resource {string} under {string} in {string} contains {string}',
+  async function (
+    this: SkillArtifactWorld,
+    resourcePath: string,
+    skillName: string,
+    relativeDir: string,
+    expectedText: string
+  ) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    const installedResourcePath = path.join(
+      this.projectDir,
+      relativeDir,
+      skillName,
+      resourcePath
+    );
+    const resource = await fs.readFile(installedResourcePath, 'utf-8');
+    assert.match(resource, new RegExp(expectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+);
+
 Then('the Spok CLI exits with code {int}', function (this: SkillArtifactWorld, expectedCode: number) {
   assert.ok(this.cliResult, 'cliResult must be set by a CLI run step');
   assert.equal(this.cliResult.exitCode, expectedCode, this.cliResult.stderr);

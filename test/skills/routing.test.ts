@@ -59,3 +59,35 @@ describe('spok fork-skill artifact routing', () => {
     });
   }
 });
+
+describe('spok-create-design-discussion visual evidence contract', () => {
+  it('routes required evidence to an approved repository packet', async () => {
+    const file = path.join(
+      SKILLS_DIR,
+      'spok-create-design-discussion',
+      'SKILL.md',
+    );
+    const body = await fs.readFile(file, 'utf-8');
+
+    expect(body).toContain('spok/evidence/<change>/<chunk>/');
+    expect(body).toContain('references/design_evidence_template.html');
+    expect(body).toContain('"schemaVersion": 1');
+    expect(body).toContain('"status": "pending"');
+    expect(body).toContain('"approvedBy": "<identity>"');
+    expect(body).toContain('Missing either the current or target pane blocks completion');
+  });
+
+  it('defaults legacy tickets to not-applicable without a packet', async () => {
+    const file = path.join(
+      SKILLS_DIR,
+      'spok-create-design-discussion',
+      'SKILL.md',
+    );
+    const body = await fs.readFile(file, 'utf-8');
+
+    expect(body).toContain(
+      'Treat a ticket without `## Visual Evidence` as a legacy ticket with classification `not-applicable`.',
+    );
+    expect(body).toContain('Do not create an evidence packet.');
+  });
+});
