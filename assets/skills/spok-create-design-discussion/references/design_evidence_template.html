@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{TITLE}} — visual design evidence</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        line-height: 1.5;
+        --background: #f5f7fa;
+        --surface: #ffffff;
+        --text: #17202a;
+        --muted: #52606d;
+        --border: #cbd2d9;
+        --accent: #175cd3;
+        --status-background: #fff3c4;
+        --status-text: #663c00;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --background: #101828;
+          --surface: #1d2939;
+          --text: #f2f4f7;
+          --muted: #d0d5dd;
+          --border: #475467;
+          --accent: #84adff;
+          --status-background: #5f4400;
+          --status-text: #fff3c4;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--background);
+        color: var(--text);
+      }
+
+      main {
+        width: min(100% - 2rem, 90rem);
+        margin: 0 auto;
+        padding: 2rem 0 4rem;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      .metadata,
+      .comparison-row {
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+        background: var(--surface);
+      }
+
+      .metadata {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 2rem;
+        margin: 1.5rem 0 2rem;
+        padding: 1rem 1.25rem;
+      }
+
+      .metadata div {
+        display: grid;
+        gap: 0.125rem;
+      }
+
+      .metadata dt {
+        color: var(--muted);
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .metadata dd {
+        margin: 0;
+      }
+
+      .status {
+        border-radius: 999px;
+        background: var(--status-background);
+        color: var(--status-text);
+        font-weight: 700;
+        padding: 0.125rem 0.625rem;
+      }
+
+      .comparison-list {
+        display: grid;
+        gap: 1.5rem;
+      }
+
+      .comparison-row {
+        padding: 1.25rem;
+      }
+
+      .comparison-context {
+        color: var(--muted);
+      }
+
+      .comparison-panels {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+
+      figure {
+        min-width: 0;
+        margin: 0;
+      }
+
+      figure h3 {
+        color: var(--accent);
+      }
+
+      img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid var(--border);
+        background: var(--background);
+      }
+
+      figcaption {
+        margin-top: 0.625rem;
+        color: var(--muted);
+        font-size: 0.875rem;
+      }
+
+      @media (max-width: 48rem) {
+        main {
+          width: min(100% - 1rem, 90rem);
+          padding-top: 1rem;
+        }
+
+        .comparison-panels {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1 id="evidence-title">{{TITLE}}</h1>
+        <p>
+          Review each current-versus-target comparison before approving the
+          target design.
+        </p>
+        <dl class="metadata" aria-label="Visual evidence metadata">
+          <div>
+            <dt>Change</dt>
+            <dd><code>{{CHANGE_SLUG}}</code></dd>
+          </div>
+          <div>
+            <dt>Chunk</dt>
+            <dd><code>{{CHUNK_SLUG}}</code></dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd><span class="status">{{STATUS}}</span></dd>
+          </div>
+        </dl>
+      </header>
+
+      <section class="comparison-list" aria-labelledby="comparisons-heading">
+        <h2 id="comparisons-heading">Comparisons</h2>
+
+        <!-- BEGIN COMPARISON ROW: repeat this article for every state and viewport. -->
+        <article class="comparison-row">
+          <h2>{{ROW_LABEL}}</h2>
+          <p class="comparison-context">
+            State: {{STATE}} · Viewport: {{VIEWPORT}}
+          </p>
+          <div class="comparison-panels">
+            <figure>
+              <h3>Current</h3>
+              <!-- Replace alt text with a concise description of the visible current UI. -->
+              <img
+                src="assets/current.png"
+                alt="{{CURRENT_ALT_TEXT}}"
+              />
+              <figcaption>
+                Current · {{STATE}} · {{VIEWPORT}} · Source:
+                {{CURRENT_SOURCE}}
+              </figcaption>
+            </figure>
+            <figure>
+              <h3>Target</h3>
+              <!-- Replace alt text with a concise description of the intended target UI. -->
+              <img
+                src="assets/target.png"
+                alt="{{TARGET_ALT_TEXT}}"
+              />
+              <figcaption>
+                Target · {{STATE}} · {{VIEWPORT}} · Source: {{TARGET_SOURCE}}
+              </figcaption>
+            </figure>
+          </div>
+        </article>
+        <!-- END COMPARISON ROW -->
+      </section>
+    </main>
+  </body>
+</html>

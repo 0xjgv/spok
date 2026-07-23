@@ -52,6 +52,7 @@ conversation context. If still ambiguous you MUST prompt the user.
    \`\`\`markdown
    - [ ] 1. <chunk title — one user-observable behavior>
        **Slug:** <chunk-slug>
+       **Visual evidence:** <required | not-applicable>
        **Layers:** ...
        **Prerequisites:** ...
        **End-to-end test:** ...
@@ -67,6 +68,10 @@ conversation context. If still ambiguous you MUST prompt the user.
    Find the **first** chunk whose checkbox is \`- [ ]\` (unchecked). Extract:
    - \`title\` — text after the number, before the newline.
    - \`slug\` — the \`**Slug:**\` field; fall back to a kebab-case slug of the title.
+   - \`visualEvidence\` — the \`**Visual evidence:**\` field. Accept only the exact
+     values \`required\` and \`not-applicable\`. If the field is absent, default it to
+     \`not-applicable\` for legacy chunks. If the field is present with any other value,
+     halt with a clear error naming the invalid value; do not stage the ticket.
    - \`body\` — every indented line beneath the checkbox up to the next top-level checkbox.
 
    If every chunk is checked, congratulate the user and suggest \`/spok-archive\`. STOP.
@@ -96,6 +101,14 @@ conversation context. If still ambiguous you MUST prompt the user.
    ## Rollback
    <from tasks.md>
 
+   ## Commit Constraint
+   Stage only the paths this chunk touches. Never embed a \`git status\`
+   snapshot — it goes stale, and the commit step reads live status.
+
+   ## Visual Evidence
+   - Classification: <required | not-applicable>
+   - Packet: spok/evidence/<change>/<chunk>/
+
    ## Body
    <indented chunk body from tasks.md, dedented>
 
@@ -105,6 +118,10 @@ conversation context. If still ambiguous you MUST prompt the user.
    - Specs: <changeRoot>/specs/
    - Design: <changeRoot>/design.md (if it exists)
    \`\`\`
+
+   Replace \`<change>\` in the packet path with the selected change name and \`<chunk>\`
+   with the parsed chunk slug. Keep the packet path repository-relative. Always write the
+   section, including for legacy and \`not-applicable\` chunks.
 
    Pass the **absolute path** to that ticket directory forward.
 

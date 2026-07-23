@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { existsSync, promises as fs } from 'node:fs';
+import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
 
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
@@ -18,8 +18,16 @@ interface Routing {
 }
 
 const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
+const VALIDATE_STEP_ID = 'validate';
 const SELF_LEARN_STEP_ID = 'self-learn';
 const FLOW_EVENT_DIR = '.spok';
+
+const MEMORY_FILE = 'MEMORY.md';
+const MAX_MEMORY_RULES = 20;
+// - `slug` — imperative sentence.   (em dash or hyphen, so a typo is not silently fatal)
+const MEMORY_RULE_PATTERN = /^-\s+`([a-z0-9-]+)`\s+(?:—|-)\s+(\S.*)$/;
+// A bullet opening with a backtick is a rule attempt; anything else is prose.
+const MEMORY_RULE_BULLET_PATTERN = /^-\s+`/;
 
 // Spok flow model map
 const FLOW_STEP_TIER_BY_ID = {
@@ -38,7 +46,7 @@ const FLOW_STEP_TIER_BY_ID = {
 
 const ROUTING_MATRIX: Record<FlowTool, Record<FlowTier, Routing>> = {
   claude: {
-    max: { model: 'fable', effort: 'xhigh' },
+    max: { model: 'fable', effort: 'high' },
     heavy: { model: 'opus', effort: 'xhigh' },
     mid: { model: 'sonnet', effort: 'xhigh' },
     cheap: { model: 'haiku' },
@@ -71,6 +79,8 @@ export interface FlowStep {
   expectedOutput?: string;
   status: FlowStepStatus;
   result?: FlowStepResult;
+  /** Derived per response, never persisted: the full subagent prompt to dispatch verbatim. */
+  prompt?: string;
 }
 
 export interface WorkflowState {
@@ -91,6 +101,10 @@ export interface FlowResponse {
   step?: FlowStep;
   completedStep?: FlowStep;
   reason?: string;
+  memoryPath?: string;
+  memoryRuleCount?: number;
+  memoryRuleTotal?: number;
+  memoryWarning?: string;
 }
 
 export interface FlowCompleteInput {
@@ -107,7 +121,7 @@ export interface FlowCommandOptions {
 export interface FlowCompleteCommandOptions extends FlowCommandOptions, FlowCompleteInput {}
 
 interface StepDefinition {
-  id: string;
+  id: RoutedStepId;
   skill: string;
   model: FlowModel;
   effort?: FlowEffort;
@@ -195,7 +209,7 @@ const BASE_STEP_DEFINITION_SPECS = [
     completionKind: 'summary',
   },
   {
-    id: 'validate',
+    id: VALIDATE_STEP_ID,
     skill: 'spok-validate-implementation',
     argument: 'taskDir',
     expectedOutput: 'validation',
@@ -263,6 +277,116 @@ function findProjectRootForTaskDir(taskDir: string): string | undefined {
     if (parent === current) return undefined;
     current = parent;
   }
+}
+
+interface MemoryRead {
+  path: string;
+  rules: string[];
+  ignoredOverCap: number;
+  malformedBullets: number;
+  unreadable?: boolean;
+}
+
+/** Memory is optional, so a directory or a permission error degrades to no rules. */
+function readMemoryLines(memoryPath: string): string[] | undefined {
+  try {
+    return readFileSync(memoryPath, 'utf-8').split('\n');
+  } catch {
+    return;
+  }
+}
+
+/**
+ * Presence-based: `spok/MEMORY.md` is read when it exists. Only lines matching
+ * the rule grammar survive, so the file can carry as much prose as its author
+ * wants without a byte of it reaching a prompt.
+ */
+function readMemory(taskDir: string): MemoryRead | undefined {
+  const projectRoot = findProjectRootForTaskDir(taskDir);
+  if (!projectRoot) return;
+
+  const memoryPath = path.join(projectRoot, 'spok', MEMORY_FILE);
+  if (!existsSync(memoryPath)) return;
+
+  const lines = readMemoryLines(memoryPath);
+  if (!lines) {
+    return { path: memoryPath, rules: [], ignoredOverCap: 0, malformedBullets: 0, unreadable: true };
+  }
+
+  const rules: string[] = [];
+  let conforming = 0;
+  let malformedBullets = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(MEMORY_RULE_PATTERN);
+    if (!match) {
+      if (MEMORY_RULE_BULLET_PATTERN.test(trimmed)) malformedBullets += 1;
+      continue;
+    }
+
+    conforming += 1;
+    if (rules.length < MAX_MEMORY_RULES) rules.push(match[2]!.trim());
+  }
+
+  return {
+    path: memoryPath,
+    rules,
+    ignoredOverCap: conforming - rules.length,
+    malformedBullets,
+  };
+}
+
+/** Anything dropped is reported: silent truncation would read as full coverage. */
+function buildMemoryWarning(memory: MemoryRead | undefined): string | undefined {
+  if (!memory) return;
+  if (memory.unreadable) return `${memory.path}: could not be read; no rules were applied.`;
+
+  const problems: string[] = [];
+  if (memory.ignoredOverCap > 0) {
+    problems.push(`${memory.ignoredOverCap} rule(s) past the ${MAX_MEMORY_RULES}-rule cap ignored`);
+  }
+  if (memory.malformedBullets > 0) {
+    problems.push(`${memory.malformedBullets} bullet(s) dropped for not matching the rule grammar`);
+  }
+  if (problems.length === 0) return;
+
+  return `${memory.path}: ${problems.join('; ')}.`;
+}
+
+const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
+  implement:
+    'You are running inside spok-flow. Implement and verify the plan, return a ' +
+    'summary of what you did, and do NOT create any commits — the commit step owns that.',
+  [SELF_LEARN_STEP_ID]: 'This gate is advisory. Do not fail, amend, or rewrite the commit.',
+};
+
+/** The whole subagent prompt. The driver dispatches it verbatim and assembles nothing. */
+function buildStepPrompt(definition: StepDefinition, rules: string[]): string {
+  const sections: string[] = [];
+
+  if (rules.length > 0) {
+    sections.push(
+      [`Repository rules from spok/${MEMORY_FILE}. Follow every one of them:`, ...rules.map((rule) => `- ${rule}`)].join(
+        '\n'
+      )
+    );
+  }
+
+  sections.push(
+    `Call the \`${definition.skill}\` skill with \`${definition.argument}\` as the argument using the Skill tool.`
+  );
+
+  sections.push(
+    definition.completionKind === 'file'
+      ? 'When complete, return the absolute path of the document that was created.'
+      : 'When complete, return a concise summary of what you did.'
+  );
+
+  const clause = STEP_PROMPT_CLAUSES[definition.id];
+  if (clause) sections.push(clause);
+
+  return sections.join('\n\n');
 }
 
 function isSelfLearnEnabled(taskDir: string): boolean {
@@ -447,6 +571,8 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Expected output path ')) return 'wrong_output_path';
   if (reason.startsWith('Expected output file is missing or empty for step ')) return 'missing_output';
   if (reason.includes('must set Flow Decision to proceed')) return 'flow_decision_not_proceed';
+  if (reason.includes('recorded a FAIL verdict')) return 'validation_verdict_fail';
+  if (reason.includes('has no readable verdict')) return 'validation_verdict_unreadable';
   if (reason.includes('must provide a non-empty --summary')) return 'missing_summary';
   if (reason.includes('must provide a commit SHA')) return 'missing_commit';
   return 'blocked';
@@ -548,11 +674,29 @@ function getCurrentStep(state: WorkflowState): FlowStep | undefined {
   return state.steps.find((step) => step.status === 'ready');
 }
 
+/**
+ * `getCurrentStep` returns a reference into `state.steps`, so the prompt is
+ * attached to a copy — mutating in place would leak it into workflow-state.json.
+ */
+function withStepPrompt(
+  taskDir: string,
+  step: FlowStep | undefined,
+  rules: string[]
+): FlowStep | undefined {
+  if (!step) return step;
+
+  const definition = getDefinitionById(taskDir, step.id);
+  if (!definition) return step;
+
+  return { ...step, prompt: buildStepPrompt(definition, rules) };
+}
+
 function buildResponse(
   state: WorkflowState,
   extra: Pick<FlowResponse, 'step' | 'completedStep' | 'reason'> = {}
 ): FlowResponse {
-  const nextStep = getCurrentStep(state);
+  const memory = readMemory(state.taskDir);
+  const nextStep = withStepPrompt(state.taskDir, getCurrentStep(state), memory?.rules ?? []);
   return {
     state: state.status,
     taskDir: state.taskDir,
@@ -562,6 +706,10 @@ function buildResponse(
     step: extra.step,
     completedStep: extra.completedStep,
     reason: extra.reason,
+    memoryPath: memory?.path,
+    memoryRuleCount: memory?.rules.length,
+    memoryRuleTotal: memory && memory.rules.length + memory.ignoredOverCap,
+    memoryWarning: buildMemoryWarning(memory),
   };
 }
 
@@ -587,10 +735,13 @@ async function validateCompletedArtifacts(state: WorkflowState): Promise<string 
       return `Missing completed artifact for step ${step.id}: ${definition.expectedOutput}`;
     }
 
-    if (definition.id === PROBLEM_VALIDATION_STEP_ID) {
-      const decisionError = await validateProblemValidationFlowDecision(definition);
-      if (decisionError) return decisionError;
-    }
+    // Both gates self-guard on step id. Re-running them keeps a completed
+    // artifact that was edited after completion from carrying the flow forward.
+    const decisionError = await validateProblemValidationFlowDecision(definition);
+    if (decisionError) return decisionError;
+
+    const verdictError = await validateValidationVerdict(definition);
+    if (verdictError) return verdictError;
   }
 }
 
@@ -640,14 +791,27 @@ function extractMarkdownSection(content: string, heading: string): string {
   return match?.[1]?.trim() ?? '';
 }
 
-function flowDecisionAllowsProceed(content: string): boolean {
-  const section = extractMarkdownSection(content, 'Flow Decision');
-  const firstDecisionLine = section
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
+/** First non-blank trimmed line of a `## <heading>` section, or '' when there is none. */
+function firstSectionLine(content: string, heading: string): string {
+  return (
+    extractMarkdownSection(content, heading)
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ''
+  );
+}
 
-  return /^`?proceed`?\b/i.test(firstDecisionLine ?? '');
+function flowDecisionAllowsProceed(content: string): boolean {
+  return /^`?proceed`?\b/i.test(firstSectionLine(content, 'Flow Decision'));
+}
+
+/** Undefined when the artifact cannot be read: the callers treat that as a failed gate. */
+async function readArtifact(targetPath: string): Promise<string | undefined> {
+  try {
+    return await fs.readFile(targetPath, 'utf-8');
+  } catch {
+    return;
+  }
 }
 
 async function validateProblemValidationFlowDecision(
@@ -655,10 +819,61 @@ async function validateProblemValidationFlowDecision(
 ): Promise<string | undefined> {
   if (definition.id !== PROBLEM_VALIDATION_STEP_ID || !definition.expectedOutput) return;
 
-  const content = await fs.readFile(definition.expectedOutput, 'utf-8');
-  if (flowDecisionAllowsProceed(content)) return;
+  const content = await readArtifact(definition.expectedOutput);
+  if (content !== undefined && flowDecisionAllowsProceed(content)) return;
 
   return `Step ${PROBLEM_VALIDATION_STEP_ID} must set Flow Decision to proceed before the flow can continue: ${definition.expectedOutput}`;
+}
+
+type Verdict = 'PASS' | 'FAIL';
+
+function parseVerdictValue(raw: string): Verdict | undefined {
+  const value = raw
+    .replace(/^[`'"]+|[`'"]+$/g, '')
+    .trim()
+    .toUpperCase();
+  return value === 'PASS' || value === 'FAIL' ? value : undefined;
+}
+
+/** Raw value of the first frontmatter `verdict:` line, or undefined when there is none. */
+function frontmatterVerdictValue(normalized: string): string | undefined {
+  if (!normalized.startsWith('---\n')) return;
+
+  const closingIndex = normalized.indexOf('\n---', 4);
+  if (closingIndex === -1) return;
+
+  for (const line of normalized.slice(4, closingIndex).split('\n')) {
+    const match = line.match(/^verdict\s*:\s*(.+?)\s*$/i);
+    if (match) return match[1];
+  }
+}
+
+/** Pure. Returns undefined when no verdict is readable. */
+function readValidationVerdict(content: string): Verdict | undefined {
+  const normalized = content.replace(/\r\n/g, '\n');
+
+  // An explicit frontmatter verdict is the machine-facing contract:
+  // an unrecognized value is unreadable — no body fallback.
+  const declared = frontmatterVerdictValue(normalized);
+  if (declared !== undefined) return parseVerdictValue(declared);
+
+  const match = firstSectionLine(normalized, 'Validation Verdict')
+    .replace(/[*`]/g, '')
+    .match(/^(?:verdict\s*:?\s*)?(PASS|FAIL)\b/i);
+  return match ? parseVerdictValue(match[1]!) : undefined;
+}
+
+async function validateValidationVerdict(definition: StepDefinition): Promise<string | undefined> {
+  if (definition.id !== VALIDATE_STEP_ID || !definition.expectedOutput) return;
+
+  const content = await readArtifact(definition.expectedOutput);
+  const verdict = content === undefined ? undefined : readValidationVerdict(content);
+  if (verdict === 'PASS') return;
+  if (verdict === 'FAIL') {
+    return `Step ${VALIDATE_STEP_ID} recorded a FAIL verdict: ${definition.expectedOutput}`;
+  }
+
+  return `Step ${VALIDATE_STEP_ID} has no readable verdict (expected PASS or FAIL): ${definition.expectedOutput}`;
 }
 
 async function completeStepResult(
@@ -675,6 +890,9 @@ async function completeStepResult(
 
     const decisionError = await validateProblemValidationFlowDecision(definition);
     if (decisionError) return decisionError;
+
+    const verdictError = await validateValidationVerdict(definition);
+    if (verdictError) return verdictError;
 
     return {
       output: definition.expectedOutput,
@@ -873,5 +1091,13 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
   console.log(`Argument: ${step.argument}`);
   if (step.expectedOutput) {
     console.log(`Expected output: ${step.expectedOutput}`);
+  }
+  if (response.memoryPath) {
+    console.log(
+      `Memory: ${response.memoryPath} (${response.memoryRuleCount} of ${response.memoryRuleTotal} rules)`
+    );
+  }
+  if (response.memoryWarning) {
+    console.log(`Memory warning: ${response.memoryWarning}`);
   }
 }

@@ -103,6 +103,19 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.toml. To enable it, add:"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
 
+  Scenario: Visual chunks preserve a browser-review design contract
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "**Visual evidence:** required | not-applicable"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "## Visual Evidence"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "spok/evidence/<change>/<chunk>/"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "open the generated `index.html`"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Print the absolute path"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "status back to `pending`"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "explicit human approval"
+    And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Current"
+    And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Target"
+
   Scenario: Flow self-learn gate runs after commit when enabled
     Given a new project
     And self-learn is enabled in project config
@@ -112,6 +125,22 @@ Feature: Tool skill artifacts
     Then the Spok CLI output contains "\"state\": \"ready\""
     And the Spok CLI output contains "\"id\": \"self-learn\""
     And the Spok CLI output contains "\"skill\": \"spok-self-learn\""
+
+  Scenario: A completed validate step re-blocks the flow when its verdict flips to FAIL
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through validation
+    And "spok/changes/demo/.flow/chunk-one/validation.md" contains:
+      """
+      ---
+      verdict: FAIL
+      ---
+
+      # Validation
+      """
+    When I attempt the staged flow commit step
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "recorded a FAIL verdict"
 
   Scenario: Flow next prints the Claude-routed model and effort for the first step
     Given a new project

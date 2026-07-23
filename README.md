@@ -201,7 +201,7 @@ When writing proposals, keep the Spok philosophy in mind: we serve a wide variet
 - Develop CLI locally: `bun run dev` or `bun run dev:cli`
 - Point global `spok` at this checkout: `ln -sf "$PWD/bin/spok.js" ~/.bun/bin/spok`
 - Keep the linked CLI current while editing: run `bun run dev` in one terminal, then use `spok ...` in another
-- Conventional commits (one-line): `type(scope): subject`
+- Commit messages: short and imperative, one line ("Add verdict gate", not "feat: added verdict gates")
 
 ## Other
 

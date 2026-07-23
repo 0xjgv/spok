@@ -240,7 +240,28 @@ For a post-commit advisory review of workflow friction, weak evidence, and follo
 self_learn = true
 ```
 
-When enabled, each successful `/spok-apply` chunk runs a final `spok-self-learn` gate after the commit and writes `.flow/<chunk-slug>/self-learn.md`. Findings are advisory; they do not fail, amend, or rewrite the commit.
+When enabled, each successful `/spok-apply` chunk runs a final `spok-self-learn` gate after the commit and writes `.flow/<chunk-slug>/self-learn.md`. Findings are advisory; they do not fail, amend, or rewrite the commit. `flow.self_learn` stays opt-in.
+
+### Promote recurring findings into `spok/MEMORY.md`
+
+`spok/MEMORY.md` is optional and presence-based: if the file exists, `spok flow next` inlines its rules into every step prompt. Nothing to configure.
+
+Only lines matching the rule grammar are read — a slug in backticks, a dash, one imperative sentence:
+
+```markdown
+# Memory
+
+Everything outside the rule lines is for humans and never reaches a prompt.
+
+## Rules
+
+- `flow-ts-first` — Read src/commands/workflow/flow.ts before editing step definitions.
+- `plan-cites-lines` — When planning, cite file:line for every claim about existing code.
+```
+
+Headings, paragraphs, and notes are ignored by design, so the file can explain itself at any length. At most 20 rules are inlined; anything past the cap, plus any bullet that fails the grammar, is reported in `memoryWarning` rather than dropped silently.
+
+`spok-self-learn` proposes promotions — a candidate rule seen in two or more chunks — but never writes `spok/MEMORY.md`. Pasting a rule in, and deleting one that stopped being true, stays yours.
 
 ---
 

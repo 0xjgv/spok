@@ -2,12 +2,28 @@ schema: spec-driven
 
 # Project context (optional)
 # This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Stable conventions ONLY. Never record point-in-time facts here — dependency
+# versions, current tooling state, or a git status snapshot go stale in a file
+# nobody re-reads, and every downstream artifact inherits the rot.
+context: |
+  Spok is an AI-native CLI for spec-driven development, written in TypeScript
+  and run on Bun. Source lives in src/, tests in test/, skill sources in
+  assets/skills/.
+
+  Read verification commands from package.json scripts. Never assume a
+  toolchain from a config file's presence or a tool's popularity, and never
+  invent a `bunx <tool>` invocation — an unconfigured tool downloaded on demand
+  can exit 0 having checked nothing.
+
+  Commit messages are short and imperative ("Add verdict gate", not
+  "feat: added verdict gates"). No AI attribution trailers.
+
+  .claude/ and .agents/ are gitignored vendor targets holding copies of
+  assets/skills/. Edit the asset, then re-copy; the copies are never the source
+  of truth and are never committable. spok/changes/ is gitignored too.
+
+  Other agents may be working in this repository concurrently. Stage only the
+  paths you modified.
 
 flow:
   self_learn: true
