@@ -18,6 +18,7 @@ interface Routing {
 }
 
 const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
+const VALIDATE_STEP_ID = 'validate';
 const SELF_LEARN_STEP_ID = 'self-learn';
 const FLOW_EVENT_DIR = '.spok';
 
@@ -195,7 +196,7 @@ const BASE_STEP_DEFINITION_SPECS = [
     completionKind: 'summary',
   },
   {
-    id: 'validate',
+    id: VALIDATE_STEP_ID,
     skill: 'spok-validate-implementation',
     argument: 'taskDir',
     expectedOutput: 'validation',
@@ -447,6 +448,8 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Expected output path ')) return 'wrong_output_path';
   if (reason.startsWith('Expected output file is missing or empty for step ')) return 'missing_output';
   if (reason.includes('must set Flow Decision to proceed')) return 'flow_decision_not_proceed';
+  if (reason.includes('recorded a FAIL verdict')) return 'validation_verdict_fail';
+  if (reason.includes('has no readable verdict')) return 'validation_verdict_unreadable';
   if (reason.includes('must provide a non-empty --summary')) return 'missing_summary';
   if (reason.includes('must provide a commit SHA')) return 'missing_commit';
   return 'blocked';
@@ -640,14 +643,18 @@ function extractMarkdownSection(content: string, heading: string): string {
   return match?.[1]?.trim() ?? '';
 }
 
-function flowDecisionAllowsProceed(content: string): boolean {
-  const section = extractMarkdownSection(content, 'Flow Decision');
-  const firstDecisionLine = section
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
+/** First non-blank trimmed line of a `## <heading>` section, or '' when there is none. */
+function firstSectionLine(content: string, heading: string): string {
+  return (
+    extractMarkdownSection(content, heading)
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ''
+  );
+}
 
-  return /^`?proceed`?\b/i.test(firstDecisionLine ?? '');
+function flowDecisionAllowsProceed(content: string): boolean {
+  return /^`?proceed`?\b/i.test(firstSectionLine(content, 'Flow Decision'));
 }
 
 async function validateProblemValidationFlowDecision(
@@ -659,6 +666,57 @@ async function validateProblemValidationFlowDecision(
   if (flowDecisionAllowsProceed(content)) return;
 
   return `Step ${PROBLEM_VALIDATION_STEP_ID} must set Flow Decision to proceed before the flow can continue: ${definition.expectedOutput}`;
+}
+
+type Verdict = 'PASS' | 'FAIL';
+
+function parseVerdictValue(raw: string): Verdict | undefined {
+  const value = raw
+    .replace(/^[`'"]+|[`'"]+$/g, '')
+    .trim()
+    .toUpperCase();
+  return value === 'PASS' || value === 'FAIL' ? value : undefined;
+}
+
+/** Raw value of the first frontmatter `verdict:` line, or undefined when there is none. */
+function frontmatterVerdictValue(normalized: string): string | undefined {
+  if (!normalized.startsWith('---\n')) return;
+
+  const closingIndex = normalized.indexOf('\n---', 4);
+  if (closingIndex === -1) return;
+
+  for (const line of normalized.slice(4, closingIndex).split('\n')) {
+    const match = line.match(/^verdict\s*:\s*(.+?)\s*$/i);
+    if (match) return match[1];
+  }
+}
+
+/** Pure. Returns undefined when no verdict is readable. */
+function readValidationVerdict(content: string): Verdict | undefined {
+  const normalized = content.replace(/\r\n/g, '\n');
+
+  // An explicit frontmatter verdict is the machine-facing contract:
+  // an unrecognized value is unreadable — no body fallback.
+  const declared = frontmatterVerdictValue(normalized);
+  if (declared !== undefined) return parseVerdictValue(declared);
+
+  const match = firstSectionLine(normalized, 'Validation Verdict')
+    .replace(/[*`]/g, '')
+    .match(/^(?:verdict\s*:?\s*)?(PASS|FAIL)\b/i);
+  return match ? parseVerdictValue(match[1]!) : undefined;
+}
+
+async function validateValidationVerdict(definition: StepDefinition): Promise<string | undefined> {
+  if (definition.id !== VALIDATE_STEP_ID || !definition.expectedOutput) return;
+
+  const content = await fs.readFile(definition.expectedOutput, 'utf-8');
+  const verdict = readValidationVerdict(content);
+  if (verdict === 'PASS') return;
+  if (verdict === 'FAIL') {
+    return `Step ${VALIDATE_STEP_ID} recorded a FAIL verdict: ${definition.expectedOutput}`;
+  }
+
+  return `Step ${VALIDATE_STEP_ID} has no readable verdict (expected PASS or FAIL): ${definition.expectedOutput}`;
 }
 
 async function completeStepResult(
@@ -675,6 +733,9 @@ async function completeStepResult(
 
     const decisionError = await validateProblemValidationFlowDecision(definition);
     if (decisionError) return decisionError;
+
+    const verdictError = await validateValidationVerdict(definition);
+    if (verdictError) return verdictError;
 
     return {
       output: definition.expectedOutput,

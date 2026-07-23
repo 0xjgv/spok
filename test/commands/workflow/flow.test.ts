@@ -23,8 +23,12 @@ interface FlowHarness {
   completeProblemValidation(decision?: string): Promise<void>;
   completeFileStep(step: string, filename: string): Promise<void>;
   completeSummaryStep(step: string, summary: string): Promise<void>;
+  advanceToValidate(): Promise<void>;
+  completeValidate(content: string): ReturnType<typeof completeFlowStep>;
   completeThroughValidation(): Promise<void>;
 }
+
+const PASS_VALIDATION = '---\nverdict: PASS\n---\n\n# Validation\n';
 
 const EXPECTED_STEP_ROUTING = [
   { id: 'validate-problem', model: 'opus', effort: 'xhigh' },
@@ -123,7 +127,7 @@ function useFlowHarness(): FlowHarness {
     expect(result.state).not.toBe('blocked');
   }
 
-  async function completeThroughValidation() {
+  async function advanceToValidate() {
     await completeProblemValidation();
     await completeFileStep('research-questions', 'research-questions.md');
     await completeFileStep('research', 'research.md');
@@ -132,7 +136,19 @@ function useFlowHarness(): FlowHarness {
     await completeFileStep('plan', 'plan.md');
     await completeSummaryStep('implement', 'Implemented the plan.');
     await completeSummaryStep('simplify', 'Simplified the implementation.');
-    await completeFileStep('validate', 'validation.md');
+  }
+
+  async function completeValidate(content: string) {
+    await getFlowNext(taskDir);
+    const output = path.join(taskDir, 'validation.md');
+    await fs.writeFile(output, content, 'utf-8');
+    return completeFlowStep(taskDir, { step: 'validate', output });
+  }
+
+  async function completeThroughValidation() {
+    await advanceToValidate();
+    const result = await completeValidate(PASS_VALIDATION);
+    expect(result.state).not.toBe('blocked');
   }
 
   return {
@@ -146,6 +162,8 @@ function useFlowHarness(): FlowHarness {
     completeProblemValidation,
     completeFileStep,
     completeSummaryStep,
+    advanceToValidate,
+    completeValidate,
     completeThroughValidation,
   };
 }
@@ -247,6 +265,28 @@ describe('deterministic workflow step state', () => {
     expect(result.state).toBe('ready');
     expect(result.completedStep?.status).toBe('completed');
     expect(result.nextStep?.id).toBe('research-questions');
+  });
+
+  it('completes validate and advances to commit on a PASS frontmatter verdict', async () => {
+    await flow.advanceToValidate();
+
+    const result = await flow.completeValidate(PASS_VALIDATION);
+
+    expect(result.state).toBe('ready');
+    expect(result.completedStep?.id).toBe('validate');
+    expect(result.completedStep?.status).toBe('completed');
+    expect(result.nextStep?.id).toBe('commit');
+  });
+
+  it('completes validate via the Validation Verdict body section when frontmatter is absent', async () => {
+    await flow.advanceToValidate();
+
+    const result = await flow.completeValidate(
+      '# Validation\n\n## Validation Verdict\n\n**Verdict**: `PASS`\n\nAll required behavior is present.\n'
+    );
+
+    expect(result.state).toBe('ready');
+    expect(result.nextStep?.id).toBe('commit');
   });
 });
 
@@ -524,6 +564,60 @@ describe('deterministic workflow completion blockers', () => {
     expect(result.state).toBe('complete');
     expect(result.completedStep?.id).toBe('self-learn');
     expect(result.nextStep).toBeUndefined();
+  });
+
+  it('blocks validate completion when the recorded verdict is FAIL', async () => {
+    await flow.advanceToValidate();
+
+    const result = await flow.completeValidate(
+      '---\nverdict: FAIL\n---\n\n## Validation Verdict\n\n**Verdict**: `FAIL`\n'
+    );
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('recorded a FAIL verdict');
+    expect(result.reason).toContain(path.join(flow.taskDir, 'validation.md'));
+    expect(result.nextStep?.id).toBe('validate');
+
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.state).toBe('ready');
+    expect(next.step?.id).toBe('validate');
+  });
+
+  it('blocks validate completion when no verdict is readable', async () => {
+    await flow.advanceToValidate();
+
+    const result = await flow.completeValidate('# validate\n');
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('has no readable verdict (expected PASS or FAIL)');
+    expect(result.reason).toContain(path.join(flow.taskDir, 'validation.md'));
+  });
+
+  it('blocks when the frontmatter verdict is unrecognized even if the body says PASS', async () => {
+    await flow.advanceToValidate();
+
+    const result = await flow.completeValidate(
+      '---\nverdict: MAYBE\n---\n\n## Validation Verdict\n\n**Verdict**: `PASS`\n'
+    );
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('has no readable verdict');
+  });
+
+  it('records a validation_verdict_fail event code when a FAIL verdict blocks', async () => {
+    await flow.advanceToValidate();
+
+    await flow.completeValidate('---\nverdict: FAIL\n---\n\n# Validation\n');
+
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      schemaVersion: 1,
+      event: 'flow_complete',
+      state: 'blocked',
+      step: 'validate',
+      code: 'validation_verdict_fail',
+    });
+    expect(events.at(-1)?.reason).toEqual(expect.stringContaining('recorded a FAIL verdict'));
   });
 });
 

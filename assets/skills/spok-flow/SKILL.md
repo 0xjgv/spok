@@ -2,7 +2,7 @@
 name: spok-flow
 description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk, with an optional post-commit self-learn gate. Driven by spok-apply.
 argument-hint: <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
-version: 0.5.0
+version: 0.5.1
 ---
 # Flow Instructions
 
@@ -57,6 +57,8 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      ```bash
      spok flow complete "<task-dir>" --step "<id>" --json
      ```
+
+   - `validate` additionally has its recorded verdict read from `validation.md` by the CLI: `PASS` completes the step; a `FAIL` or unreadable verdict returns `state: "blocked"`. Report a blocked `validate` exactly as returned — do not retry the step and do not edit `validation.md` to unblock it.
 
    - `implement` and `simplify`:
 
