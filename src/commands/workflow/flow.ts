@@ -19,8 +19,12 @@ interface Routing {
 
 const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
 const VALIDATE_STEP_ID = 'validate';
+const REPAIR_STEP_ID = 'repair';
 const SELF_LEARN_STEP_ID = 'self-learn';
 const FLOW_EVENT_DIR = '.spok';
+
+/** Bounded: a FAIL splices at most this many [repair, validate] pairs per flow. */
+const MAX_REPAIR_ATTEMPTS = 2;
 
 const MEMORY_FILE = 'MEMORY.md';
 const MAX_MEMORY_RULES = 20;
@@ -40,6 +44,7 @@ const FLOW_STEP_TIER_BY_ID = {
   implement: 'mid',
   simplify: 'heavy',
   validate: 'heavy',
+  [REPAIR_STEP_ID]: 'heavy',
   commit: 'cheap',
   [SELF_LEARN_STEP_ID]: 'mid',
 } as const satisfies Record<string, FlowTier>;
@@ -79,6 +84,8 @@ export interface FlowStep {
   expectedOutput?: string;
   status: FlowStepStatus;
   result?: FlowStepResult;
+  /** 1-based repair-cycle attempt for spliced repair/validate steps; absent on the base graph. */
+  attempt?: number;
   /** Derived per response, never persisted: the full subagent prompt to dispatch verbatim. */
   prompt?: string;
 }
@@ -88,6 +95,7 @@ export interface WorkflowState {
   taskDir: string;
   status: FlowRunState;
   steps: FlowStep[];
+  repairAttempts: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -128,6 +136,7 @@ interface StepDefinition {
   argument: string;
   expectedOutput?: string;
   completionKind: FlowCompletionKind;
+  attempt?: number;
 }
 
 type RoutedStepId = keyof typeof FLOW_STEP_TIER_BY_ID;
@@ -152,6 +161,21 @@ interface StepDefinitionSpec {
   expectedOutput?: keyof FlowStepPaths;
   completionKind: FlowCompletionKind;
 }
+
+const VALIDATE_STEP_DEFINITION_SPEC = {
+  id: VALIDATE_STEP_ID,
+  skill: 'spok-validate-implementation',
+  argument: 'taskDir',
+  expectedOutput: 'validation',
+  completionKind: 'file',
+} as const satisfies StepDefinitionSpec;
+
+const REPAIR_STEP_DEFINITION_SPEC = {
+  id: REPAIR_STEP_ID,
+  skill: 'spok-repair',
+  argument: 'validation',
+  completionKind: 'summary',
+} as const satisfies StepDefinitionSpec;
 
 const BASE_STEP_DEFINITION_SPECS = [
   {
@@ -208,13 +232,7 @@ const BASE_STEP_DEFINITION_SPECS = [
     argument: 'taskDir',
     completionKind: 'summary',
   },
-  {
-    id: VALIDATE_STEP_ID,
-    skill: 'spok-validate-implementation',
-    argument: 'taskDir',
-    expectedOutput: 'validation',
-    completionKind: 'file',
-  },
+  VALIDATE_STEP_DEFINITION_SPEC,
   {
     id: 'commit',
     skill: 'spok-ci-commit',
@@ -426,13 +444,32 @@ function buildStepDefinition(
   };
 }
 
-function buildStepDefinitions(taskDir: string): StepDefinition[] {
+const REPAIR_CYCLE_SPECS = [REPAIR_STEP_DEFINITION_SPEC, VALIDATE_STEP_DEFINITION_SPEC] as const;
+
+/** The [repair, validate] pair one FAIL splices in, stamped with its 1-based attempt. */
+function repairCycleDefinitions(taskDir: string, attempt: number): StepDefinition[] {
+  const paths = buildFlowStepPaths(taskDir);
+  const tool = detectTool();
+  return REPAIR_CYCLE_SPECS.map((spec) => ({ ...buildStepDefinition(spec, paths, tool), attempt }));
+}
+
+function buildStepDefinitions(taskDir: string, repairAttempts: number): StepDefinition[] {
   const paths = buildFlowStepPaths(taskDir);
   const tool = detectTool();
   const specs = isSelfLearnEnabled(taskDir)
     ? [...BASE_STEP_DEFINITION_SPECS, SELF_LEARN_STEP_DEFINITION_SPEC]
     : BASE_STEP_DEFINITION_SPECS;
-  return specs.map((spec) => buildStepDefinition(spec, paths, tool));
+  const definitions: StepDefinition[] = specs.map((spec) => buildStepDefinition(spec, paths, tool));
+  if (repairAttempts === 0) return definitions;
+
+  // Every cycle lands as one block right after the base validate, so the flat
+  // list reads: validate, then (repair, validate) once per attempt.
+  const cycles = Array.from({ length: repairAttempts }, (_, index) =>
+    repairCycleDefinitions(taskDir, index + 1)
+  ).flat();
+  const validateIndex = definitions.findIndex((definition) => definition.id === VALIDATE_STEP_ID);
+  definitions.splice(validateIndex + 1, 0, ...cycles);
+  return definitions;
 }
 
 function stepFromDefinition(
@@ -449,12 +486,13 @@ function stepFromDefinition(
     expectedOutput: definition.expectedOutput,
     status,
     result,
+    attempt: definition.attempt,
   };
 }
 
 function createInitialState(taskDir: string): WorkflowState {
   const timestamp = nowIso();
-  const definitions = buildStepDefinitions(taskDir);
+  const definitions = buildStepDefinitions(taskDir, 0);
   return {
     version: 1,
     taskDir,
@@ -462,19 +500,40 @@ function createInitialState(taskDir: string): WorkflowState {
     steps: definitions.map((definition, index) =>
       stepFromDefinition(definition, index === 0 ? 'ready' : 'pending')
     ),
+    repairAttempts: 0,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 }
 
-function isCompletedStep(step: unknown): step is FlowStep {
-  if (!step || typeof step !== 'object') return false;
-  const candidate = step as Partial<FlowStep>;
-  return typeof candidate.id === 'string' && candidate.status === 'completed';
+/** The step's id when the stored value is shaped like a step at all, else undefined. */
+function storedStepId(step: unknown): string | undefined {
+  if (!step || typeof step !== 'object') return;
+  const id = (step as Partial<FlowStep>).id;
+  return typeof id === 'string' ? id : undefined;
 }
 
-function shouldSkipProblemValidationForLegacyState(completedById: Map<string, FlowStep>): boolean {
-  return completedById.size > 0 && !completedById.has(PROBLEM_VALIDATION_STEP_ID);
+function isCompletedStep(step: unknown): step is FlowStep {
+  return storedStepId(step) !== undefined && (step as Partial<FlowStep>).status === 'completed';
+}
+
+function occurrenceKey(id: string, occurrence: number): string {
+  return `${id}#${occurrence}`;
+}
+
+/**
+ * Keys a step by how many same-id steps preceded it, so the repeated `validate`
+ * of a repair cycle cannot inherit the first occurrence's completed result.
+ * Mutates `counts`, which must be walked in list order.
+ */
+function takeOccurrenceKey(counts: Map<string, number>, id: string): string {
+  const occurrence = counts.get(id) ?? 0;
+  counts.set(id, occurrence + 1);
+  return occurrenceKey(id, occurrence);
+}
+
+function shouldSkipProblemValidationForLegacyState(completed: Map<string, FlowStep>): boolean {
+  return completed.size > 0 && !completed.has(occurrenceKey(PROBLEM_VALIDATION_STEP_ID, 0));
 }
 
 function normalizeState(taskDir: string, stored: unknown): WorkflowState {
@@ -482,18 +541,25 @@ function normalizeState(taskDir: string, stored: unknown): WorkflowState {
   if (!stored || typeof stored !== 'object') return initial;
 
   const candidate = stored as Partial<WorkflowState>;
+  const repairAttempts =
+    typeof candidate.repairAttempts === 'number' && candidate.repairAttempts > 0
+      ? Math.floor(candidate.repairAttempts)
+      : 0;
   const storedSteps = Array.isArray(candidate.steps) ? candidate.steps : [];
-  const completedById = new Map<string, FlowStep>();
+  const completedByKey = new Map<string, FlowStep>();
+  const storedOccurrences = new Map<string, number>();
   for (const step of storedSteps) {
-    if (isCompletedStep(step)) {
-      completedById.set(step.id, step);
-    }
+    const id = storedStepId(step);
+    if (id === undefined) continue;
+    const key = takeOccurrenceKey(storedOccurrences, id);
+    if (isCompletedStep(step)) completedByKey.set(key, step);
   }
 
-  const definitions = buildStepDefinitions(taskDir);
-  const skipProblemValidation = shouldSkipProblemValidationForLegacyState(completedById);
+  const definitions = buildStepDefinitions(taskDir, repairAttempts);
+  const skipProblemValidation = shouldSkipProblemValidationForLegacyState(completedByKey);
+  const definitionOccurrences = new Map<string, number>();
   const steps = definitions.map((definition) => {
-    const completed = completedById.get(definition.id);
+    const completed = completedByKey.get(takeOccurrenceKey(definitionOccurrences, definition.id));
     if (!completed && definition.id === PROBLEM_VALIDATION_STEP_ID && skipProblemValidation) {
       return stepFromDefinition(definition, 'completed', {
         summary: 'Skipped for legacy workflow state created before validate-problem existed.',
@@ -509,6 +575,7 @@ function normalizeState(taskDir: string, stored: unknown): WorkflowState {
     taskDir,
     status: 'ready',
     steps,
+    repairAttempts,
     createdAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
     updatedAt: initial.updatedAt,
   };
@@ -571,6 +638,7 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Expected output path ')) return 'wrong_output_path';
   if (reason.startsWith('Expected output file is missing or empty for step ')) return 'missing_output';
   if (reason.includes('must set Flow Decision to proceed')) return 'flow_decision_not_proceed';
+  if (reason.includes('repair attempts')) return 'repair_attempts_exhausted';
   if (reason.includes('recorded a FAIL verdict')) return 'validation_verdict_fail';
   if (reason.includes('has no readable verdict')) return 'validation_verdict_unreadable';
   if (reason.includes('must provide a non-empty --summary')) return 'missing_summary';
@@ -666,8 +734,12 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
   }
 }
 
-function getDefinitionById(taskDir: string, stepId: string): StepDefinition | undefined {
-  return buildStepDefinitions(taskDir).find((definition) => definition.id === stepId);
+function getDefinitionById(
+  taskDir: string,
+  stepId: string,
+  repairAttempts: number
+): StepDefinition | undefined {
+  return buildStepDefinitions(taskDir, repairAttempts).find((definition) => definition.id === stepId);
 }
 
 function getCurrentStep(state: WorkflowState): FlowStep | undefined {
@@ -681,11 +753,12 @@ function getCurrentStep(state: WorkflowState): FlowStep | undefined {
 function withStepPrompt(
   taskDir: string,
   step: FlowStep | undefined,
-  rules: string[]
+  rules: string[],
+  repairAttempts: number
 ): FlowStep | undefined {
   if (!step) return step;
 
-  const definition = getDefinitionById(taskDir, step.id);
+  const definition = getDefinitionById(taskDir, step.id, repairAttempts);
   if (!definition) return step;
 
   return { ...step, prompt: buildStepPrompt(definition, rules) };
@@ -696,7 +769,12 @@ function buildResponse(
   extra: Pick<FlowResponse, 'step' | 'completedStep' | 'reason'> = {}
 ): FlowResponse {
   const memory = readMemory(state.taskDir);
-  const nextStep = withStepPrompt(state.taskDir, getCurrentStep(state), memory?.rules ?? []);
+  const nextStep = withStepPrompt(
+    state.taskDir,
+    getCurrentStep(state),
+    memory?.rules ?? [],
+    state.repairAttempts
+  );
   return {
     state: state.status,
     taskDir: state.taskDir,
@@ -724,10 +802,13 @@ function buildBlockedResponse(taskDir: string, statePath: string, reason: string
 }
 
 async function validateCompletedArtifacts(state: WorkflowState): Promise<string | undefined> {
-  for (const step of state.steps) {
+  const definitions = buildStepDefinitions(state.taskDir, state.repairAttempts);
+  const finalValidateIndex = state.steps.map((step) => step.id).lastIndexOf(VALIDATE_STEP_ID);
+
+  for (const [index, step] of state.steps.entries()) {
     if (step.status !== 'completed') continue;
 
-    const definition = getDefinitionById(state.taskDir, step.id);
+    const definition = definitions.find((candidate) => candidate.id === step.id);
     if (definition?.completionKind !== 'file' || !definition.expectedOutput) continue;
     if (!step.result?.output) continue;
 
@@ -739,6 +820,10 @@ async function validateCompletedArtifacts(state: WorkflowState): Promise<string 
     // artifact that was edited after completion from carrying the flow forward.
     const decisionError = await validateProblemValidationFlowDecision(definition);
     if (decisionError) return decisionError;
+
+    // The verdict gate fires only on the final validate occurrence: an earlier
+    // completed validate legitimately holds a FAIL artifact mid-cycle.
+    if (step.id === VALIDATE_STEP_ID && index !== finalValidateIndex) continue;
 
     const verdictError = await validateValidationVerdict(definition);
     if (verdictError) return verdictError;
@@ -924,6 +1009,79 @@ async function completeStepResult(
   };
 }
 
+function repairAttemptsExhaustedReason(expectedOutput: string): string {
+  return `Step ${VALIDATE_STEP_ID} exhausted ${MAX_REPAIR_ATTEMPTS} repair attempts and still records a FAIL verdict: ${expectedOutput}`;
+}
+
+/**
+ * A FAIL with attempts remaining is a successful transition, not a block:
+ * blocked responses are ephemeral and could never advance the flow to repair.
+ * The validate step completes against its recorded artifact, the [repair,
+ * validate] pair extends the flat step list, and the state file is written.
+ */
+async function spliceRepairCycle(
+  state: WorkflowState,
+  currentStep: FlowStep,
+  definition: StepDefinition
+): Promise<FlowResponse> {
+  currentStep.status = 'completed';
+  currentStep.result = { output: definition.expectedOutput, completedAt: nowIso() };
+
+  state.repairAttempts += 1;
+  const spliced = repairCycleDefinitions(state.taskDir, state.repairAttempts).map(
+    (cycleDefinition) => stepFromDefinition(cycleDefinition, 'pending')
+  );
+  state.steps.splice(state.steps.indexOf(currentStep) + 1, 0, ...spliced);
+
+  markNextStepReady(state);
+  await writeState(state);
+  return buildResponse(state, { completedStep: currentStep });
+}
+
+/** Epoch ms of the latest completed repair step, or undefined when none completed. */
+function lastRepairCompletedAt(state: WorkflowState): number | undefined {
+  let latest: number | undefined;
+  for (const step of state.steps) {
+    if (step.id !== REPAIR_STEP_ID || step.status !== 'completed') continue;
+    const completedAt = Date.parse(step.result?.completedAt ?? '');
+    if (!Number.isNaN(completedAt) && (latest === undefined || completedAt > latest)) {
+      latest = completedAt;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Query-side terminal check, re-derived from disk on every call (blocked is
+ * ephemeral, so the exhausting completion leaves no stored trace). Fires only
+ * for a FAIL recorded at or after the last repair completed: the stale FAIL
+ * left by the previous validate run must not block dispatching the final
+ * validate occurrence.
+ */
+async function exhaustedRepairBlockReason(state: WorkflowState): Promise<string | undefined> {
+  if (state.repairAttempts < MAX_REPAIR_ATTEMPTS) return;
+
+  const current = getCurrentStep(state);
+  if (current?.id !== VALIDATE_STEP_ID) return;
+
+  const repairCompletedAt = lastRepairCompletedAt(state);
+  if (repairCompletedAt === undefined) return;
+
+  const output = buildFlowStepPaths(state.taskDir).validation;
+  let recordedAt: number;
+  try {
+    recordedAt = (await fs.stat(output)).mtimeMs;
+  } catch {
+    return; // Absent artifact: the step is simply re-offered, as today.
+  }
+  if (recordedAt < repairCompletedAt) return; // Stale FAIL from before the final repair.
+
+  const content = await readArtifact(output);
+  if (content === undefined || readValidationVerdict(content) !== 'FAIL') return;
+
+  return repairAttemptsExhaustedReason(output);
+}
+
 /** Read-only: derives state from disk without creating or touching the state file. */
 export async function getFlowStatus(taskDirInput: string): Promise<FlowResponse> {
   const loaded = await loadOrCreateState(taskDirInput);
@@ -936,6 +1094,13 @@ export async function getFlowStatus(taskDirInput: string): Promise<FlowResponse>
   const missingArtifact = await validateCompletedArtifacts(loaded.state);
   if (missingArtifact) {
     const response = blockedResponse(loaded.state, missingArtifact);
+    await recordFlowResponse(response, 'flow_status');
+    return response;
+  }
+
+  const exhausted = await exhaustedRepairBlockReason(loaded.state);
+  if (exhausted) {
+    const response = blockedResponse(loaded.state, exhausted);
     await recordFlowResponse(response, 'flow_status');
     return response;
   }
@@ -957,6 +1122,13 @@ export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
   const missingArtifact = await validateCompletedArtifacts(loaded.state);
   if (missingArtifact) {
     const response = blockedResponse(loaded.state, missingArtifact);
+    await recordFlowResponse(response, 'flow_next');
+    return response;
+  }
+
+  const exhausted = await exhaustedRepairBlockReason(loaded.state);
+  if (exhausted) {
+    const response = blockedResponse(loaded.state, exhausted);
     await recordFlowResponse(response, 'flow_next');
     return response;
   }
@@ -1005,7 +1177,7 @@ export async function completeFlowStep(
     return response;
   }
 
-  const definition = getDefinitionById(loaded.state.taskDir, currentStep.id);
+  const definition = getDefinitionById(loaded.state.taskDir, currentStep.id, loaded.state.repairAttempts);
   if (!definition) {
     const response = blockedResponse(loaded.state, `Unknown workflow step: ${currentStep.id}.`);
     await recordFlowResponse(response, 'flow_complete');
@@ -1014,7 +1186,20 @@ export async function completeFlowStep(
 
   const result = await completeStepResult(definition, input);
   if (typeof result === 'string') {
-    const response = blockedResponse(loaded.state, result);
+    // Only the validate step can produce this code, so expectedOutput is set.
+    const isValidationFail =
+      currentStep.id === VALIDATE_STEP_ID && flowBlockCode(result) === 'validation_verdict_fail';
+
+    if (isValidationFail && loaded.state.repairAttempts < MAX_REPAIR_ATTEMPTS) {
+      const response = await spliceRepairCycle(loaded.state, currentStep, definition);
+      await recordFlowResponse(response, 'flow_complete');
+      return response;
+    }
+
+    const response = blockedResponse(
+      loaded.state,
+      isValidationFail ? repairAttemptsExhaustedReason(definition.expectedOutput!) : result
+    );
     await recordFlowResponse(response, 'flow_complete');
     return response;
   }

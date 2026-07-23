@@ -2,7 +2,7 @@
 name: spok-flow
 description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk, with an optional post-commit self-learn gate. Driven by spok-apply.
 argument-hint: <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
-version: 0.6.0
+version: 0.7.0
 ---
 # Flow Instructions
 
@@ -63,9 +63,9 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      spok flow complete "<task-dir>" --step "<id>" --json
      ```
 
-   - `validate` additionally has its recorded verdict read from `validation.md` by the CLI: `PASS` completes the step; a `FAIL` or unreadable verdict returns `state: "blocked"`. Report a blocked `validate` exactly as returned — do not retry the step and do not edit `validation.md` to unblock it.
+   - `validate` additionally has its recorded verdict read from `validation.md` by the CLI: `PASS` completes the step. A `FAIL` with repair attempts remaining is a *successful* completion that routes to a `repair` step and then back to `validate` — the CLI may return `validate` more than once; complete every occurrence with the same bare `--step validate`. When repair attempts are exhausted and the verdict is still `FAIL`, `complete` (and subsequent `next`/`status`) return `state: "blocked"` with an exhausted-repair reason: report it exactly as returned — do not retry the step and do not edit `validation.md` to unblock it. An unreadable verdict blocks as before.
 
-   - `implement` and `simplify`:
+   - `implement`, `simplify`, and `repair` (dispatched like any other step when the CLI returns it):
 
      ```bash
      spok flow complete "<task-dir>" --step "<id>" --summary "<summary>" --json
