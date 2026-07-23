@@ -120,6 +120,25 @@ describe('skill-generation', () => {
       expect(content).toContain('- Classification: <required | not-applicable>');
       expect(content).toContain('- Packet: spok/evidence/<change>/<chunk>/');
     });
+
+    it('should state the commit constraint as a rule in the generated apply ticket template', () => {
+      const [apply] = getSkillTemplates(['apply']);
+      const content = generateSkillContent(apply.template, '1.3.1');
+
+      expect(content).toContain('## Commit Constraint');
+      expect(content).toContain('Stage only the paths this chunk touches.');
+      expect(content).toContain('Never embed a `git status`');
+      expect(content).toContain('it goes stale, and the commit step reads live status');
+    });
+
+    it('should not embed a git status snapshot in the generated apply ticket template', () => {
+      const [apply] = getSkillTemplates(['apply']);
+      const content = generateSkillContent(apply.template, '1.3.1');
+
+      expect(content).not.toMatch(/^\s*(?:M|A|D|\?\?)\s+\S+\.(?:ts|md|json|yaml)$/m);
+      expect(content).not.toContain('Changes not staged for commit');
+      expect(content).not.toContain('git status --short\n');
+    });
   });
 
   describe('getCommandTemplates', () => {

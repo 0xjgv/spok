@@ -35,6 +35,8 @@ Run any automated verification that the implementer agent may have missed or tha
 - Linting/formatting checks
 - Any other automated verification mentioned in the plan
 
+Report only checks you actually executed. If the plan names a command that does not exist in this repository, say so and name the command — never substitute a different command silently, and never report the named command as passing. A command that exits 0 because the tool was downloaded on demand and found nothing to configure has verified nothing.
+
 ### 4. Report to Human
 Provide a clear summary of the phase completion:
 ```
@@ -44,7 +46,8 @@ Provide a clear summary of the phase completion:
 - [List of completed tasks]
 
 **Automated verification results:**
-- [Results of automated checks you performed]
+- [For each check: the exact command you ran and its real output. Only checks you executed.]
+- [For any plan-named command this repository does not have: say it does not exist here. Do not report it as passing.]
 
 **Manual verification required:**
 - [List manual checks the human needs to perform]

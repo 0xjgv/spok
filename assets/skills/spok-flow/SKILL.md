@@ -54,7 +54,9 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 
    Run subagents **sequentially in the foreground** — each step depends on the previous step's validated artifact or recorded result. Do not invoke the step skill inline: the subagent keeps each step's context isolated.
 
-5. Record completion with the CLI:
+5. Record completion with the CLI.
+
+   A `--summary` is recorded permanently in `workflow-state.json`. Do not relay a verification claim that cannot be attributed to a command that ran during the step. If the subagent reports "lint clean" or "tests pass" without naming the command it ran, drop the claim from the summary rather than passing it through — the CLI checks only that the summary is non-empty, so you are the last check on it.
    - File-producing steps (the CLI verifies `expectedOutput` exists and is non-empty):
 
      ```bash

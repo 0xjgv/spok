@@ -101,6 +101,10 @@ conversation context. If still ambiguous you MUST prompt the user.
    ## Rollback
    <from tasks.md>
 
+   ## Commit Constraint
+   Stage only the paths this chunk touches. Never embed a \`git status\`
+   snapshot — it goes stale, and the commit step reads live status.
+
    ## Visual Evidence
    - Classification: <required | not-applicable>
    - Packet: spok/evidence/<change>/<chunk>/

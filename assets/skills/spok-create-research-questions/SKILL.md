@@ -48,6 +48,10 @@ You have access to specialized agents to help research the codebase:
    - Potential complexities or edge cases
    - Architecture, dependencies, and implementation details
 
+   **MANDATORY — every run must include this question**: what are this repository's actual lint, typecheck, test, and format commands? The answer must be sourced from the repository's own manifest — `package.json` scripts, `Makefile` targets, or the equivalent for this stack — and never inferred from a toolchain name, a lockfile, or a config file's presence. Phrase it as codebase exploration like every other question, with path steering to the manifest.
+
+   This question is mandatory because downstream stages consume `research.md` as fact. A guessed command reaches the plan unchallenged and gets reported as passing. The mandatory question counts toward the maximum number of questions.
+
 Good questions will include some basic path steering, like "... in apps/wui ..." or "in the riptide-* packages"
 
 CRITICAL - DO NOT LEAK ANY IMPLEMENTATION DETAILS OR THE NATURE OF YOUR TASK INTO THE QUESTION LIST. NO "HOW WOULD WE XYZ" - ONLY "HOW DOES IT WORK"

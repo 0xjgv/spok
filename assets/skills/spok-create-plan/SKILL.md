@@ -35,6 +35,8 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
 - Each phase should be independently testable
 - Include specific code examples, not just descriptions
 - Automated verification should be runnable commands
+- Every automated-verification command must come from the repository's manifest (`package.json` scripts, `Makefile` targets, or the equivalent) or from `research.md`. Never name a command from a toolchain guess — do not write `bunx <tool>` or `npx <tool>` for a tool you have not confirmed this repository configures.
+- If research did not establish the commands, say so plainly in the plan ("research did not establish the lint command; confirm before running"). Do not hedge with a conditional like "if configured" — a hedged command reads as approved and gets run anyway.
 - Manual verification should be specific, actionable steps
 - Pause for human confirmation between phases
 - If the research documented testing patterns for the components being changed, include test code in the plan (new test files or additions to existing test files). Follow the existing test patterns found in the research.
