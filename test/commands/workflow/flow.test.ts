@@ -30,9 +30,9 @@ const EXPECTED_STEP_ROUTING = [
   { id: 'validate-problem', model: 'opus', effort: 'xhigh' },
   { id: 'research-questions', model: 'opus', effort: 'xhigh' },
   { id: 'research', model: 'sonnet', effort: 'xhigh' },
-  { id: 'design-discussion', model: 'fable', effort: 'xhigh' },
-  { id: 'structure-outline', model: 'fable', effort: 'xhigh' },
-  { id: 'plan', model: 'fable', effort: 'xhigh' },
+  { id: 'design-discussion', model: 'fable', effort: 'high' },
+  { id: 'structure-outline', model: 'fable', effort: 'high' },
+  { id: 'plan', model: 'fable', effort: 'high' },
   { id: 'implement', model: 'sonnet', effort: 'xhigh' },
   { id: 'simplify', model: 'opus', effort: 'xhigh' },
   { id: 'validate', model: 'opus', effort: 'xhigh' },
@@ -287,7 +287,7 @@ describe('deterministic workflow state resumption', () => {
       id: 'design-discussion',
       skill: 'spok-create-design-discussion',
       model: 'fable',
-      effort: 'xhigh',
+      effort: 'high',
       argument: flow.taskDir,
       expectedOutput: path.join(flow.taskDir, 'design-discussion.md'),
     });
@@ -341,7 +341,7 @@ describe('deterministic workflow state resumption', () => {
     expect(result.step).toMatchObject({
       id: 'design-discussion',
       model: 'fable',
-      effort: 'xhigh',
+      effort: 'high',
       status: 'ready',
     });
     expectStepRouting(result.steps);
