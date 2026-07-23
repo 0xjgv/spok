@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { getTaskProgressForChange, formatTaskStatus } from '../utils/task-progress.js';
+import { validateChangeName } from '../utils/change-utils.js';
 import { Validator } from './validation/validator.js';
 import chalk from 'chalk';
 import {
@@ -62,6 +63,13 @@ export class ArchiveCommand {
       await fs.access(changesDir);
     } catch {
       throw new Error("No Spok changes directory found. Run 'spok init' first.");
+    }
+
+    if (changeName !== undefined) {
+      const nameValidation = validateChangeName(changeName);
+      if (!nameValidation.valid) {
+        throw new Error(`Invalid change name '${changeName}': ${nameValidation.error}`);
+      }
     }
 
     // Get change name interactively if not provided
