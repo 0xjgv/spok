@@ -28,6 +28,11 @@ Given('{string} contains:', async function (
   await fs.writeFile(filePath, `${contents.trim()}\n`, 'utf-8');
 });
 
+Given('{string} is a directory', async function (this: FlowMemoryWorld, relativePath: string) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  await fs.mkdir(path.join(this.projectDir, relativePath), { recursive: true });
+});
+
 When('I request the next flow step as JSON', async function (this: FlowMemoryWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
@@ -63,4 +68,10 @@ Then('the step prompt names the step skill and its argument', function (this: Fl
 
 Then('the step prompt contains no rules section', function (this: FlowMemoryWorld) {
   assert.ok(!stepPrompt(this).includes('MEMORY.md'), 'step prompt should carry no rules section');
+});
+
+Then('the flow response warns that memory could not be read', function (this: FlowMemoryWorld) {
+  assert.ok(this.cliResult, 'cliResult must be set by a flow next step');
+  const response = JSON.parse(this.cliResult.stdout) as { memoryWarning?: string };
+  assert.match(response.memoryWarning ?? '', /could not be read/);
 });

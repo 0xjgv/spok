@@ -628,6 +628,55 @@ describe('deterministic workflow completion blockers', () => {
   });
 });
 
+/** Gates run again on every read: an artifact edited after completion must re-block. */
+describe('completed artifact revalidation', () => {
+  const flow = useFlowHarness();
+
+  it('re-blocks a completed validate step whose verdict is edited to FAIL', async () => {
+    await flow.completeThroughValidation();
+    await fs.writeFile(
+      path.join(flow.taskDir, 'validation.md'),
+      '---\nverdict: FAIL\n---\n\n# Validation\n',
+      'utf-8'
+    );
+
+    const status = await getFlowStatus(flow.taskDir);
+    expect(status.state).toBe('blocked');
+    expect(status.reason).toContain('recorded a FAIL verdict');
+
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.state).toBe('blocked');
+
+    const commit = await completeFlowStep(flow.taskDir, { step: 'commit', commit: 'abc123' });
+    expect(commit.state).toBe('blocked');
+    expect(commit.reason).toContain('recorded a FAIL verdict');
+  });
+
+  it('re-blocks a completed validate step whose verdict becomes unreadable', async () => {
+    await flow.completeThroughValidation();
+    await fs.writeFile(path.join(flow.taskDir, 'validation.md'), '# Validation\n', 'utf-8');
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('has no readable verdict (expected PASS or FAIL)');
+  });
+
+  it('keeps the flow dispatchable when MEMORY.md cannot be read', async () => {
+    const configDir = path.join(flow.projectRoot, 'spok');
+    await fs.mkdir(path.join(configDir, 'MEMORY.md'), { recursive: true });
+    await fs.writeFile(path.join(configDir, 'config.yaml'), 'schema: spec-driven\n', 'utf-8');
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.step?.prompt).toContain('`spok-validate-problem`');
+    expect(result.step?.prompt).not.toContain('MEMORY.md');
+    expect(result.memoryRuleCount).toBe(0);
+    expect(result.memoryWarning).toContain('could not be read; no rules were applied.');
+  });
+});
+
 describe('flow step prompt composition', () => {
   const flow = useFlowHarness();
 

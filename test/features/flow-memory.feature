@@ -40,6 +40,19 @@ Feature: Flow memory
     Then the step prompt contains "When planning, cite file:line for every claim about existing code."
     And the step prompt does not contain "This paragraph is written for humans"
 
+  Scenario: An unreadable MEMORY.md still yields a dispatchable prompt
+    Given a new project
+    And project config contains:
+      """
+      schema = "spec-driven"
+      """
+    And a staged flow task
+    And "spok/MEMORY.md" is a directory
+    When I request the next flow step as JSON
+    Then the step prompt names the step skill and its argument
+    And the step prompt contains no rules section
+    And the flow response warns that memory could not be read
+
   Scenario: A project without MEMORY.md still yields a dispatchable prompt
     Given a new project
     And project config contains:

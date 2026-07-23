@@ -284,6 +284,16 @@ interface MemoryRead {
   rules: string[];
   ignoredOverCap: number;
   malformedBullets: number;
+  unreadable?: boolean;
+}
+
+/** Memory is optional, so a directory or a permission error degrades to no rules. */
+function readMemoryLines(memoryPath: string): string[] | undefined {
+  try {
+    return readFileSync(memoryPath, 'utf-8').split('\n');
+  } catch {
+    return;
+  }
 }
 
 /**
@@ -298,11 +308,16 @@ function readMemory(taskDir: string): MemoryRead | undefined {
   const memoryPath = path.join(projectRoot, 'spok', MEMORY_FILE);
   if (!existsSync(memoryPath)) return;
 
+  const lines = readMemoryLines(memoryPath);
+  if (!lines) {
+    return { path: memoryPath, rules: [], ignoredOverCap: 0, malformedBullets: 0, unreadable: true };
+  }
+
   const rules: string[] = [];
   let conforming = 0;
   let malformedBullets = 0;
 
-  for (const line of readFileSync(memoryPath, 'utf-8').split('\n')) {
+  for (const line of lines) {
     const trimmed = line.trim();
     const match = trimmed.match(MEMORY_RULE_PATTERN);
     if (!match) {
@@ -325,6 +340,7 @@ function readMemory(taskDir: string): MemoryRead | undefined {
 /** Anything dropped is reported: silent truncation would read as full coverage. */
 function buildMemoryWarning(memory: MemoryRead | undefined): string | undefined {
   if (!memory) return;
+  if (memory.unreadable) return `${memory.path}: could not be read; no rules were applied.`;
 
   const problems: string[] = [];
   if (memory.ignoredOverCap > 0) {
@@ -719,10 +735,13 @@ async function validateCompletedArtifacts(state: WorkflowState): Promise<string 
       return `Missing completed artifact for step ${step.id}: ${definition.expectedOutput}`;
     }
 
-    if (definition.id === PROBLEM_VALIDATION_STEP_ID) {
-      const decisionError = await validateProblemValidationFlowDecision(definition);
-      if (decisionError) return decisionError;
-    }
+    // Both gates self-guard on step id. Re-running them keeps a completed
+    // artifact that was edited after completion from carrying the flow forward.
+    const decisionError = await validateProblemValidationFlowDecision(definition);
+    if (decisionError) return decisionError;
+
+    const verdictError = await validateValidationVerdict(definition);
+    if (verdictError) return verdictError;
   }
 }
 
@@ -786,13 +805,22 @@ function flowDecisionAllowsProceed(content: string): boolean {
   return /^`?proceed`?\b/i.test(firstSectionLine(content, 'Flow Decision'));
 }
 
+/** Undefined when the artifact cannot be read: the callers treat that as a failed gate. */
+async function readArtifact(targetPath: string): Promise<string | undefined> {
+  try {
+    return await fs.readFile(targetPath, 'utf-8');
+  } catch {
+    return;
+  }
+}
+
 async function validateProblemValidationFlowDecision(
   definition: StepDefinition
 ): Promise<string | undefined> {
   if (definition.id !== PROBLEM_VALIDATION_STEP_ID || !definition.expectedOutput) return;
 
-  const content = await fs.readFile(definition.expectedOutput, 'utf-8');
-  if (flowDecisionAllowsProceed(content)) return;
+  const content = await readArtifact(definition.expectedOutput);
+  if (content !== undefined && flowDecisionAllowsProceed(content)) return;
 
   return `Step ${PROBLEM_VALIDATION_STEP_ID} must set Flow Decision to proceed before the flow can continue: ${definition.expectedOutput}`;
 }
@@ -838,8 +866,8 @@ function readValidationVerdict(content: string): Verdict | undefined {
 async function validateValidationVerdict(definition: StepDefinition): Promise<string | undefined> {
   if (definition.id !== VALIDATE_STEP_ID || !definition.expectedOutput) return;
 
-  const content = await fs.readFile(definition.expectedOutput, 'utf-8');
-  const verdict = readValidationVerdict(content);
+  const content = await readArtifact(definition.expectedOutput);
+  const verdict = content === undefined ? undefined : readValidationVerdict(content);
   if (verdict === 'PASS') return;
   if (verdict === 'FAIL') {
     return `Step ${VALIDATE_STEP_ID} recorded a FAIL verdict: ${definition.expectedOutput}`;

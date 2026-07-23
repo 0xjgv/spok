@@ -126,6 +126,22 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "\"id\": \"self-learn\""
     And the Spok CLI output contains "\"skill\": \"spok-self-learn\""
 
+  Scenario: A completed validate step re-blocks the flow when its verdict flips to FAIL
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through validation
+    And "spok/changes/demo/.flow/chunk-one/validation.md" contains:
+      """
+      ---
+      verdict: FAIL
+      ---
+
+      # Validation
+      """
+    When I attempt the staged flow commit step
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "recorded a FAIL verdict"
+
   Scenario: Flow next prints the Claude-routed model and effort for the first step
     Given a new project
     And the Claude harness is active

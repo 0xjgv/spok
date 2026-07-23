@@ -91,7 +91,7 @@ Given('the staged flow task is completed through validation', async function (th
     ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
     ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
     ['plan', 'plan.md', '# Plan\n'],
-    ['validate', 'validation.md', '# Validation\n'],
+    ['validate', 'validation.md', '---\nverdict: PASS\n---\n\n# Validation\n'],
   ] as const;
 
   for (const [, filename, content] of fileSteps) {
@@ -225,6 +225,27 @@ When('I complete the staged flow commit step', async function (this: SkillArtifa
     { cwd: this.projectDir }
   );
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
+});
+
+/** Same call as the step above, without asserting success: blocked outcomes exit 1. */
+When('I attempt the staged flow commit step', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  this.cliResult = await runCLI(
+    [
+      'flow',
+      'complete',
+      this.flowTaskDir,
+      '--step',
+      'commit',
+      '--commit',
+      'abc123',
+      '--summary',
+      'Committed the chunk.',
+      '--json',
+    ],
+    { cwd: this.projectDir }
+  );
 });
 
 When('I update Spok with force', async function (this: SkillArtifactWorld) {
