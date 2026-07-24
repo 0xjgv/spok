@@ -34,6 +34,7 @@
     "(anonymous)@test/utils/shell-detection.test.ts",
     "applyDeltaOperations@src/core/specs-apply.ts",
     "createSearchableMultiSelect@src/prompts/searchable-multi-select.ts",
+    "execute@src/core/archive.ts",
     "parseTasksFile@src/commands/workflow/instructions.ts",
     "printInstructionsText@src/commands/workflow/instructions.ts"
   ]

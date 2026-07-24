@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { getTaskProgressForChange, formatTaskStatus } from '../utils/task-progress.js';
 import { Validator } from './validation/validator.js';
+import type { ValidationIssue, ValidationLevel } from './validation/types.js';
 import chalk from 'chalk';
 import {
   findSpecUpdates,
@@ -47,6 +48,35 @@ async function moveDirectory(src: string, dest: string): Promise<void> {
   }
 }
 
+const DELTA_SECTION_HEADER = /^##\s+(ADDED|MODIFIED|REMOVED|RENAMED)\s+Requirements/m;
+
+const ISSUE_STYLES: Record<ValidationLevel, { symbol: string; paint: (text: string) => string }> = {
+  ERROR: { symbol: '✗', paint: chalk.red },
+  WARNING: { symbol: '⚠', paint: chalk.yellow },
+  INFO: { symbol: 'ℹ', paint: chalk.cyan },
+};
+
+/**
+ * Render an issue with its location, so a long report stays navigable.
+ */
+function formatIssue(issue: ValidationIssue): string {
+  const { symbol, paint } = ISSUE_STYLES[issue.level];
+  const location = issue.path && issue.path !== 'file' ? `${issue.path}: ` : '';
+  return paint(`  ${symbol} ${location}${issue.message}`);
+}
+
+/**
+ * True for issues anchored to the change's `deltas` array. Those deltas are
+ * re-parsed from the delta spec files and graded as full requirements, so
+ * name-only REMOVED entries always fail. validateChangeDeltaSpecs grades the
+ * same files under the right rules, making these duplicates noise.
+ */
+function isDeltaIssue({ path: issuePath }: ValidationIssue): boolean {
+  // Zod joins with dots (`deltas.0.requirement.text`); applyChangeRules writes
+  // brackets (`deltas[0].description`). Both dialects appear in one report.
+  return issuePath === 'deltas' || issuePath.startsWith('deltas.') || issuePath.startsWith('deltas[');
+}
+
 export class ArchiveCommand {
   async execute(
     changeName?: string,
@@ -89,86 +119,11 @@ export class ArchiveCommand {
     const skipValidation = options.validate === false || options.noValidate === true;
 
     // Validate specs and change before archiving
-    if (!skipValidation) {
-      const validator = new Validator();
-      let hasValidationErrors = false;
-
-      // Validate proposal.md (non-blocking unless strict mode desired in future)
-      const changeFile = path.join(changeDir, 'proposal.md');
-      try {
-        await fs.access(changeFile);
-        const changeReport = await validator.validateChange(changeFile);
-        // Proposal validation is informative only (do not block archive)
-        if (!changeReport.valid) {
-          console.log(chalk.yellow(`\nProposal warnings in proposal.md (non-blocking):`));
-          for (const issue of changeReport.issues) {
-            const symbol = issue.level === 'ERROR' ? '⚠' : (issue.level === 'WARNING' ? '⚠' : 'ℹ');
-            console.log(chalk.yellow(`  ${symbol} ${issue.message}`));
-          }
-        }
-      } catch {
-        // Change file doesn't exist, skip validation
-      }
-
-      // Validate delta-formatted spec files under the change directory if present
-      const changeSpecsDir = path.join(changeDir, 'specs');
-      let hasDeltaSpecs = false;
-      try {
-        const candidates = await fs.readdir(changeSpecsDir, { withFileTypes: true });
-        for (const c of candidates) {
-          if (c.isDirectory()) {
-            try {
-              const candidatePath = path.join(changeSpecsDir, c.name, 'spec.md');
-              await fs.access(candidatePath);
-              const content = await fs.readFile(candidatePath, 'utf-8');
-              if (/^##\s+(ADDED|MODIFIED|REMOVED|RENAMED)\s+Requirements/m.test(content)) {
-                hasDeltaSpecs = true;
-                break;
-              }
-            } catch {}
-          }
-        }
-      } catch {}
-      if (hasDeltaSpecs) {
-        const deltaReport = await validator.validateChangeDeltaSpecs(changeDir);
-        if (!deltaReport.valid) {
-          hasValidationErrors = true;
-          console.log(chalk.red(`\nValidation errors in change delta specs:`));
-          for (const issue of deltaReport.issues) {
-            if (issue.level === 'ERROR') {
-              console.log(chalk.red(`  ✗ ${issue.message}`));
-            } else if (issue.level === 'WARNING') {
-              console.log(chalk.yellow(`  ⚠ ${issue.message}`));
-            }
-          }
-        }
-      }
-
-      if (hasValidationErrors) {
-        console.log(chalk.red('\nValidation failed. Please fix the errors before archiving.'));
-        console.log(chalk.yellow('To skip validation (not recommended), use --no-validate flag.'));
-        return;
-      }
-    } else {
-      // Log warning when validation is skipped
-      const timestamp = new Date().toISOString();
-      
-      if (!options.yes) {
-        const { confirm } = await import('@inquirer/prompts');
-        const proceed = await confirm({
-          message: chalk.yellow('⚠️  WARNING: Skipping validation may archive invalid specs. Continue? (y/N)'),
-          default: false
-        });
-        if (!proceed) {
-          console.log('Archive cancelled.');
-          return;
-        }
-      } else {
-        console.log(chalk.yellow(`\n⚠️  WARNING: Skipping validation may archive invalid specs.`));
-      }
-      
-      console.log(chalk.yellow(`[${timestamp}] Validation skipped for change: ${changeName}`));
-      console.log(chalk.yellow(`Affected files: ${changeDir}`));
+    const mayProceed = skipValidation
+      ? await this.confirmSkippedValidation(changeName, changeDir, options.yes)
+      : await this.reportPreArchiveValidation(changeDir);
+    if (!mayProceed) {
+      return;
     }
 
     // Show progress and check for incomplete tasks
@@ -243,8 +198,7 @@ export class ArchiveCommand {
               if (!report.valid) {
                 console.log(chalk.red(`\nValidation errors in rebuilt spec for ${specName} (will not write changes):`));
                 for (const issue of report.issues) {
-                  if (issue.level === 'ERROR') console.log(chalk.red(`  ✗ ${issue.message}`));
-                  else if (issue.level === 'WARNING') console.log(chalk.yellow(`  ⚠ ${issue.message}`));
+                  console.log(formatIssue(issue));
                 }
                 console.log('Aborted. No files were changed.');
                 return;
@@ -285,6 +239,97 @@ export class ArchiveCommand {
     await moveDirectory(changeDir, archivePath);
 
     console.log(`Change '${changeName}' archived as '${archiveName}'.`);
+  }
+
+  /**
+   * Report proposal and delta-spec issues. Returns false when a blocking
+   * delta-spec error means the archive must not proceed.
+   */
+  private async reportPreArchiveValidation(changeDir: string): Promise<boolean> {
+    const validator = new Validator();
+    // Delta-formatted spec files, when present, are the authority on requirement rules.
+    const hasDeltaSpecs = await this.hasDeltaSpecs(path.join(changeDir, 'specs'));
+
+    // Proposal validation is informative only (do not block archive)
+    const changeFile = path.join(changeDir, 'proposal.md');
+    const proposalExists = await fs.access(changeFile).then(() => true, () => false);
+    if (proposalExists) {
+      const changeReport = await validator.validateChange(changeFile);
+      const issues = hasDeltaSpecs
+        ? changeReport.issues.filter(issue => !isDeltaIssue(issue))
+        : changeReport.issues;
+      if (issues.length > 0) {
+        console.log(chalk.yellow('\nProposal issues in proposal.md (non-blocking):'));
+        for (const issue of issues) {
+          console.log(formatIssue(issue));
+        }
+      }
+    }
+
+    if (!hasDeltaSpecs) {
+      return true;
+    }
+
+    const deltaReport = await validator.validateChangeDeltaSpecs(changeDir);
+    if (deltaReport.valid) {
+      return true;
+    }
+
+    console.log(chalk.red('\nValidation errors in change delta specs:'));
+    for (const issue of deltaReport.issues) {
+      console.log(formatIssue(issue));
+    }
+    console.log(chalk.red('\nValidation failed. Please fix the errors before archiving.'));
+    console.log(chalk.yellow('To skip validation (not recommended), use --no-validate flag.'));
+    return false;
+  }
+
+  /**
+   * Warn that validation was skipped. Returns false when the user declines.
+   */
+  private async confirmSkippedValidation(
+    changeName: string,
+    changeDir: string,
+    assumeYes?: boolean
+  ): Promise<boolean> {
+    const timestamp = new Date().toISOString();
+
+    if (!assumeYes) {
+      const { confirm } = await import('@inquirer/prompts');
+      const proceed = await confirm({
+        message: chalk.yellow('⚠️  WARNING: Skipping validation may archive invalid specs. Continue? (y/N)'),
+        default: false
+      });
+      if (!proceed) {
+        console.log('Archive cancelled.');
+        return false;
+      }
+    } else {
+      console.log(chalk.yellow(`\n⚠️  WARNING: Skipping validation may archive invalid specs.`));
+    }
+
+    console.log(chalk.yellow(`[${timestamp}] Validation skipped for change: ${changeName}`));
+    console.log(chalk.yellow(`Affected files: ${changeDir}`));
+    return true;
+  }
+
+  /**
+   * True when any spec.md under the change carries a delta section header.
+   */
+  private async hasDeltaSpecs(changeSpecsDir: string): Promise<boolean> {
+    const candidates = await fs.readdir(changeSpecsDir, { withFileTypes: true }).catch(() => []);
+
+    for (const candidate of candidates) {
+      if (!candidate.isDirectory()) continue;
+      const specPath = path.join(changeSpecsDir, candidate.name, 'spec.md');
+      // A missing or unreadable spec.md contributes no deltas.
+      const content = await fs.readFile(specPath, 'utf-8').catch(() => '');
+      if (DELTA_SECTION_HEADER.test(content)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private async selectChange(changesDir: string): Promise<string | null> {
