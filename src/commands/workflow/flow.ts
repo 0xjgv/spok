@@ -39,7 +39,7 @@ const FLOW_STEP_TIER_BY_ID = {
   'research-questions': 'heavy',
   research: 'mid',
   'design-discussion': 'max',
-  'structure-outline': 'max',
+  'structure-outline': 'heavy',
   plan: 'max',
   implement: 'mid',
   simplify: 'heavy',
@@ -51,8 +51,8 @@ const FLOW_STEP_TIER_BY_ID = {
 
 const ROUTING_MATRIX: Record<FlowTool, Record<FlowTier, Routing>> = {
   claude: {
-    max: { model: 'fable', effort: 'high' },
-    heavy: { model: 'opus', effort: 'xhigh' },
+    max: { model: 'opus', effort: 'xhigh' },
+    heavy: { model: 'opus', effort: 'high' },
     mid: { model: 'sonnet', effort: 'xhigh' },
     cheap: { model: 'haiku' },
   },
