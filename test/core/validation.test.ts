@@ -66,6 +66,21 @@ describe('Validation Schemas', () => {
       }
     });
 
+    it('should reject SHALL and MUST inside larger words', () => {
+      const requirement = {
+        text: 'The MARSHALL service handles MUSTANG records',
+        scenarios: [
+          {
+            rawText: 'Given a record\nWhen it is handled\nThen processing completes',
+          },
+        ],
+      };
+
+      const result = RequirementSchema.safeParse(requirement);
+
+      expect(result.success).toBe(false);
+    });
+
     it('should reject requirement without scenarios', () => {
       const requirement = {
         text: 'The system SHALL provide user authentication',
@@ -503,6 +518,64 @@ The system SHALL handle all errors gracefully.
 
       expect(report.valid).toBe(true);
       expect(report.summary.errors).toBe(0);
+    });
+
+    it('should validate a normative keyword on a later body line', async () => {
+      const changeDir = path.join(testDir, 'test-change-wrapped-keyword');
+      const specsDir = path.join(changeDir, 'specs', 'test-spec');
+      await fs.mkdir(specsDir, { recursive: true });
+
+      const deltaSpec = `# Test Spec
+
+## MODIFIED Requirements
+
+### Requirement: Held Publication
+A completed review remains unavailable while CI is blocked.
+The system SHALL keep that review held until the blocking state clears.
+
+#### Scenario: CI blocks publication
+**Given** a completed review
+**When** CI is blocked
+**Then** publication remains held`;
+
+      await fs.writeFile(path.join(specsDir, 'spec.md'), deltaSpec);
+
+      const report = await new Validator(true).validateChangeDeltaSpecs(changeDir);
+
+      expect(report.valid).toBe(true);
+      expect(report.summary.errors).toBe(0);
+    });
+
+    it('should not count a scenario header inside a fenced example', async () => {
+      const changeDir = path.join(testDir, 'test-change-fenced-scenario');
+      const specsDir = path.join(changeDir, 'specs', 'test-spec');
+      await fs.mkdir(specsDir, { recursive: true });
+
+      const deltaSpec = `# Test Spec
+
+## ADDED Requirements
+
+### Requirement: Fenced Example
+The system SHALL document scenario syntax.
+
+\`\`\`markdown
+#### Scenario: Example only
+- **WHEN** the example is read
+- **THEN** it remains an example
+\`\`\``;
+
+      await fs.writeFile(path.join(specsDir, 'spec.md'), deltaSpec);
+
+      const report = await new Validator(true).validateChangeDeltaSpecs(changeDir);
+
+      expect(report.valid).toBe(false);
+      expect(report.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: 'ADDED "Fenced Example" must include at least one scenario',
+          }),
+        ])
+      );
     });
 
     it('should fail when requirement text lacks SHALL/MUST', async () => {

@@ -5,7 +5,10 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { applySpecs } from '../../src/core/specs-apply.js';
+import {
+  applySpecs,
+  SpecApplicabilityError,
+} from '../../src/core/specs-apply.js';
 
 let projectRoot: string;
 
@@ -66,17 +69,17 @@ function fullDeltaSpec(): string {
   ].join('\n');
 }
 
-describe('applySpecs', () => {
-  beforeEach(async () => {
-    projectRoot = path.join(os.tmpdir(), `spok-specs-apply-${randomUUID()}`);
-    await fs.mkdir(path.join(projectRoot, 'spok', 'changes', 'demo'), { recursive: true });
-  });
+beforeEach(async () => {
+  projectRoot = path.join(os.tmpdir(), `spok-specs-apply-${randomUUID()}`);
+  await fs.mkdir(path.join(projectRoot, 'spok', 'changes', 'demo'), { recursive: true });
+});
 
-  afterEach(async () => {
-    vi.restoreAllMocks();
-    await fs.rm(projectRoot, { recursive: true, force: true });
-  });
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await fs.rm(projectRoot, { recursive: true, force: true });
+});
 
+describe('applySpecs results', () => {
   it('throws when the change does not exist', async () => {
     await expect(applySpecs(projectRoot, 'missing')).rejects.toThrow("Change 'missing' not found.");
   });
@@ -134,5 +137,49 @@ describe('applySpecs', () => {
     expect(targetContent).toContain('The system SHALL keep sessions active for trusted users.');
     expect(targetContent).toContain('### Requirement: Multi Factor Login');
     expect(targetContent).not.toContain('### Requirement: Remove Legacy');
+  });
+});
+
+describe('applySpecs failures', () => {
+  it('reports every inapplicable operation without writing the target spec', async () => {
+    const targetBefore = mainAuthSpec();
+    const invalidDelta = [
+      '## RENAMED Requirements',
+      'FROM: ### Requirement: Missing Rename Source',
+      'TO: ### Requirement: Renamed Requirement',
+      '',
+      '## REMOVED Requirements',
+      '### Requirement: Missing Removal',
+      '',
+      '## MODIFIED Requirements',
+      '### Requirement: Missing Modification',
+      'The system SHALL update the missing requirement.',
+      '',
+    ].join('\n');
+    await writeFile(mainSpecPath('auth'), targetBefore);
+    await writeFile(changeSpecPath('auth'), invalidDelta);
+
+    let failure: unknown;
+    try {
+      await applySpecs(projectRoot, 'demo', {
+        skipValidation: true,
+        silent: true,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(SpecApplicabilityError);
+    const message = (failure as Error).message;
+    expect(message).toContain(
+      'auth RENAMED failed for header "### Requirement: Missing Rename Source" - source not found'
+    );
+    expect(message).toContain(
+      'auth REMOVED failed for header "### Requirement: Missing Removal" - not found'
+    );
+    expect(message).toContain(
+      'auth MODIFIED failed for header "### Requirement: Missing Modification" - not found'
+    );
+    await expect(fs.readFile(mainSpecPath('auth'), 'utf-8')).resolves.toBe(targetBefore);
   });
 });
