@@ -41,6 +41,31 @@ describe('instruction-loader', () => {
         expect((err as TemplateLoadError).templatePath).toContain('nonexistent.md');
       }
     });
+
+    it('should reject a symlinked template outside the schema directory', () => {
+      const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'spok-template-test-'));
+      const schemaDir = path.join(projectRoot, 'spok', 'schemas', 'escaping');
+      const templatesDir = path.join(schemaDir, 'templates');
+      const outsideDir = path.join(projectRoot, 'outside');
+
+      try {
+        fs.mkdirSync(templatesDir, { recursive: true });
+        fs.mkdirSync(outsideDir);
+        fs.writeFileSync(path.join(schemaDir, 'schema.yaml'), 'name: escaping\n');
+        fs.writeFileSync(path.join(outsideDir, 'secret.md'), 'outside-template-secret\n');
+        fs.symlinkSync(
+          outsideDir,
+          path.join(templatesDir, 'escape'),
+          process.platform === 'win32' ? 'junction' : 'dir'
+        );
+
+        expect(() => loadTemplate('escaping', 'escape/secret.md', projectRoot)).toThrow(
+          'Template path must stay within the schema templates directory'
+        );
+      } finally {
+        fs.rmSync(projectRoot, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('loadChangeContext', () => {

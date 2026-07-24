@@ -26,6 +26,28 @@ export class TemplateLoadError extends Error {
   }
 }
 
+function isSameOrDescendant(rootPath: string, candidatePath: string): boolean {
+  const relative = path.relative(rootPath, candidatePath);
+  return relative === '' || (
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+function assertTemplatePathContained(
+  templatesDir: string,
+  candidatePath: string,
+  templatePath: string
+): void {
+  if (!isSameOrDescendant(templatesDir, candidatePath)) {
+    throw new TemplateLoadError(
+      'Template path must stay within the schema templates directory',
+      templatePath
+    );
+  }
+}
+
 /**
  * Change context containing graph, completion state, and metadata.
  */
@@ -195,7 +217,14 @@ export function loadTemplate(
     );
   }
 
-  const templatePathOnDisk = path.join(schemaDir, 'templates', templatePath);
+  const canonicalSchemaDir = FileSystemUtils.canonicalizeExistingPath(schemaDir);
+  const templatesDir = FileSystemUtils.canonicalizeExistingPath(
+    path.join(canonicalSchemaDir, 'templates')
+  );
+  assertTemplatePathContained(canonicalSchemaDir, templatesDir, templatePath);
+
+  const templatePathOnDisk = path.resolve(templatesDir, templatePath);
+  assertTemplatePathContained(templatesDir, templatePathOnDisk, templatePath);
 
   if (!fs.existsSync(templatePathOnDisk)) {
     throw new TemplateLoadError(
@@ -205,6 +234,7 @@ export function loadTemplate(
   }
 
   const fullPath = FileSystemUtils.canonicalizeExistingPath(templatePathOnDisk);
+  assertTemplatePathContained(templatesDir, fullPath, templatePath);
 
   try {
     return fs.readFileSync(fullPath, 'utf-8');
