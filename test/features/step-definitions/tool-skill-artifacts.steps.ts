@@ -413,7 +413,7 @@ Then('the Spok CLI error does not contain {string}', function (this: SkillArtifa
 Then('the Spok CLI output does not contain {string}', function (this: SkillArtifactWorld, expected: string) {
   assert.ok(this.cliResult, 'cliResult must be set by a CLI run step');
   assert.doesNotMatch(
-    this.cliResult.stdout,
+    `${this.cliResult.stdout}${this.cliResult.stderr}`,
     new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   );
 });
