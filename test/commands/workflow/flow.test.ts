@@ -34,15 +34,15 @@ const FAIL_VALIDATION =
   '---\nverdict: FAIL\n---\n\n# Validation\n\n## Blocking Findings\n\n- something broke\n';
 
 const EXPECTED_STEP_ROUTING = [
-  { id: 'validate-problem', model: 'opus', effort: 'xhigh' },
-  { id: 'research-questions', model: 'opus', effort: 'xhigh' },
+  { id: 'validate-problem', model: 'opus', effort: 'high' },
+  { id: 'research-questions', model: 'opus', effort: 'high' },
   { id: 'research', model: 'sonnet', effort: 'xhigh' },
-  { id: 'design-discussion', model: 'fable', effort: 'high' },
-  { id: 'structure-outline', model: 'fable', effort: 'high' },
-  { id: 'plan', model: 'fable', effort: 'high' },
+  { id: 'design-discussion', model: 'opus', effort: 'xhigh' },
+  { id: 'structure-outline', model: 'opus', effort: 'high' },
+  { id: 'plan', model: 'opus', effort: 'xhigh' },
   { id: 'implement', model: 'sonnet', effort: 'xhigh' },
-  { id: 'simplify', model: 'opus', effort: 'xhigh' },
-  { id: 'validate', model: 'opus', effort: 'xhigh' },
+  { id: 'simplify', model: 'opus', effort: 'high' },
+  { id: 'validate', model: 'opus', effort: 'high' },
   { id: 'commit', model: 'haiku', effort: undefined },
 ];
 
@@ -196,7 +196,7 @@ describe('deterministic workflow step state', () => {
       id: 'validate-problem',
       skill: 'spok-validate-problem',
       model: 'opus',
-      effort: 'xhigh',
+      effort: 'high',
       argument: path.join(flow.taskDir, 'ticket.md'),
       expectedOutput: path.join(flow.taskDir, 'problem-validation.md'),
       status: 'ready',
@@ -233,7 +233,7 @@ describe('deterministic workflow step state', () => {
       { id: 'research-questions', model: 'gpt-5.6-sol', effort: 'xhigh' },
       { id: 'research', model: 'gpt-5.6-terra', effort: 'xhigh' },
       { id: 'design-discussion', model: 'gpt-5.6-sol', effort: 'max' },
-      { id: 'structure-outline', model: 'gpt-5.6-sol', effort: 'max' },
+      { id: 'structure-outline', model: 'gpt-5.6-sol', effort: 'xhigh' },
       { id: 'plan', model: 'gpt-5.6-sol', effort: 'max' },
       { id: 'implement', model: 'gpt-5.6-terra', effort: 'xhigh' },
       { id: 'simplify', model: 'gpt-5.6-sol', effort: 'xhigh' },
@@ -343,8 +343,8 @@ describe('deterministic workflow state resumption', () => {
     expect(result.step).toMatchObject({
       id: 'design-discussion',
       skill: 'spok-create-design-discussion',
-      model: 'fable',
-      effort: 'high',
+      model: 'opus',
+      effort: 'xhigh',
       argument: flow.taskDir,
       expectedOutput: path.join(flow.taskDir, 'design-discussion.md'),
     });
@@ -397,8 +397,8 @@ describe('deterministic workflow state resumption', () => {
     expect(result.state).toBe('ready');
     expect(result.step).toMatchObject({
       id: 'design-discussion',
-      model: 'fable',
-      effort: 'high',
+      model: 'opus',
+      effort: 'xhigh',
       status: 'ready',
     });
     expectStepRouting(result.steps);
@@ -703,7 +703,7 @@ describe('bounded repair cycle', () => {
       id: 'repair',
       skill: 'spok-repair',
       model: 'opus',
-      effort: 'xhigh',
+      effort: 'high',
       argument: path.join(flow.taskDir, 'validation.md'),
       status: 'ready',
       attempt: 1,
@@ -1037,7 +1037,7 @@ describe('flow command output', () => {
       'Next step: validate-problem',
       'Skill: spok-validate-problem',
       'Model: opus',
-      'Effort: xhigh',
+      'Effort: high',
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
       `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
     ]);
@@ -1090,7 +1090,7 @@ describe('flow command output', () => {
     const response = JSON.parse(logs[0]);
     expect(response).toMatchObject({
       state: 'ready',
-      nextStep: { id: 'validate-problem', model: 'opus', effort: 'xhigh' },
+      nextStep: { id: 'validate-problem', model: 'opus', effort: 'high' },
     });
     expectStepRouting(response.steps);
   });
