@@ -51,7 +51,7 @@ const FLOW_STEP_TIER_BY_ID = {
 
 const ROUTING_MATRIX: Record<FlowTool, Record<FlowTier, Routing>> = {
   claude: {
-    max: { model: 'opus', effort: 'xhigh' },
+    max: { model: 'fable', effort: 'high' },
     heavy: { model: 'opus', effort: 'high' },
     mid: { model: 'sonnet', effort: 'xhigh' },
     cheap: { model: 'haiku' },
