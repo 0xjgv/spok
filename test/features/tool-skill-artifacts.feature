@@ -159,7 +159,7 @@ Feature: Tool skill artifacts
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: design-discussion"
     And the Spok CLI output contains "Model: fable"
-    And the Spok CLI output contains "Effort: high"
+    And the Spok CLI output contains "Effort: medium"
 
   Scenario: Flow next prints the Codex-routed model and effort for the first step
     Given a new project
