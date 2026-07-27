@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -100,6 +100,45 @@ describe('artifact-graph/outputs', () => {
     expect(resolveArtifactOutputs(aliasChangeDir, 'specs/*/spec.md')).toEqual([
       canonical(specPath),
     ]);
+  });
+
+  it('validates the canonical output when a directory link changes during resolution', () => {
+    const changeDir = path.join(tempDir, 'change');
+    const insideDir = path.join(changeDir, 'inside');
+    const outsideDir = path.join(tempDir, 'outside');
+    const linkedDir = path.join(changeDir, 'linked');
+    const insideOutput = path.join(insideDir, 'output.md');
+    const outsideOutput = path.join(outsideDir, 'output.md');
+
+    fs.mkdirSync(insideDir, { recursive: true });
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(insideOutput, 'inside');
+    fs.writeFileSync(outsideOutput, 'outside');
+    fs.symlinkSync(insideDir, linkedDir, process.platform === 'win32' ? 'junction' : 'dir');
+
+    const originalCanonicalize = FileSystemUtils.canonicalizeExistingPath.bind(FileSystemUtils);
+    const linkedOutput = path.join(originalCanonicalize(changeDir), 'linked', 'output.md');
+    const canonicalizeSpy = vi
+      .spyOn(FileSystemUtils, 'canonicalizeExistingPath')
+      .mockImplementation((targetPath) => {
+        const canonicalPath = originalCanonicalize(targetPath);
+        if (targetPath === linkedOutput) {
+          fs.rmSync(insideOutput);
+          fs.rmSync(linkedDir, { recursive: true, force: true });
+          fs.symlinkSync(
+            outsideDir,
+            linkedDir,
+            process.platform === 'win32' ? 'junction' : 'dir'
+          );
+        }
+        return canonicalPath;
+      });
+
+    try {
+      expect(resolveArtifactOutputs(changeDir, 'linked/output.md')).toEqual([]);
+    } finally {
+      canonicalizeSpy.mockRestore();
+    }
   });
 
   it('returns an empty list when no files match the artifact output', () => {

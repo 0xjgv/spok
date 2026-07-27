@@ -31,7 +31,8 @@ export function resolveArtifactOutputs(changeDir: string, generates: string): st
     const fullPath = path.join(canonicalChangeDir, generates);
     try {
       const canonicalOutput = FileSystemUtils.canonicalizeExistingPath(fullPath);
-      return fs.statSync(fullPath).isFile() && isInsideChangeDir(canonicalChangeDir, canonicalOutput)
+      return isInsideChangeDir(canonicalChangeDir, canonicalOutput) &&
+        fs.statSync(canonicalOutput).isFile()
         ? [canonicalOutput]
         : [];
     } catch {
