@@ -22,6 +22,7 @@ import {
   type TaskItem,
   type ApplyInstructions,
 } from './shared.js';
+import { FileSystemUtils } from '../../utils/file-system.js';
 
 // -----------------------------------------------------------------------------
 // Types
@@ -253,8 +254,13 @@ async function loadTasks(
     return { tasks: [], tracksFileExists: false };
   }
 
-  const tracksPath = path.join(changeDir, tracksFile);
-  const tracksFileExists = fs.existsSync(tracksPath);
+  const tracksPath = FileSystemUtils.canonicalizeExistingPath(path.join(changeDir, tracksFile));
+  const relativeTracksPath = path.relative(changeDir, tracksPath);
+  const tracksFileExists =
+    !path.isAbsolute(relativeTracksPath) &&
+    relativeTracksPath !== '..' &&
+    !relativeTracksPath.startsWith(`..${path.sep}`) &&
+    fs.existsSync(tracksPath);
   if (!tracksFileExists) {
     return { tasks: [], tracksFileExists: false };
   }
