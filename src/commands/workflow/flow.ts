@@ -10,9 +10,11 @@ export type FlowEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type FlowCompletionKind = 'file' | 'summary' | 'commit';
 export type FlowStepStatus = 'pending' | 'ready' | 'completed';
 export type FlowRunState = 'ready' | 'blocked' | 'complete';
+export type FlowRunner = 'claude' | 'codex';
+export type FlowProfile = FlowRunner | 'hybrid';
 type FlowTier = 'max' | 'heavy' | 'mid' | 'cheap';
-type FlowTool = 'claude' | 'codex';
 interface Routing {
+  runner: FlowRunner;
   model: FlowModel;
   effort?: FlowEffort;
 }
@@ -22,6 +24,7 @@ const VALIDATE_STEP_ID = 'validate';
 const REPAIR_STEP_ID = 'repair';
 const SELF_LEARN_STEP_ID = 'self-learn';
 const FLOW_EVENT_DIR = '.spok';
+const FLOW_PROFILE_ENV = 'SPOK_FLOW_PROFILE';
 
 /** Bounded: a FAIL splices at most this many [repair, validate] pairs per flow. */
 const MAX_REPAIR_ATTEMPTS = 2;
@@ -49,23 +52,62 @@ const FLOW_STEP_TIER_BY_ID = {
   [SELF_LEARN_STEP_ID]: 'mid',
 } as const satisfies Record<string, FlowTier>;
 
-const ROUTING_MATRIX: Record<FlowTool, Record<FlowTier, Routing>> = {
-  claude: {
-    max: { model: 'fable', effort: 'medium' },
-    heavy: { model: 'opus', effort: 'high' },
-    mid: { model: 'sonnet', effort: 'xhigh' },
-    cheap: { model: 'haiku' },
-  },
-  codex: {
-    max: { model: 'gpt-5.6-sol', effort: 'max' },
-    heavy: { model: 'gpt-5.6-sol', effort: 'xhigh' },
-    mid: { model: 'gpt-5.6-terra', effort: 'xhigh' },
-    cheap: { model: 'gpt-5.6-terra', effort: 'low' },
-  },
+type RoutedStepId = keyof typeof FLOW_STEP_TIER_BY_ID;
+
+const CLAUDE_ROUTING_BY_ID = {
+  [PROBLEM_VALIDATION_STEP_ID]: { runner: 'claude', model: 'opus', effort: 'medium' },
+  'research-questions': { runner: 'claude', model: 'opus', effort: 'medium' },
+  research: { runner: 'claude', model: 'sonnet', effort: 'medium' },
+  'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  plan: { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  implement: { runner: 'claude', model: 'opus', effort: 'medium' },
+  simplify: { runner: 'claude', model: 'opus' },
+  validate: { runner: 'claude', model: 'opus', effort: 'medium' },
+  [REPAIR_STEP_ID]: { runner: 'claude', model: 'opus', effort: 'high' },
+  commit: { runner: 'claude', model: 'haiku', effort: 'low' },
+  [SELF_LEARN_STEP_ID]: { runner: 'claude', model: 'sonnet', effort: 'xhigh' },
+} as const satisfies Record<RoutedStepId, Routing>;
+
+const CODEX_ROUTING_BY_TIER: Record<FlowTier, Routing> = {
+  max: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
+  heavy: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+  mid: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
+  cheap: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
 };
 
-function detectTool(): FlowTool {
+const HYBRID_ROUTING_BY_ID = {
+  [PROBLEM_VALIDATION_STEP_ID]: {
+    runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh',
+  },
+  'research-questions': { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
+  research: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
+  'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  plan: { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  implement: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+  simplify: { runner: 'claude', model: 'opus' },
+  validate: { runner: 'claude', model: 'opus', effort: 'medium' },
+  [REPAIR_STEP_ID]: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
+  commit: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
+  [SELF_LEARN_STEP_ID]: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
+} as const satisfies Record<RoutedStepId, Routing>;
+
+function detectTool(): FlowRunner {
   return process.env.CODEX_HOME?.trim() ? 'codex' : 'claude';
+}
+
+function isFlowProfile(value: unknown): value is FlowProfile {
+  return value === 'claude' || value === 'codex' || value === 'hybrid';
+}
+
+function requestedFlowProfile(): { profile?: FlowProfile; reason?: string } {
+  const raw = process.env[FLOW_PROFILE_ENV]?.trim();
+  if (!raw) return {};
+  if (isFlowProfile(raw)) return { profile: raw };
+  return {
+    reason: `Unknown flow profile: ${raw}. Expected claude, codex, or hybrid.`,
+  };
 }
 
 export interface FlowStepResult {
@@ -78,6 +120,7 @@ export interface FlowStepResult {
 export interface FlowStep {
   id: string;
   skill: string;
+  runner: FlowRunner;
   model: FlowModel;
   effort?: FlowEffort;
   argument: string;
@@ -91,7 +134,8 @@ export interface FlowStep {
 }
 
 export interface WorkflowState {
-  version: 1;
+  version: 2;
+  profile: FlowProfile;
   taskDir: string;
   status: FlowRunState;
   steps: FlowStep[];
@@ -102,6 +146,7 @@ export interface WorkflowState {
 
 export interface FlowResponse {
   state: FlowRunState;
+  profile?: FlowProfile;
   taskDir: string;
   statePath: string;
   steps: FlowStep[];
@@ -131,6 +176,7 @@ export interface FlowCompleteCommandOptions extends FlowCommandOptions, FlowComp
 interface StepDefinition {
   id: RoutedStepId;
   skill: string;
+  runner: FlowRunner;
   model: FlowModel;
   effort?: FlowEffort;
   argument: string;
@@ -138,8 +184,6 @@ interface StepDefinition {
   completionKind: FlowCompletionKind;
   attempt?: number;
 }
-
-type RoutedStepId = keyof typeof FLOW_STEP_TIER_BY_ID;
 
 interface FlowStepPaths {
   taskDir: string;
@@ -431,9 +475,13 @@ function buildFlowStepPaths(taskDir: string): FlowStepPaths {
 function buildStepDefinition(
   spec: StepDefinitionSpec,
   paths: FlowStepPaths,
-  tool: FlowTool
+  profile: FlowProfile
 ): StepDefinition {
-  const routing = ROUTING_MATRIX[tool][FLOW_STEP_TIER_BY_ID[spec.id]];
+  const routing = profile === 'hybrid'
+    ? HYBRID_ROUTING_BY_ID[spec.id]
+    : profile === 'claude'
+      ? CLAUDE_ROUTING_BY_ID[spec.id]
+      : CODEX_ROUTING_BY_TIER[FLOW_STEP_TIER_BY_ID[spec.id]];
   return {
     id: spec.id,
     skill: spec.skill,
@@ -447,25 +495,36 @@ function buildStepDefinition(
 const REPAIR_CYCLE_SPECS = [REPAIR_STEP_DEFINITION_SPEC, VALIDATE_STEP_DEFINITION_SPEC] as const;
 
 /** The [repair, validate] pair one FAIL splices in, stamped with its 1-based attempt. */
-function repairCycleDefinitions(taskDir: string, attempt: number): StepDefinition[] {
+function repairCycleDefinitions(
+  taskDir: string,
+  attempt: number,
+  profile: FlowProfile
+): StepDefinition[] {
   const paths = buildFlowStepPaths(taskDir);
-  const tool = detectTool();
-  return REPAIR_CYCLE_SPECS.map((spec) => ({ ...buildStepDefinition(spec, paths, tool), attempt }));
+  return REPAIR_CYCLE_SPECS.map((spec) => ({
+    ...buildStepDefinition(spec, paths, profile),
+    attempt,
+  }));
 }
 
-function buildStepDefinitions(taskDir: string, repairAttempts: number): StepDefinition[] {
+function buildStepDefinitions(
+  taskDir: string,
+  repairAttempts: number,
+  profile: FlowProfile
+): StepDefinition[] {
   const paths = buildFlowStepPaths(taskDir);
-  const tool = detectTool();
   const specs = isSelfLearnEnabled(taskDir)
     ? [...BASE_STEP_DEFINITION_SPECS, SELF_LEARN_STEP_DEFINITION_SPEC]
     : BASE_STEP_DEFINITION_SPECS;
-  const definitions: StepDefinition[] = specs.map((spec) => buildStepDefinition(spec, paths, tool));
+  const definitions: StepDefinition[] = specs.map((spec) =>
+    buildStepDefinition(spec, paths, profile)
+  );
   if (repairAttempts === 0) return definitions;
 
   // Every cycle lands as one block right after the base validate, so the flat
   // list reads: validate, then (repair, validate) once per attempt.
   const cycles = Array.from({ length: repairAttempts }, (_, index) =>
-    repairCycleDefinitions(taskDir, index + 1)
+    repairCycleDefinitions(taskDir, index + 1, profile)
   ).flat();
   const validateIndex = definitions.findIndex((definition) => definition.id === VALIDATE_STEP_ID);
   definitions.splice(validateIndex + 1, 0, ...cycles);
@@ -480,6 +539,7 @@ function stepFromDefinition(
   return {
     id: definition.id,
     skill: definition.skill,
+    runner: definition.runner,
     model: definition.model,
     effort: definition.effort,
     argument: definition.argument,
@@ -490,11 +550,12 @@ function stepFromDefinition(
   };
 }
 
-function createInitialState(taskDir: string): WorkflowState {
+function createInitialState(taskDir: string, profile: FlowProfile): WorkflowState {
   const timestamp = nowIso();
-  const definitions = buildStepDefinitions(taskDir, 0);
+  const definitions = buildStepDefinitions(taskDir, 0, profile);
   return {
-    version: 1,
+    version: 2,
+    profile,
     taskDir,
     status: 'ready',
     steps: definitions.map((definition, index) =>
@@ -536,8 +597,50 @@ function shouldSkipProblemValidationForLegacyState(completed: Map<string, FlowSt
   return completed.size > 0 && !completed.has(occurrenceKey(PROBLEM_VALIDATION_STEP_ID, 0));
 }
 
-function normalizeState(taskDir: string, stored: unknown): WorkflowState {
-  const initial = createInitialState(taskDir);
+function inferLegacyProfile(stored: unknown): FlowRunner | undefined {
+  if (!stored || typeof stored !== 'object') return;
+  const steps = Array.isArray((stored as Partial<WorkflowState>).steps)
+    ? (stored as Partial<WorkflowState>).steps!
+    : [];
+  for (const step of steps) {
+    if (!step || typeof step !== 'object') continue;
+    const model = (step as Partial<FlowStep>).model;
+    if (typeof model !== 'string') continue;
+    if (model.startsWith('gpt-')) return 'codex';
+    if (model === 'fable' || model === 'opus' || model === 'sonnet' || model === 'haiku') {
+      return 'claude';
+    }
+  }
+}
+
+function resolveStateProfile(
+  stored: unknown,
+  requested: FlowProfile | undefined
+): { profile?: FlowProfile; reason?: string } {
+  if (!stored || typeof stored !== 'object') {
+    return { profile: requested ?? detectTool() };
+  }
+
+  const candidate = stored as Partial<WorkflowState>;
+  if (candidate.profile !== undefined && !isFlowProfile(candidate.profile)) {
+    return { reason: `Invalid workflow state profile: ${String(candidate.profile)}.` };
+  }
+
+  const existing = candidate.profile ?? inferLegacyProfile(stored);
+  if (requested && existing && requested !== existing) {
+    return {
+      reason: `Flow profile mismatch: state uses ${existing}, requested ${requested}.`,
+    };
+  }
+  return { profile: existing ?? requested ?? detectTool() };
+}
+
+function normalizeState(
+  taskDir: string,
+  stored: unknown,
+  profile: FlowProfile
+): WorkflowState {
+  const initial = createInitialState(taskDir, profile);
   if (!stored || typeof stored !== 'object') return initial;
 
   const candidate = stored as Partial<WorkflowState>;
@@ -555,7 +658,7 @@ function normalizeState(taskDir: string, stored: unknown): WorkflowState {
     if (isCompletedStep(step)) completedByKey.set(key, step);
   }
 
-  const definitions = buildStepDefinitions(taskDir, repairAttempts);
+  const definitions = buildStepDefinitions(taskDir, repairAttempts, profile);
   const skipProblemValidation = shouldSkipProblemValidationForLegacyState(completedByKey);
   const definitionOccurrences = new Map<string, number>();
   const steps = definitions.map((definition) => {
@@ -571,7 +674,8 @@ function normalizeState(taskDir: string, stored: unknown): WorkflowState {
   });
 
   const state: WorkflowState = {
-    version: 1,
+    version: 2,
+    profile,
     taskDir,
     status: 'ready',
     steps,
@@ -632,6 +736,9 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Task directory does not exist:')) return 'missing_task_dir';
   if (reason.startsWith('Missing required ticket file:')) return 'missing_ticket';
   if (reason.startsWith('Invalid workflow state JSON:')) return 'invalid_state_json';
+  if (reason.startsWith('Invalid workflow state profile:')) return 'invalid_state_profile';
+  if (reason.startsWith('Unknown flow profile:')) return 'unknown_flow_profile';
+  if (reason.startsWith('Flow profile mismatch:')) return 'flow_profile_mismatch';
   if (reason.startsWith('Missing completed artifact for step ')) return 'missing_completed_artifact';
   if (reason.startsWith('Expected step ')) return 'wrong_step';
   if (reason.startsWith('Unknown workflow step:')) return 'unknown_step';
@@ -706,19 +813,29 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
     };
   }
 
+  const requested = requestedFlowProfile();
+  if (requested.reason) {
+    return { taskDir, statePath, reason: requested.reason };
+  }
+
   try {
     const raw = await fs.readFile(statePath, 'utf-8');
+    const stored: unknown = JSON.parse(raw);
+    const resolved = resolveStateProfile(stored, requested.profile);
+    if (!resolved.profile) {
+      return { taskDir, statePath, reason: resolved.reason! };
+    }
     return {
       taskDir,
       statePath,
-      state: normalizeState(taskDir, JSON.parse(raw)),
+      state: normalizeState(taskDir, stored, resolved.profile),
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return {
         taskDir,
         statePath,
-        state: createInitialState(taskDir),
+        state: createInitialState(taskDir, requested.profile ?? detectTool()),
       };
     }
 
@@ -737,9 +854,12 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
 function getDefinitionById(
   taskDir: string,
   stepId: string,
-  repairAttempts: number
+  repairAttempts: number,
+  profile: FlowProfile
 ): StepDefinition | undefined {
-  return buildStepDefinitions(taskDir, repairAttempts).find((definition) => definition.id === stepId);
+  return buildStepDefinitions(taskDir, repairAttempts, profile).find(
+    (definition) => definition.id === stepId
+  );
 }
 
 function getCurrentStep(state: WorkflowState): FlowStep | undefined {
@@ -754,11 +874,12 @@ function withStepPrompt(
   taskDir: string,
   step: FlowStep | undefined,
   rules: string[],
-  repairAttempts: number
+  repairAttempts: number,
+  profile: FlowProfile
 ): FlowStep | undefined {
   if (!step) return step;
 
-  const definition = getDefinitionById(taskDir, step.id, repairAttempts);
+  const definition = getDefinitionById(taskDir, step.id, repairAttempts, profile);
   if (!definition) return step;
 
   return { ...step, prompt: buildStepPrompt(definition, rules) };
@@ -773,10 +894,12 @@ function buildResponse(
     state.taskDir,
     getCurrentStep(state),
     memory?.rules ?? [],
-    state.repairAttempts
+    state.repairAttempts,
+    state.profile
   );
   return {
     state: state.status,
+    profile: state.profile,
     taskDir: state.taskDir,
     statePath: getStatePath(state.taskDir),
     steps: state.steps,
@@ -802,7 +925,7 @@ function buildBlockedResponse(taskDir: string, statePath: string, reason: string
 }
 
 async function validateCompletedArtifacts(state: WorkflowState): Promise<string | undefined> {
-  const definitions = buildStepDefinitions(state.taskDir, state.repairAttempts);
+  const definitions = buildStepDefinitions(state.taskDir, state.repairAttempts, state.profile);
   const finalValidateIndex = state.steps.map((step) => step.id).lastIndexOf(VALIDATE_STEP_ID);
 
   for (const [index, step] of state.steps.entries()) {
@@ -837,6 +960,7 @@ async function validateCompletedArtifacts(state: WorkflowState): Promise<string 
 function blockedResponse(state: WorkflowState, reason: string): FlowResponse {
   return {
     state: 'blocked',
+    profile: state.profile,
     taskDir: state.taskDir,
     statePath: getStatePath(state.taskDir),
     steps: state.steps,
@@ -1028,7 +1152,11 @@ async function spliceRepairCycle(
   currentStep.result = { output: definition.expectedOutput, completedAt: nowIso() };
 
   state.repairAttempts += 1;
-  const spliced = repairCycleDefinitions(state.taskDir, state.repairAttempts).map(
+  const spliced = repairCycleDefinitions(
+    state.taskDir,
+    state.repairAttempts,
+    state.profile
+  ).map(
     (cycleDefinition) => stepFromDefinition(cycleDefinition, 'pending')
   );
   state.steps.splice(state.steps.indexOf(currentStep) + 1, 0, ...spliced);
@@ -1177,7 +1305,12 @@ export async function completeFlowStep(
     return response;
   }
 
-  const definition = getDefinitionById(loaded.state.taskDir, currentStep.id, loaded.state.repairAttempts);
+  const definition = getDefinitionById(
+    loaded.state.taskDir,
+    currentStep.id,
+    loaded.state.repairAttempts,
+    loaded.state.profile
+  );
   if (!definition) {
     const response = blockedResponse(loaded.state, `Unknown workflow step: ${currentStep.id}.`);
     await recordFlowResponse(response, 'flow_complete');
@@ -1268,6 +1401,10 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
   }
 
   console.log(`Next step: ${step.id}`);
+  if (response.profile) {
+    console.log(`Profile: ${response.profile}`);
+  }
+  console.log(`Runner: ${step.runner}`);
   console.log(`Skill: ${step.skill}`);
   console.log(`Model: ${step.model}`);
   if (step.effort) {

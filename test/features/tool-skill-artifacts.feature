@@ -103,6 +103,16 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.toml. To enable it, add:"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
 
+  Scenario: Apply exposes a hybrid Claude and Codex execution mode
+    Given a new project
+    When I initialize Spok for the tools "claude,codex"
+    Then the workflow skill "spok-apply" under ".claude/skills" mentions "/spok-apply hybrid"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "hybrid <change>"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "SPOK_FLOW_PROFILE=hybrid"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "codex exec"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "--dangerously-bypass-hook-trust"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "claude -p"
+
   Scenario: Visual chunks preserve a browser-review design contract
     Given a new project
     When I initialize Spok for the tools "claude"
@@ -149,7 +159,7 @@ Feature: Tool skill artifacts
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: validate-problem"
     And the Spok CLI output contains "Model: opus"
-    And the Spok CLI output contains "Effort: high"
+    And the Spok CLI output contains "Effort: medium"
 
   Scenario: Flow next prints the Claude-routed model and effort for a max step
     Given a new project
@@ -159,7 +169,7 @@ Feature: Tool skill artifacts
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: design-discussion"
     And the Spok CLI output contains "Model: fable"
-    And the Spok CLI output contains "Effort: medium"
+    And the Spok CLI output contains "Effort: xhigh"
 
   Scenario: Flow next prints the Codex-routed model and effort for the first step
     Given a new project
@@ -169,6 +179,60 @@ Feature: Tool skill artifacts
     Then the Spok CLI output contains "Next step: validate-problem"
     And the Spok CLI output contains "Model: gpt-5.6-sol"
     And the Spok CLI output contains "Effort: xhigh"
+
+  Scenario: Hybrid flow starts problem validation on Codex Sol
+    Given a new project
+    And the hybrid flow profile is active
+    And a staged flow task
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Profile: hybrid"
+    And the Spok CLI output contains "Runner: codex"
+    And the Spok CLI output contains "Model: gpt-5.6-sol"
+    And the Spok CLI output contains "Effort: xhigh"
+
+  Scenario: Hybrid flow routes research questions to Codex Sol at medium effort
+    Given a new project
+    And the hybrid flow profile is active
+    And a staged flow task
+    And the staged flow task is completed through problem validation
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Next step: research-questions"
+    And the Spok CLI output contains "Profile: hybrid"
+    And the Spok CLI output contains "Runner: codex"
+    And the Spok CLI output contains "Model: gpt-5.6-sol"
+    And the Spok CLI output contains "Effort: medium"
+
+  Scenario: Hybrid flow routes design discussion to Claude Fable
+    Given a new project
+    And the hybrid flow profile is active
+    And a staged flow task
+    And the staged flow task is completed through research
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Profile: hybrid"
+    And the Spok CLI output contains "Runner: claude"
+    And the Spok CLI output contains "Model: fable"
+    And the Spok CLI output contains "Effort: xhigh"
+
+  Scenario: Hybrid flow routes a pending repair to Codex Sol at max effort
+    Given a new project
+    And the hybrid flow profile is active
+    And a staged flow task
+    And the staged flow task is completed through validation
+    And "spok/changes/demo/.flow/chunk-one/validation.md" contains:
+      """
+      ---
+      verdict: FAIL
+      ---
+
+      # Validation
+      """
+    And a repair cycle is pending
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Next step: repair"
+    And the Spok CLI output contains "Profile: hybrid"
+    And the Spok CLI output contains "Runner: codex"
+    And the Spok CLI output contains "Model: gpt-5.6-sol"
+    And the Spok CLI output contains "Effort: max"
 
   Scenario: Global skills install writes to home-scoped tool directories
     Given a new project

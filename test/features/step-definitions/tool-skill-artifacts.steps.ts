@@ -13,6 +13,7 @@ interface SkillArtifactWorld {
   projectDir?: string;
   codexHome?: string;
   originalCodexHome?: string;
+  originalFlowProfile?: string;
   originalXdgConfigHome?: string;
   setupGuidance?: string;
   flowTaskDir?: string;
@@ -49,8 +50,10 @@ Given('a new project', async function (this: SkillArtifactWorld) {
   this.projectDir = path.join(os.tmpdir(), `spok-acceptance-${randomUUID()}`);
   this.codexHome = path.join(this.projectDir, 'codex-home');
   this.originalCodexHome = process.env.CODEX_HOME;
+  this.originalFlowProfile = process.env.SPOK_FLOW_PROFILE;
   this.originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
   process.env.CODEX_HOME = this.codexHome;
+  delete process.env.SPOK_FLOW_PROFILE;
   process.env.XDG_CONFIG_HOME = path.join(this.projectDir, 'xdg-config');
   await fs.mkdir(this.projectDir, { recursive: true });
 });
@@ -60,6 +63,20 @@ Given('a staged flow task', async function (this: SkillArtifactWorld) {
   this.flowTaskDir = path.join(this.projectDir, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
   await fs.mkdir(this.flowTaskDir, { recursive: true });
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
+});
+
+Given('the staged flow task is completed through problem validation', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  const output = path.join(this.flowTaskDir, 'problem-validation.md');
+  await fs.writeFile(output, '# Problem Validation\n\n## Flow Decision\n\nproceed\n', 'utf-8');
+  const result = await runCLI(
+    ['flow', 'complete', this.flowTaskDir, '--step', 'validate-problem', '--output', output, '--json'],
+    { cwd: this.projectDir }
+  );
+  assert.equal(result.exitCode, 0, result.stderr);
 });
 
 Given('the staged flow task is completed through research', async function (
@@ -161,6 +178,14 @@ Given('the staged flow task is completed through validation', async function (th
   );
 });
 
+Given('a repair cycle is pending', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  const statePath = path.join(this.flowTaskDir, 'workflow-state.json');
+  const state = JSON.parse(await fs.readFile(statePath, 'utf-8')) as Record<string, unknown>;
+  state.repairAttempts = 1;
+  await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+});
+
 Given('the Claude harness is active', function (this: SkillArtifactWorld) {
   delete process.env.CODEX_HOME; // cleared so the spawned CLI detects claude
 });
@@ -168,6 +193,10 @@ Given('the Claude harness is active', function (this: SkillArtifactWorld) {
 Given('the Codex harness is active', function (this: SkillArtifactWorld) {
   assert.ok(this.codexHome, 'codexHome must be set by Given a new project');
   process.env.CODEX_HOME = this.codexHome; // explicit for legibility; already set by 'a new project'
+});
+
+Given('the hybrid flow profile is active', function () {
+  process.env.SPOK_FLOW_PROFILE = 'hybrid';
 });
 
 Given(
@@ -409,6 +438,11 @@ After(async function (this: SkillArtifactWorld) {
     delete process.env.CODEX_HOME;
   } else {
     process.env.CODEX_HOME = this.originalCodexHome;
+  }
+  if (this.originalFlowProfile === undefined) {
+    delete process.env.SPOK_FLOW_PROFILE;
+  } else {
+    process.env.SPOK_FLOW_PROFILE = this.originalFlowProfile;
   }
   if (this.originalXdgConfigHome === undefined) {
     delete process.env.XDG_CONFIG_HOME;
