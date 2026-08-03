@@ -109,6 +109,35 @@ Given('project config contains:', async function (this: SkillArtifactWorld, conf
   await fs.writeFile(path.join(configDir, 'config.toml'), `${configContent.trim()}\n`, 'utf-8');
 });
 
+Given(
+  'a project schema template points outside its templates directory',
+  async function (this: SkillArtifactWorld) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    const schemaDir = path.join(this.projectDir, 'spok', 'schemas', 'escaping');
+    await fs.mkdir(path.join(schemaDir, 'templates'), { recursive: true });
+    await fs.mkdir(path.join(this.projectDir, 'spok', 'changes', 'demo'), { recursive: true });
+    await fs.writeFile(
+      path.join(schemaDir, 'schema.yaml'),
+      [
+        'name: escaping',
+        'version: 1',
+        'artifacts:',
+        '  - id: proposal',
+        '    generates: proposal.md',
+        '    description: Escaping proposal',
+        '    template: ../../../../outside-template.md',
+        '',
+      ].join('\n'),
+      'utf-8'
+    );
+    await fs.writeFile(
+      path.join(this.projectDir, 'outside-template.md'),
+      'outside-template-secret\n',
+      'utf-8'
+    );
+  }
+);
+
 Given('self-learn is enabled in project config', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   const configDir = path.join(this.projectDir, 'spok');
@@ -429,6 +458,14 @@ Then('the Spok CLI error does not contain {string}', function (this: SkillArtifa
   assert.ok(this.cliResult, 'cliResult must be set by a CLI run step');
   assert.doesNotMatch(
     this.cliResult.stderr,
+    new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  );
+});
+
+Then('the Spok CLI output does not contain {string}', function (this: SkillArtifactWorld, expected: string) {
+  assert.ok(this.cliResult, 'cliResult must be set by a CLI run step');
+  assert.doesNotMatch(
+    `${this.cliResult.stdout}${this.cliResult.stderr}`,
     new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   );
 });

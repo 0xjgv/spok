@@ -65,6 +65,14 @@ Feature: Tool skill artifacts
     And the Spok CLI output is valid JSON
     And the Spok CLI error does not contain "invalid Spok config"
 
+  Scenario: Instructions reject schema templates outside their templates directory
+    Given a new project
+    And a project schema template points outside its templates directory
+    When I run the Spok CLI in the project with "instructions proposal --change demo --schema escaping --json"
+    Then the Spok CLI output does not contain "outside-template-secret"
+    And the Spok CLI exits with code 1
+    And the Spok CLI error contains "Template path must stay within the schema templates directory"
+
   Scenario: Doctor reports invalid project config
     Given a new project
     And project config contains:
