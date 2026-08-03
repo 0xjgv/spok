@@ -74,7 +74,7 @@ When prompted, repeat this workflow for the next phase.
 ### Inner spok-flow Mode
 If the task directory contains `workflow-state.json`, this skill is running inside the deterministic `spok-flow` sequence.
 
-In that mode, these rules override the delegated workflow above:
+In that mode, these rules override every conflicting instruction anywhere in this skill:
 - Implement each phase directly in this agent and run its automated checks.
 - Do not launch `implementer-agent` or another nested agent. The outer flow step already selected the runner, model, and effort.
 - Do not create commits. The final commit is owned by the `commit` step in `spok-flow`.
@@ -85,26 +85,29 @@ In that mode, these rules override the delegated workflow above:
 ### Resuming Work
 If resuming work on a partially completed plan:
 - First check the plan file for existing checkmarks (- [x])
-- Instruct the implementer agent to resume from the first unchecked item
+- In inner spok-flow mode, resume directly from the first unchecked item.
+- Outside inner spok-flow mode, instruct the implementer agent to resume from the first unchecked item.
 - Trust that completed work is done unless something seems off
 
 ### Handling Issues
-If the implementer agent reports a mismatch or gets stuck:
+If implementation reports a mismatch or gets stuck:
 - Present the issue clearly to the human
 - Wait for guidance before proceeding
 - Consider if the plan needs updating based on codebase evolution
 
 ### Multiple Phases
 If instructed to implement multiple phases consecutively:
-- Still launch separate implementer agents for each phase
+- In inner spok-flow mode, implement each phase directly in this agent.
+- Outside inner spok-flow mode, launch separate implementer agents for each phase.
 - Perform verification between phases
 - Report summary after all requested phases complete
 - Only pause for human verification after the final phase
 
 ### Waiting for Input
-- unless expressly asked, don't commit or proceed to a next phase until the human has reviewed and approved the previous phase
+- In inner spok-flow mode, continue without approval unless required manual validation blocks.
+- Outside inner spok-flow mode, don't commit or proceed until the human approves the previous phase.
 
-Your TODO list:
+Standalone-mode TODO list; inner spok-flow mode does not use this list:
 
 - [ ] get plan path
 - [ ] launch implementer subagent
@@ -117,6 +120,10 @@ Your TODO list:
 ## After Final Phase Completion
 
 When ALL phases are complete and verified (all checkboxes marked, all automated tests pass):
+
+Inside inner spok-flow mode, do not commit. Return the concise implementation summary required by the outer flow.
+
+Outside inner spok-flow mode:
 
 1. Commit the final changes
 2. Read the final output template:
@@ -133,4 +140,4 @@ When invoked:
 3. Begin with Phase 1 (or first unchecked phase if resuming)
 4. Follow the workflow above
 
-Remember: Your role is orchestration and verification. The implementer agent does the actual implementation work. Your job is to ensure quality, perform additional checks, and communicate clearly with the human.
+Outside inner spok-flow mode, orchestrate and verify while the implementer agent does the implementation. In inner spok-flow mode, implement and verify directly.

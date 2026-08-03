@@ -113,6 +113,23 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "--dangerously-bypass-hook-trust"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "claude -p"
 
+  Scenario: Hybrid apply preflights both harness skill closures
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-apply" under ".claude/skills" mentions "Before staging a hybrid run"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.claude/skills/spok-flow/SKILL.md"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.agents/skills/spok-flow/SKILL.md"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "spok skills install --tools claude,codex"
+
+  Scenario: Inner flow implementation overrides standalone orchestration
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-implement-plan" under ".claude/skills" mentions "override every conflicting instruction anywhere in this skill"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "In inner spok-flow mode, resume directly"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Outside inner spok-flow mode, launch separate"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Inside inner spok-flow mode, do not commit"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "In inner spok-flow mode, implement and verify directly."
+
   Scenario: Visual chunks preserve a browser-review design contract
     Given a new project
     When I initialize Spok for the tools "claude"

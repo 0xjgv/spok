@@ -50,6 +50,17 @@ MUST prompt the user.
    - \`planningHome.changesDir\` and \`changeRoot\` — use these instead of guessing paths.
    - \`actionContext.mode\` — if it is \`workspace-planning\` and \`allowedEditRoots\` is empty, explain that workspace apply is not supported here, treat linked repos as read-only context, and STOP before staging.
 
+   Before staging a hybrid run:
+   - Resolve the project root with \`git rev-parse --show-toplevel\`.
+   - Verify both harnesses can discover the Spok helper closure, using
+     \`spok-flow/SKILL.md\` as its installation marker:
+     - Claude: \`<project-root>/.claude/skills/spok-flow/SKILL.md\` or
+       \`~/.claude/skills/spok-flow/SKILL.md\`.
+     - Codex: \`<project-root>/.agents/skills/spok-flow/SKILL.md\` or
+       \`~/.agents/skills/spok-flow/SKILL.md\`.
+   - If either harness has no marker, tell the user to run
+     \`spok skills install --tools claude,codex\` and STOP before staging.
+
 3. **Parse the chunked tasks.md**
 
    Read \`<changeRoot>/tasks.md\` (or follow the schema's \`tasks\` artifact path if different).
