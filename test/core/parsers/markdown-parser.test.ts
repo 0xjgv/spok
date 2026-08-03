@@ -328,7 +328,7 @@ Then result`;
       expect(spec.requirements[0].text).toBe('The system SHALL use heading text when no content');
     });
 
-    it('should extract requirement text from first non-empty content line', () => {
+    it('should extract the full multiline requirement body', () => {
       const content = `# Test Spec
 
 ## Purpose
@@ -349,7 +349,9 @@ Then result`;
       const parser = new MarkdownParser(content);
       const spec = parser.parseSpec('test');
       
-      expect(spec.requirements[0].text).toBe('This is the actual requirement text.');
+      expect(spec.requirements[0].text).toBe(
+        'This is the actual requirement text.\nThis is additional description.'
+      );
     });
   });
 });

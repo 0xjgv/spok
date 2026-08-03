@@ -1,4 +1,8 @@
 import { Spec, Change, Requirement, Scenario, Delta, DeltaOperation } from '../schemas/index.js';
+import {
+  buildCodeFenceMask,
+  extractRequirementText,
+} from './requirement-text.js';
 
 export interface Section {
   level: number;
@@ -7,15 +11,8 @@ export interface Section {
   children: Section[];
 }
 
-interface ActiveFence {
-  marker: '`' | '~';
-  length: number;
-}
-
 const HEADER = /^(#{1,6})\s+(.+)$/;
 const HEADER_PREFIX = /^(#{1,6})\s+/;
-const FENCE_OPEN = /^\s*(`{3,}|~{3,})/;
-const FENCE_CLOSE = /^\s*(`{3,}|~{3,})\s*$/;
 const DELTA_LINE = /^\s*-\s*\*\*([^*:]+)(?::\*\*|\*\*:)\s*(.+)$/;
 
 export class MarkdownParser {
@@ -26,7 +23,7 @@ export class MarkdownParser {
   constructor(content: string) {
     const normalized = MarkdownParser.normalizeContent(content);
     this.lines = normalized.split('\n');
-    this.codeFenceLineMask = MarkdownParser.buildCodeFenceMask(this.lines);
+    this.codeFenceLineMask = buildCodeFenceMask(this.lines);
     this.currentLine = 0;
   }
 
@@ -35,46 +32,7 @@ export class MarkdownParser {
   }
 
   protected static buildCodeFenceMask(lines: string[]): boolean[] {
-    const mask = new Array(lines.length).fill(false);
-    let activeFence: ActiveFence | null = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      if (!activeFence) {
-        activeFence = MarkdownParser.getFenceMarker(lines[i]);
-        if (activeFence) {
-          mask[i] = true;
-        }
-        continue;
-      }
-
-      mask[i] = true;
-      if (MarkdownParser.isClosingFence(lines[i], activeFence)) {
-        activeFence = null;
-      }
-    }
-
-    return mask;
-  }
-
-  private static getFenceMarker(line: string): ActiveFence | null {
-    const fenceMatch = line.match(FENCE_OPEN);
-    if (!fenceMatch) {
-      return null;
-    }
-
-    return {
-      marker: fenceMatch[1][0] as '`' | '~',
-      length: fenceMatch[1].length,
-    };
-  }
-
-  private static isClosingFence(line: string, activeFence: ActiveFence): boolean {
-    const fenceMatch = line.match(FENCE_CLOSE);
-    return Boolean(
-      fenceMatch &&
-      fenceMatch[1][0] === activeFence.marker &&
-      fenceMatch[1].length >= activeFence.length
-    );
+    return buildCodeFenceMask(lines);
   }
 
   parseSpec(name: string): Spec {
@@ -203,28 +161,8 @@ export class MarkdownParser {
     }));
   }
 
-  // Requirement text is the first non-empty content line before any child
-  // section (scenario), falling back to the heading when there is none.
   private static requirementText(child: Section): string {
-    if (!child.content.trim()) {
-      return child.title;
-    }
-
-    const contentBeforeChildren: string[] = [];
-    for (const line of child.content.split('\n')) {
-      if (line.trim().startsWith('#')) {
-        break;
-      }
-      contentBeforeChildren.push(line);
-    }
-
-    const directContent = contentBeforeChildren.join('\n').trim();
-    if (!directContent) {
-      return child.title;
-    }
-
-    const firstLine = directContent.split('\n').find(l => l.trim());
-    return firstLine ? firstLine.trim() : child.title;
+    return extractRequirementText(child.title, child.content.split('\n'));
   }
 
   protected parseScenarios(requirementSection: Section): Scenario[] {

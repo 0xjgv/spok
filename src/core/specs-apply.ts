@@ -50,6 +50,12 @@ export interface SpecsApplyOutput {
 
 type Counts = { added: number; modified: number; removed: number; renamed: number };
 
+export class SpecApplicabilityError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Public API
 // -----------------------------------------------------------------------------
@@ -218,15 +224,28 @@ function applyDeltaOperations(
   specName: string,
   isNewSpec: boolean
 ): void {
+  const errors: string[] = [];
+
   for (const r of plan.renamed) {
     const from = normalizeRequirementName(r.from);
     const to = normalizeRequirementName(r.to);
-    if (!nameToBlock.has(from)) {
-      throw new Error(`${specName} RENAMED failed for header "### Requirement: ${r.from}" - source not found`);
+    const sourceExists = nameToBlock.has(from);
+    const targetExists = nameToBlock.has(to);
+
+    if (!sourceExists) {
+      errors.push(
+        `${specName} RENAMED failed for header "### Requirement: ${r.from}" - source not found`
+      );
     }
-    if (nameToBlock.has(to)) {
-      throw new Error(`${specName} RENAMED failed for header "### Requirement: ${r.to}" - target already exists`);
+    if (targetExists) {
+      errors.push(
+        `${specName} RENAMED failed for header "### Requirement: ${r.to}" - target already exists`
+      );
     }
+    if (!sourceExists || targetExists) {
+      continue;
+    }
+
     const block = nameToBlock.get(from)!;
     const newHeader = `### Requirement: ${to}`;
     const rawLines = block.raw.split('\n');
@@ -241,7 +260,9 @@ function applyDeltaOperations(
       // New specs already warned about and ignore missing REMOVED requirements;
       // existing specs treat a missing requirement as an error.
       if (!isNewSpec) {
-        throw new Error(`${specName} REMOVED failed for header "### Requirement: ${name}" - not found`);
+        errors.push(
+          `${specName} REMOVED failed for header "### Requirement: ${name}" - not found`
+        );
       }
       continue;
     }
@@ -251,14 +272,18 @@ function applyDeltaOperations(
   for (const mod of plan.modified) {
     const key = normalizeRequirementName(mod.name);
     if (!nameToBlock.has(key)) {
-      throw new Error(`${specName} MODIFIED failed for header "### Requirement: ${mod.name}" - not found`);
+      errors.push(
+        `${specName} MODIFIED failed for header "### Requirement: ${mod.name}" - not found`
+      );
+      continue;
     }
     // The provided block's header must match the requirement being modified.
     const modHeaderMatch = mod.raw.split('\n')[0].match(/^###\s*Requirement:\s*(.+)\s*$/i);
     if (!modHeaderMatch || normalizeRequirementName(modHeaderMatch[1]) !== key) {
-      throw new Error(
+      errors.push(
         `${specName} MODIFIED failed for header "### Requirement: ${mod.name}" - header mismatch in content`
       );
+      continue;
     }
     nameToBlock.set(key, mod);
   }
@@ -266,9 +291,16 @@ function applyDeltaOperations(
   for (const add of plan.added) {
     const key = normalizeRequirementName(add.name);
     if (nameToBlock.has(key)) {
-      throw new Error(`${specName} ADDED failed for header "### Requirement: ${add.name}" - already exists`);
+      errors.push(
+        `${specName} ADDED failed for header "### Requirement: ${add.name}" - already exists`
+      );
+      continue;
     }
     nameToBlock.set(key, add);
+  }
+
+  if (errors.length > 0) {
+    throw new SpecApplicabilityError(errors.join('\n'));
   }
 }
 

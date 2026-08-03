@@ -392,20 +392,17 @@ The system will log all events.
       const changeSpecDir = path.join(changeDir, 'specs', 'test-capability');
       await fs.mkdir(changeSpecDir, { recursive: true });
       
-      // Create valid spec in change
-      const specContent = `# Test Capability Spec
+      // Create a valid delta spec in the change
+      const specContent = `# Test Capability Spec - Changes
 
-## Purpose
-This is a test capability specification.
+## ADDED Requirements
 
-## Requirements
-
-### The system SHALL provide test capability
+### Requirement: Test capability
+The system SHALL provide test capability.
 
 #### Scenario: Basic test
-Given a test condition
-When an action occurs
-Then expected result happens`;
+- **WHEN** a test condition exists
+- **THEN** the expected result happens`;
       await fs.writeFile(path.join(changeSpecDir, 'spec.md'), specContent);
       
       // Mock confirm to return false (decline spec updates)

@@ -16,6 +16,10 @@ import {
   DeltaPlan,
   RequirementBlock,
 } from '../parsers/requirement-blocks.js';
+import {
+  analyzeRequirementBody,
+  containsShallOrMust,
+} from '../parsers/requirement-text.js';
 import { findMainSpecStructureIssues } from '../parsers/spec-structure.js';
 import { FileSystemUtils } from '../../utils/file-system.js';
 
@@ -208,14 +212,18 @@ export class Validator {
         seen.add(key);
       }
 
-      const requirementText = this.extractRequirementText(block.raw);
+      const bodyLines = block.raw.split('\n').slice(1);
+      const {
+        text: requirementText,
+        scenarioCount,
+      } = analyzeRequirementBody(bodyLines);
       if (!requirementText) {
         issues.push({ level: 'ERROR', path: entryPath, message: `${operation} "${block.name}" is missing requirement text` });
-      } else if (!this.containsShallOrMust(requirementText)) {
+      } else if (!containsShallOrMust(requirementText)) {
         issues.push({ level: 'ERROR', path: entryPath, message: `${operation} "${block.name}" must contain SHALL or MUST` });
       }
 
-      if (this.countScenarios(block.raw) < 1) {
+      if (scenarioCount < 1) {
         issues.push({ level: 'ERROR', path: entryPath, message: `${operation} "${block.name}" must include at least one scenario` });
       }
     }
@@ -432,43 +440,6 @@ export class Validator {
 
   isValid(report: ValidationReport): boolean {
     return report.valid;
-  }
-
-  private extractRequirementText(blockRaw: string): string | undefined {
-    const lines = blockRaw.split('\n');
-    // Skip header line (index 0)
-    let i = 1;
-
-    // Find the first substantial text line, skipping metadata and blank lines
-    for (; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Stop at scenario headers
-      if (/^####\s+/.test(line)) break;
-
-      const trimmed = line.trim();
-
-      // Skip blank lines
-      if (trimmed.length === 0) continue;
-
-      // Skip metadata lines (lines starting with ** like **ID**, **Priority**, etc.)
-      if (/^\*\*[^*]+\*\*:/.test(trimmed)) continue;
-
-      // Found first non-metadata, non-blank line - this is the requirement text
-      return trimmed;
-    }
-
-    // No requirement text found
-    return undefined;
-  }
-
-  private containsShallOrMust(text: string): boolean {
-    return /\b(SHALL|MUST)\b/.test(text);
-  }
-
-  private countScenarios(blockRaw: string): number {
-    const matches = blockRaw.match(/^####\s+/gm);
-    return matches ? matches.length : 0;
   }
 
   private formatSectionList(sections: string[]): string {

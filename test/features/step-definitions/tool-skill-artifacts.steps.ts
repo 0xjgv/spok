@@ -62,6 +62,29 @@ Given('a staged flow task', async function (this: SkillArtifactWorld) {
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
 });
 
+Given('the staged flow task is completed through research', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+
+  const completedSteps = [
+    ['validate-problem', 'problem-validation.md', '# Problem Validation\n\n## Flow Decision\n\nproceed\n'],
+    ['research-questions', 'research-questions.md', '# Research Questions\n'],
+    ['research', 'research.md', '# Research\n'],
+  ] as const;
+
+  for (const [step, filename, content] of completedSteps) {
+    const output = path.join(this.flowTaskDir, filename);
+    await fs.writeFile(output, content, 'utf-8');
+    const result = await runCLI(
+      ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
+      { cwd: this.projectDir }
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+  }
+});
+
 Given('project config contains:', async function (this: SkillArtifactWorld, configContent: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   const configDir = path.join(this.projectDir, 'spok');

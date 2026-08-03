@@ -157,7 +157,17 @@ Feature: Tool skill artifacts
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: validate-problem"
     And the Spok CLI output contains "Model: opus"
-    And the Spok CLI output contains "Effort: xhigh"
+    And the Spok CLI output contains "Effort: high"
+
+  Scenario: Flow next prints the Claude-routed model and effort for a max step
+    Given a new project
+    And the Claude harness is active
+    And a staged flow task
+    And the staged flow task is completed through research
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Next step: design-discussion"
+    And the Spok CLI output contains "Model: fable"
+    And the Spok CLI output contains "Effort: medium"
 
   Scenario: Flow next prints the Codex-routed model and effort for the first step
     Given a new project

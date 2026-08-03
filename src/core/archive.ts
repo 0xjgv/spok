@@ -8,6 +8,7 @@ import chalk from 'chalk';
 import {
   findSpecUpdates,
   buildUpdatedSpec,
+  SpecApplicabilityError,
   writeUpdatedSpec,
   type SpecUpdate,
 } from './specs-apply.js';
@@ -50,6 +51,8 @@ async function moveDirectory(src: string, dest: string): Promise<void> {
 }
 
 const DELTA_SECTION_HEADER = /^##\s+(ADDED|MODIFIED|REMOVED|RENAMED)\s+Requirements/m;
+const APPLICABILITY_GUIDANCE =
+  'Use ADDED for new requirements, or RENAMED followed by MODIFIED when a requirement name changes.';
 
 const ISSUE_STYLES: Record<ValidationLevel, { symbol: string; paint: (text: string) => string }> = {
   ERROR: { symbol: '✗', paint: chalk.red },
@@ -77,6 +80,12 @@ function isDeltaIssue({ path: issuePath }: ValidationIssue): boolean {
   // brackets (`deltas[0].description`). Both dialects appear in one report.
   return issuePath === 'deltas' || issuePath.startsWith('deltas.') || issuePath.startsWith('deltas[');
 }
+
+type PreparedSpecUpdate = {
+  update: SpecUpdate;
+  rebuilt: string;
+  counts: { added: number; modified: number; removed: number; renamed: number };
+};
 
 export class ArchiveCommand {
   async execute(
@@ -125,12 +134,32 @@ export class ArchiveCommand {
     }
 
     const skipValidation = options.validate === false || options.noValidate === true;
+    const archiveName = `${this.getArchiveDate()}-${changeName}`;
+    const archivePath = path.join(archiveDir, archiveName);
+    await this.assertArchiveDestinationAvailable(archivePath, archiveName);
 
-    // Validate specs and change before archiving
-    const mayProceed = skipValidation
-      ? await this.confirmSkippedValidation(changeName, changeDir, options.yes)
-      : await this.reportPreArchiveValidation(changeDir);
-    if (!mayProceed) {
+    if (!skipValidation && !(await this.reportPreArchiveValidation(changeDir))) {
+      return;
+    }
+
+    let preparedSpecUpdates: PreparedSpecUpdate[] = [];
+    if (!options.skipSpecs) {
+      const specUpdates = await findSpecUpdates(changeDir, mainSpecsDir);
+      const prepared = await this.prepareSpecUpdates(
+        specUpdates,
+        changeName,
+        skipValidation
+      );
+      if (!prepared) {
+        return;
+      }
+      preparedSpecUpdates = prepared;
+    }
+
+    if (
+      skipValidation &&
+      !(await this.confirmSkippedValidation(changeName, changeDir, options.yes))
+    ) {
       return;
     }
 
@@ -160,12 +189,9 @@ export class ArchiveCommand {
     if (options.skipSpecs) {
       console.log('Skipping spec updates (--skip-specs flag provided).');
     } else {
-      // Find specs to update
-      const specUpdates = await findSpecUpdates(changeDir, mainSpecsDir);
-      
-      if (specUpdates.length > 0) {
+      if (preparedSpecUpdates.length > 0) {
         console.log('\nSpecs to update:');
-        for (const update of specUpdates) {
+        for (const { update } of preparedSpecUpdates) {
           const status = update.exists ? 'update' : 'create';
           const capability = path.basename(path.dirname(update.target));
           console.log(`  ${capability}: ${status}`);
@@ -184,34 +210,8 @@ export class ArchiveCommand {
         }
 
         if (shouldUpdateSpecs) {
-          // Prepare all updates first (validation pass, no writes)
-          const prepared: Array<{ update: SpecUpdate; rebuilt: string; counts: { added: number; modified: number; removed: number; renamed: number } }> = [];
-          try {
-            for (const update of specUpdates) {
-              const built = await buildUpdatedSpec(update, changeName!);
-              prepared.push({ update, rebuilt: built.rebuilt, counts: built.counts });
-            }
-          } catch (err: any) {
-            console.log(String(err.message || err));
-            console.log('Aborted. No files were changed.');
-            return;
-          }
-
-          // All validations passed; pre-validate rebuilt full spec and then write files and display counts
-          let totals = { added: 0, modified: 0, removed: 0, renamed: 0 };
-          for (const p of prepared) {
-            const specName = path.basename(path.dirname(p.update.target));
-            if (!skipValidation) {
-              const report = await new Validator().validateSpecContent(specName, p.rebuilt);
-              if (!report.valid) {
-                console.log(chalk.red(`\nValidation errors in rebuilt spec for ${specName} (will not write changes):`));
-                for (const issue of report.issues) {
-                  console.log(formatIssue(issue));
-                }
-                console.log('Aborted. No files were changed.');
-                return;
-              }
-            }
+          const totals = { added: 0, modified: 0, removed: 0, renamed: 0 };
+          for (const p of preparedSpecUpdates) {
             await writeUpdatedSpec(p.update, p.rebuilt, p.counts);
             totals.added += p.counts.added;
             totals.modified += p.counts.modified;
@@ -226,11 +226,19 @@ export class ArchiveCommand {
       }
     }
 
-    // Create archive directory with date prefix
-    const archiveName = `${this.getArchiveDate()}-${changeName}`;
-    const archivePath = path.join(archiveDir, archiveName);
+    // Create archive directory if needed
+    await fs.mkdir(archiveDir, { recursive: true });
 
-    // Check if archive already exists
+    // Move change to archive (uses copy+remove on EPERM/EXDEV, e.g. Windows)
+    await moveDirectory(changeDir, archivePath);
+
+    console.log(`Change '${changeName}' archived as '${archiveName}'.`);
+  }
+
+  private async assertArchiveDestinationAvailable(
+    archivePath: string,
+    archiveName: string
+  ): Promise<void> {
     try {
       await fs.access(archivePath);
       throw new Error(`Archive '${archiveName}' already exists.`);
@@ -239,14 +247,72 @@ export class ArchiveCommand {
         throw error;
       }
     }
+  }
 
-    // Create archive directory if needed
-    await fs.mkdir(archiveDir, { recursive: true });
+  private async prepareSpecUpdates(
+    specUpdates: SpecUpdate[],
+    changeName: string,
+    skipValidation: boolean
+  ): Promise<PreparedSpecUpdate[] | null> {
+    const prepared: PreparedSpecUpdate[] = [];
+    const preparationErrors: Array<{ error: unknown; message: string }> = [];
 
-    // Move change to archive (uses copy+remove on EPERM/EXDEV, e.g. Windows)
-    await moveDirectory(changeDir, archivePath);
+    for (const update of specUpdates) {
+      try {
+        const built = await buildUpdatedSpec(update, changeName);
+        prepared.push({ update, rebuilt: built.rebuilt, counts: built.counts });
+      } catch (error: any) {
+        preparationErrors.push({
+          error,
+          message: String(error.message || error),
+        });
+      }
+    }
 
-    console.log(`Change '${changeName}' archived as '${archiveName}'.`);
+    if (preparationErrors.length > 0) {
+      console.log(chalk.red('\nSpec applicability errors:'));
+      for (const { message } of preparationErrors) {
+        for (const line of message.split('\n')) {
+          console.log(chalk.red(`  ✗ ${line}`));
+        }
+      }
+      if (preparationErrors.some(({ error }) => error instanceof SpecApplicabilityError)) {
+        console.log(chalk.yellow(`\n${APPLICABILITY_GUIDANCE}`));
+      }
+      console.log('Aborted. No files were changed.');
+      return null;
+    }
+
+    if (skipValidation) {
+      return prepared;
+    }
+
+    const invalidSpecs: Array<{ name: string; issues: ValidationIssue[] }> = [];
+    const validator = new Validator();
+    for (const item of prepared) {
+      const specName = path.basename(path.dirname(item.update.target));
+      const report = await validator.validateSpecContent(specName, item.rebuilt);
+      if (!report.valid) {
+        invalidSpecs.push({ name: specName, issues: report.issues });
+      }
+    }
+
+    if (invalidSpecs.length > 0) {
+      for (const invalid of invalidSpecs) {
+        console.log(
+          chalk.red(
+            `\nValidation errors in rebuilt spec for ${invalid.name} (will not write changes):`
+          )
+        );
+        for (const issue of invalid.issues) {
+          console.log(formatIssue(issue));
+        }
+      }
+      console.log('Aborted. No files were changed.');
+      return null;
+    }
+
+    return prepared;
   }
 
   /**
