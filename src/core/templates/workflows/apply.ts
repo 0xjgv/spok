@@ -16,8 +16,15 @@ runs research → design → plan → implement → review → commit on that si
 chunk. On success the chunk's checkbox is ticked. On failure the run halts
 so the user can intervene.
 
-**Input**: Optionally specify a change name. If omitted, infer from
-conversation context. If still ambiguous you MUST prompt the user.
+**Input**: Optionally specify an execution mode followed by a change name:
+- no arguments — use the current tool for every flow step and infer the change
+- \`<change>\` — use the current tool and select that change
+- \`hybrid\` — use the built-in Claude + Codex profile and infer the change
+- \`hybrid <change>\` — use the built-in Claude + Codex profile for that change
+
+Treat an exact leading \`hybrid\` token as the execution mode and remove it before
+selecting the change. The token is reserved. If the change is still ambiguous you
+MUST prompt the user.
 
 **CLI self-discovery**: When unsure about Spok's CLI surface, run \`spok capabilities --json\`. Use it only for discovery; keep the workflow recipe below as the primary path.
 
@@ -25,7 +32,8 @@ conversation context. If still ambiguous you MUST prompt the user.
 
 1. **Select the change**
 
-   - Use the change name argument if provided.
+   - Record whether the leading argument selected hybrid execution.
+   - Use the remaining change name argument if provided.
    - Otherwise infer from recent conversation.
    - Otherwise run \`spok list --json\` and use **AskUserQuestion** to let the user pick.
    - Auto-select if only one active change exists.
@@ -41,6 +49,17 @@ conversation context. If still ambiguous you MUST prompt the user.
    Parse the JSON to read:
    - \`planningHome.changesDir\` and \`changeRoot\` — use these instead of guessing paths.
    - \`actionContext.mode\` — if it is \`workspace-planning\` and \`allowedEditRoots\` is empty, explain that workspace apply is not supported here, treat linked repos as read-only context, and STOP before staging.
+
+   Before staging a hybrid run:
+   - Resolve the project root with \`git rev-parse --show-toplevel\`.
+   - Verify both harnesses can discover the Spok helper closure, using
+     \`spok-flow/SKILL.md\` as its installation marker:
+     - Claude: \`<project-root>/.claude/skills/spok-flow/SKILL.md\` or
+       \`~/.claude/skills/spok-flow/SKILL.md\`.
+     - Codex: \`<project-root>/.agents/skills/spok-flow/SKILL.md\` or
+       \`~/.agents/skills/spok-flow/SKILL.md\`.
+   - If either harness has no marker, tell the user to run
+     \`spok skills install --tools claude,codex\` and STOP before staging.
 
 3. **Parse the chunked tasks.md**
 
@@ -127,7 +146,10 @@ conversation context. If still ambiguous you MUST prompt the user.
 
 6. **Invoke spok-flow**
 
-   > Call the \`spok-flow\` skill with the absolute path to the staged ticket directory as the argument using the **Skill tool**.
+   - For default execution, call the \`spok-flow\` skill with the absolute path to
+     the staged ticket directory as the argument using the **Skill tool**.
+   - For \`/spok-apply hybrid\`, call \`spok-flow\` with
+     \`hybrid "<absolute-ticket-dir>"\` as its argument using the **Skill tool**.
 
    The flow skill drives research → design → plan → implement → review → commit and returns when done or when it hits a blocker.
 

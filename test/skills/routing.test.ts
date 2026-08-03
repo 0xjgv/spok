@@ -79,6 +79,31 @@ describe('spok-flow prompt dispatch contract', () => {
     expect(body).not.toContain('must not create commits');
     expect(body).not.toContain('Invoke `spok-self-learn`');
   });
+
+  it('dispatches hybrid steps through their declared runner', async () => {
+    const body = await readFlowSkill();
+
+    expect(body).toContain('SPOK_FLOW_PROFILE=hybrid');
+    expect(body).toContain('`step.runner`');
+    expect(body).toContain('codex exec');
+    expect(body).toContain('--dangerously-bypass-hook-trust');
+    expect(body).toMatch(/run enabled hooks without an\s+interactive trust prompt/);
+    expect(body).toContain('claude -p');
+    expect(body).toContain('Do not call `spok flow complete`');
+    expect(body).toContain('Do not use `--dangerously-bypass-approvals-and-sandbox`');
+  });
+});
+
+describe('spok-implement-plan model inheritance contract', () => {
+  it('implements inline inside a model-pinned flow step', async () => {
+    const body = await fs.readFile(
+      path.join(SKILLS_DIR, 'spok-implement-plan', 'SKILL.md'),
+      'utf-8',
+    );
+
+    expect(body).toContain('Do not launch `implementer-agent` or another nested agent.');
+    expect(body).toContain('The outer flow step already selected the runner, model, and effort.');
+  });
 });
 
 describe('spok-self-learn promotion contract', () => {

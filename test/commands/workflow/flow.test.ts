@@ -34,21 +34,34 @@ const FAIL_VALIDATION =
   '---\nverdict: FAIL\n---\n\n# Validation\n\n## Blocking Findings\n\n- something broke\n';
 
 const EXPECTED_STEP_ROUTING = [
-  { id: 'validate-problem', model: 'opus', effort: 'high' },
-  { id: 'research-questions', model: 'opus', effort: 'high' },
-  { id: 'research', model: 'sonnet', effort: 'xhigh' },
-  { id: 'design-discussion', model: 'fable', effort: 'medium' },
-  { id: 'structure-outline', model: 'opus', effort: 'high' },
-  { id: 'plan', model: 'fable', effort: 'medium' },
-  { id: 'implement', model: 'sonnet', effort: 'xhigh' },
-  { id: 'simplify', model: 'opus', effort: 'high' },
-  { id: 'validate', model: 'opus', effort: 'high' },
-  { id: 'commit', model: 'haiku', effort: undefined },
+  { id: 'validate-problem', model: 'opus', effort: 'medium' },
+  { id: 'research-questions', model: 'opus', effort: 'medium' },
+  { id: 'research', model: 'sonnet', effort: 'medium' },
+  { id: 'design-discussion', model: 'fable', effort: 'xhigh' },
+  { id: 'structure-outline', model: 'fable', effort: 'xhigh' },
+  { id: 'plan', model: 'fable', effort: 'xhigh' },
+  { id: 'implement', model: 'opus', effort: 'medium' },
+  { id: 'simplify', model: 'opus', effort: undefined },
+  { id: 'validate', model: 'opus', effort: 'medium' },
+  { id: 'commit', model: 'haiku', effort: 'low' },
 ];
 
 const EXPECTED_SELF_LEARN_STEP_ROUTING = [
   ...EXPECTED_STEP_ROUTING,
   { id: 'self-learn', model: 'sonnet', effort: 'xhigh' },
+];
+
+const EXPECTED_HYBRID_STEP_ROUTING = [
+  { id: 'validate-problem', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+  { id: 'research-questions', runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
+  { id: 'research', runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
+  { id: 'design-discussion', runner: 'claude', model: 'fable', effort: 'xhigh' },
+  { id: 'structure-outline', runner: 'claude', model: 'fable', effort: 'xhigh' },
+  { id: 'plan', runner: 'claude', model: 'fable', effort: 'xhigh' },
+  { id: 'implement', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+  { id: 'simplify', runner: 'claude', model: 'opus', effort: undefined },
+  { id: 'validate', runner: 'claude', model: 'opus', effort: 'medium' },
+  { id: 'commit', runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
 ];
 
 function expectStepRouting(steps: Array<{ id: string; model?: string; effort?: string }>) {
@@ -83,10 +96,13 @@ function useFlowHarness(): FlowHarness {
   let tempDir: string;
   let taskDir: string;
   let originalCodexHome: string | undefined;
+  let originalFlowProfile: string | undefined;
 
   beforeEach(async () => {
     originalCodexHome = process.env.CODEX_HOME;
+    originalFlowProfile = process.env.SPOK_FLOW_PROFILE;
     delete process.env.CODEX_HOME;
+    delete process.env.SPOK_FLOW_PROFILE;
     tempDir = path.join(os.tmpdir(), `spok-flow-${randomUUID()}`);
     taskDir = path.join(tempDir, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
     await fs.mkdir(taskDir, { recursive: true });
@@ -98,6 +114,11 @@ function useFlowHarness(): FlowHarness {
       delete process.env.CODEX_HOME;
     } else {
       process.env.CODEX_HOME = originalCodexHome;
+    }
+    if (originalFlowProfile === undefined) {
+      delete process.env.SPOK_FLOW_PROFILE;
+    } else {
+      process.env.SPOK_FLOW_PROFILE = originalFlowProfile;
     }
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -192,11 +213,13 @@ describe('deterministic workflow step state', () => {
     const result = await getFlowNext(flow.taskDir);
 
     expect(result.state).toBe('ready');
+    expect(result.profile).toBe('claude');
     expect(result.step).toMatchObject({
       id: 'validate-problem',
       skill: 'spok-validate-problem',
+      runner: 'claude',
       model: 'opus',
-      effort: 'high',
+      effort: 'medium',
       argument: path.join(flow.taskDir, 'ticket.md'),
       expectedOutput: path.join(flow.taskDir, 'problem-validation.md'),
       status: 'ready',
@@ -228,18 +251,53 @@ describe('deterministic workflow step state', () => {
 
     const result = await getFlowNext(flow.taskDir);
 
-    expect(result.steps.map(({ id, model, effort }) => ({ id, model, effort }))).toEqual([
-      { id: 'validate-problem', model: 'gpt-5.6-sol', effort: 'xhigh' },
-      { id: 'research-questions', model: 'gpt-5.6-sol', effort: 'xhigh' },
-      { id: 'research', model: 'gpt-5.6-terra', effort: 'xhigh' },
-      { id: 'design-discussion', model: 'gpt-5.6-sol', effort: 'max' },
-      { id: 'structure-outline', model: 'gpt-5.6-sol', effort: 'xhigh' },
-      { id: 'plan', model: 'gpt-5.6-sol', effort: 'max' },
-      { id: 'implement', model: 'gpt-5.6-terra', effort: 'xhigh' },
-      { id: 'simplify', model: 'gpt-5.6-sol', effort: 'xhigh' },
-      { id: 'validate', model: 'gpt-5.6-sol', effort: 'xhigh' },
-      { id: 'commit', model: 'gpt-5.6-terra', effort: 'low' },
+    expect(result.profile).toBe('codex');
+    expect(result.steps.map(({ id, runner, model, effort }) => ({ id, runner, model, effort }))).toEqual([
+      { id: 'validate-problem', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'research-questions', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'research', runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
+      { id: 'design-discussion', runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
+      { id: 'structure-outline', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'plan', runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
+      { id: 'implement', runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
+      { id: 'simplify', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'validate', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'commit', runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
     ]);
+  });
+
+  it('routes hybrid steps across Codex and Claude', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'hybrid';
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.profile).toBe('hybrid');
+    expect(
+      result.steps.map(({ id, runner, model, effort }) => ({ id, runner, model, effort }))
+    ).toEqual(EXPECTED_HYBRID_STEP_ROUTING);
+  });
+
+  it('keeps the stored hybrid profile when the live harness changes', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'hybrid';
+    await getFlowNext(flow.taskDir);
+
+    delete process.env.SPOK_FLOW_PROFILE;
+    process.env.CODEX_HOME = path.join(os.tmpdir(), `codex-${randomUUID()}`);
+    const resumed = await getFlowStatus(flow.taskDir);
+
+    expect(resumed.profile).toBe('hybrid');
+    expect(resumed.nextStep).toMatchObject({ runner: 'codex', model: 'gpt-5.6-sol' });
+  });
+
+  it('blocks an explicit profile change after state creation', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'hybrid';
+    await getFlowNext(flow.taskDir);
+    process.env.SPOK_FLOW_PROFILE = 'claude';
+
+    const result = await getFlowStatus(flow.taskDir);
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toBe('Flow profile mismatch: state uses hybrid, requested claude.');
   });
 
   it('appends self-learn when project config enables it', async () => {
@@ -340,11 +398,13 @@ describe('deterministic workflow state resumption', () => {
     const result = await getFlowNext(flow.taskDir);
 
     expect(result.state).toBe('ready');
+    expect(result.profile).toBe('claude');
     expect(result.step).toMatchObject({
       id: 'design-discussion',
+      runner: 'claude',
       skill: 'spok-create-design-discussion',
       model: 'fable',
-      effort: 'medium',
+      effort: 'xhigh',
       argument: flow.taskDir,
       expectedOutput: path.join(flow.taskDir, 'design-discussion.md'),
     });
@@ -398,11 +458,12 @@ describe('deterministic workflow state resumption', () => {
     expect(result.step).toMatchObject({
       id: 'design-discussion',
       model: 'fable',
-      effort: 'medium',
+      effort: 'xhigh',
       status: 'ready',
     });
     expectStepRouting(result.steps);
     const normalizedState = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    expect(normalizedState).toMatchObject({ version: 2, profile: 'claude' });
     expectStepRouting(normalizedState.steps);
   });
 
@@ -788,6 +849,20 @@ describe('bounded repair cycle', () => {
     expect(result.nextStep).toMatchObject({ id: 'repair', model: 'gpt-5.6-sol', effort: 'xhigh' });
   });
 
+  it('routes hybrid repair to gpt-5.6-sol max', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'hybrid';
+    await flow.advanceToValidate();
+
+    const result = await flow.completeValidate(FAIL_VALIDATION);
+
+    expect(result.nextStep).toMatchObject({
+      id: 'repair',
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'max',
+    });
+  });
+
   it('re-blocks a completed final validate whose artifact is edited to FAIL after the cycle', async () => {
     await flow.advanceToValidate();
     await flow.completeValidate(FAIL_VALIDATION);
@@ -1035,9 +1110,11 @@ describe('flow command output', () => {
 
     expect(logs).toEqual([
       'Next step: validate-problem',
+      'Profile: claude',
+      'Runner: claude',
       'Skill: spok-validate-problem',
       'Model: opus',
-      'Effort: high',
+      'Effort: medium',
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
       `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
     ]);
@@ -1090,7 +1167,13 @@ describe('flow command output', () => {
     const response = JSON.parse(logs[0]);
     expect(response).toMatchObject({
       state: 'ready',
-      nextStep: { id: 'validate-problem', model: 'opus', effort: 'high' },
+      profile: 'claude',
+      nextStep: {
+        id: 'validate-problem',
+        runner: 'claude',
+        model: 'opus',
+        effort: 'medium',
+      },
     });
     expectStepRouting(response.steps);
   });
