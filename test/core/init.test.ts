@@ -5,6 +5,7 @@ import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
 import { InitCommand } from '../../src/core/init.js';
+import { resolveGitCheckout } from '../../src/core/worktree-link.js';
 import { searchableMultiSelect } from '../../src/prompts/searchable-multi-select.js';
 
 vi.mock('../../src/prompts/searchable-multi-select.js', () => ({
@@ -203,6 +204,15 @@ describe('InitCommand worktree link registration', () => {
 
     await expect(pathExists(path.join(testDir, '.worktreelink'))).resolves.toBe(false);
     await expect(pathExists(path.join(projectDir, '.worktreelink'))).resolves.toBe(false);
+  });
+
+  it('reports a missing HEAD as invalid Git metadata', async () => {
+    await fs.mkdir(path.join(testDir, '.git'));
+    const canonicalTestDir = await fs.realpath(testDir);
+
+    expect(() => resolveGitCheckout(testDir)).toThrow(
+      `Invalid Git HEAD at ${path.join(canonicalTestDir, '.git', 'HEAD')}`
+    );
   });
 
   it('creates .worktreelink and skips git exclude outside a git repo', async () => {

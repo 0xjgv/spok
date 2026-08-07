@@ -69,7 +69,8 @@ function resolveCommonDirectory(gitDir: string): string {
 
 function hasValidHead(gitDir: string): boolean {
   const headPath = path.join(gitDir, 'HEAD');
-  const marker = lstatSync(headPath);
+  const marker = lstatSync(headPath, { throwIfNoEntry: false });
+  if (!marker) return false;
   if (marker.isSymbolicLink()) {
     return readlinkSync(headPath).startsWith('refs/');
   }
