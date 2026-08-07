@@ -160,7 +160,7 @@ export class ListCommand {
       const paddedName = change.name.padEnd(nameWidth);
       const status = formatTaskStatus({ total: change.totalTasks, completed: change.completedTasks });
       const timeAgo = formatRelativeTime(change.lastModified);
-      const ticket = change.ticket ? `  ${change.ticket}` : '';
+      const ticket = change.ticket ? `  ${change.ticket.replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ')}` : '';
       console.log(`${padding}${paddedName}     ${status.padEnd(12)}  ${timeAgo}${ticket}`);
     }
   }
