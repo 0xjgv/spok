@@ -40,6 +40,7 @@ import { getAvailableTools } from './available-tools.js';
 import { installVendoredSkills } from './skill-vendor.js';
 import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
 import { parseToolsSelectionArg } from './tool-selection.js';
+import { ensureWorktreeLink, type WorktreeLinkResult } from './worktree-link.js';
 
 const SPOK_WORKFLOWS = ['explore', 'propose', 'apply', 'archive'] as const;
 
@@ -124,6 +125,9 @@ export class InitCommand {
     // Create directory structure and config
     await this.createDirectoryStructure(spokPath, extendMode);
 
+    // Register spok/ with the worktree tooling (.worktreelink + git exclude)
+    const worktreeLinkResult = await this.registerWorktreeLink(projectPath);
+
     // Generate skills for each tool and remove old command wrapper files
     const results = await this.generateSkillsAndCommands(projectPath, validatedTools);
 
@@ -135,7 +139,19 @@ export class InitCommand {
     this.warnIfClaudeSubagentsMissing(validatedTools);
 
     // Display success message
-    this.displaySuccessMessage(projectPath, validatedTools, results, configStatus);
+    this.displaySuccessMessage(projectPath, validatedTools, results, configStatus, worktreeLinkResult);
+  }
+
+  /**
+   * Ensure `.worktreelink` lists `spok/` and that git ignores the file itself.
+   * Never fails init — a project without write access or without git just skips.
+   */
+  private async registerWorktreeLink(projectPath: string): Promise<WorktreeLinkResult> {
+    try {
+      return await ensureWorktreeLink(projectPath);
+    } catch {
+      return { linkFile: 'skipped', gitExclude: 'skipped' };
+    }
   }
 
   private warnIfClaudeSubagentsMissing(
@@ -512,7 +528,8 @@ export class InitCommand {
       failedTools: Array<{ name: string; error: Error }>;
       removedCommandCount: number;
     },
-    configStatus: 'created' | 'exists' | 'skipped'
+    configStatus: 'created' | 'exists' | 'skipped',
+    worktreeLinkResult: WorktreeLinkResult
   ): void {
     console.log();
     console.log(chalk.bold('Spok Setup Complete'));
@@ -555,6 +572,11 @@ export class InitCommand {
       console.log(`Config: spok/${configName} (exists)`);
     } else {
       console.log(chalk.dim(`Config: skipped (non-interactive mode)`));
+    }
+
+    // Worktree link status
+    if (worktreeLinkResult.linkFile === 'created' || worktreeLinkResult.linkFile === 'appended') {
+      console.log(`Worktree link: .worktreelink (${SPOK_DIR_NAME}/ registered)`);
     }
 
     console.log();

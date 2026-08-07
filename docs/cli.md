@@ -92,6 +92,8 @@ spok/
 # Plus equivalent paths for any other tools you selected.
 ```
 
+It also registers the project's `spok/` directory with git-worktree tooling. Inside a Git checkout, the checkout-root `.worktreelink` gets the project-relative path (`spok/` at the root or, for example, `packages/app/spok/` for a nested target), and `.worktreelink` is added to the shared Git exclude file so it doesn't show up as untracked. Outside Git, init creates a project-local `.worktreelink` containing `spok/` and skips the exclude step. All updates are idempotent.
+
 See [Supported Tools](supported-tools.md) for each tool's exact skills path.
 
 ---

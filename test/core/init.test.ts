@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'child_process';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
@@ -28,6 +29,12 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
+function runGit(cwd: string, ...args: string[]): string {
+  const env = { ...process.env };
+  delete env.GIT_INDEX_FILE;
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf-8', env }).trim();
+}
+
 async function expectToolSkillFiles(testDir: string): Promise<void> {
   await expect(pathExists(path.join(testDir, '.claude', 'skills', 'spok-propose', 'SKILL.md'))).resolves.toBe(true);
   await expect(pathExists(path.join(testDir, '.claude', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
@@ -49,36 +56,36 @@ async function expectExploreSkillContent(testDir: string): Promise<void> {
   expect(exploreSkill).toContain('Do not auto-capture');
 }
 
-describe('InitCommand', () => {
-  let testDir: string;
-  let originalXdgConfigHome: string | undefined;
-  let originalCodexHome: string | undefined;
+let testDir: string;
+let originalXdgConfigHome: string | undefined;
+let originalCodexHome: string | undefined;
 
-  beforeEach(async () => {
-    testDir = path.join(os.tmpdir(), `spok-init-${randomUUID()}`);
-    await fs.mkdir(testDir, { recursive: true });
-    originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
-    originalCodexHome = process.env.CODEX_HOME;
-    process.env.XDG_CONFIG_HOME = path.join(testDir, 'xdg-config');
-    process.env.CODEX_HOME = path.join(testDir, 'codex-home');
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-  });
+beforeEach(async () => {
+  testDir = path.join(os.tmpdir(), `spok-init-${randomUUID()}`);
+  await fs.mkdir(testDir, { recursive: true });
+  originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+  originalCodexHome = process.env.CODEX_HOME;
+  process.env.XDG_CONFIG_HOME = path.join(testDir, 'xdg-config');
+  process.env.CODEX_HOME = path.join(testDir, 'codex-home');
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+});
 
-  afterEach(async () => {
-    vi.restoreAllMocks();
-    if (originalXdgConfigHome === undefined) {
-      delete process.env.XDG_CONFIG_HOME;
-    } else {
-      process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
-    }
-    if (originalCodexHome === undefined) {
-      delete process.env.CODEX_HOME;
-    } else {
-      process.env.CODEX_HOME = originalCodexHome;
-    }
-    await fs.rm(testDir, { recursive: true, force: true });
-  });
+afterEach(async () => {
+  vi.restoreAllMocks();
+  if (originalXdgConfigHome === undefined) {
+    delete process.env.XDG_CONFIG_HOME;
+  } else {
+    process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+  }
+  if (originalCodexHome === undefined) {
+    delete process.env.CODEX_HOME;
+  } else {
+    process.env.CODEX_HOME = originalCodexHome;
+  }
+  await fs.rm(testDir, { recursive: true, force: true });
+});
 
+describe('InitCommand skill setup', () => {
   it('creates Claude and Codex skills without command wrapper directories', async () => {
     const claudeCommandDir = path.join(testDir, '.claude', 'commands');
     const codexPromptDir = path.join(process.env.CODEX_HOME!, 'prompts');
@@ -102,7 +109,94 @@ describe('InitCommand', () => {
     await expect(pathExists(path.join(testDir, '.codex'))).resolves.toBe(false);
     await expect(pathExists(codexPromptDir)).resolves.toBe(false);
   });
+});
 
+describe('InitCommand worktree link registration', () => {
+  it('registers spok/ in .worktreelink and excludes it from git, idempotently', async () => {
+    runGit(testDir, 'init', '--quiet');
+    await fs.writeFile(path.join(testDir, '.worktreelink'), 'docs/\n');
+    await fs.writeFile(path.join(testDir, '.git', 'info', 'exclude'), '# git ls-files --others\n');
+
+    const options = { tools: 'claude', force: true, interactive: false };
+    await new InitCommand(options).execute(testDir);
+    await new InitCommand(options).execute(testDir);
+
+    const linkFile = await fs.readFile(path.join(testDir, '.worktreelink'), 'utf-8');
+    expect(linkFile.split('\n').filter((line) => line === 'spok/')).toHaveLength(1);
+    expect(linkFile).toContain('docs/');
+
+    const exclude = await fs.readFile(path.join(testDir, '.git', 'info', 'exclude'), 'utf-8');
+    expect(exclude.split('\n').filter((line) => line === '.worktreelink')).toHaveLength(1);
+    expect(exclude).toContain('# git ls-files --others');
+  });
+
+  it('registers an aliased nested project in the current linked worktree', async () => {
+    const mainDir = path.join(testDir, 'main');
+    const linkedDir = path.join(testDir, 'linked');
+    const aliasedLinkedDir = path.join(testDir, 'linked-alias');
+    await fs.mkdir(mainDir, { recursive: true });
+    runGit(mainDir, 'init', '--quiet');
+    await fs.writeFile(path.join(mainDir, 'README.md'), '# Test\n');
+    runGit(mainDir, 'add', 'README.md');
+    runGit(
+      mainDir,
+      '-c',
+      'user.name=Spok Tests',
+      '-c',
+      'user.email=spok@example.com',
+      'commit',
+      '--quiet',
+      '-m',
+      'Initial commit'
+    );
+    runGit(mainDir, 'worktree', 'add', '--quiet', '--detach', linkedDir);
+    await fs.symlink(linkedDir, aliasedLinkedDir, process.platform === 'win32' ? 'junction' : 'dir');
+
+    const projectDir = path.join(aliasedLinkedDir, 'packages', 'app');
+    await fs.mkdir(projectDir, { recursive: true });
+    await new InitCommand({ tools: 'claude', force: true, interactive: false }).execute(projectDir);
+
+    const linkFilePath = path.join(linkedDir, '.worktreelink');
+    await expect(fs.readFile(linkFilePath, 'utf-8')).resolves.toBe('packages/app/spok/\n');
+    await expect(pathExists(path.join(mainDir, '.worktreelink'))).resolves.toBe(false);
+
+    const exclude = await fs.readFile(path.join(mainDir, '.git', 'info', 'exclude'), 'utf-8');
+    expect(exclude.split('\n').filter((line) => line === '.worktreelink')).toHaveLength(1);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'preserves literal backslashes in a nested project path',
+    async () => {
+      runGit(testDir, 'init', '--quiet');
+      const projectDir = path.join(testDir, 'packages', 'app\\alias');
+
+      await new InitCommand({ tools: 'claude', force: true, interactive: false }).execute(projectDir);
+
+      await expect(fs.readFile(path.join(testDir, '.worktreelink'), 'utf-8')).resolves.toBe(
+        'packages/app\\alias/spok/\n'
+      );
+    }
+  );
+
+  it('skips registration when enclosing Git metadata is invalid', async () => {
+    await fs.writeFile(path.join(testDir, '.git'), 'invalid git metadata\n');
+    const projectDir = path.join(testDir, 'packages', 'app');
+
+    await new InitCommand({ tools: 'claude', force: true, interactive: false }).execute(projectDir);
+
+    await expect(pathExists(path.join(testDir, '.worktreelink'))).resolves.toBe(false);
+    await expect(pathExists(path.join(projectDir, '.worktreelink'))).resolves.toBe(false);
+  });
+
+  it('creates .worktreelink and skips git exclude outside a git repo', async () => {
+    await new InitCommand({ tools: 'claude', force: true, interactive: false }).execute(testDir);
+
+    await expect(fs.readFile(path.join(testDir, '.worktreelink'), 'utf-8')).resolves.toBe('spok/\n');
+    await expect(pathExists(path.join(testDir, '.git'))).resolves.toBe(false);
+  });
+});
+
+describe('InitCommand interactive setup', () => {
   it('preselects detected tools in interactive first-time setup', async () => {
     await fs.mkdir(path.join(testDir, '.claude'), { recursive: true });
     await fs.mkdir(path.join(testDir, '.agents'), { recursive: true });
