@@ -4,12 +4,14 @@ import { getTaskProgressForChange, formatTaskStatus } from '../utils/task-progre
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { MarkdownParser } from './parsers/markdown-parser.js';
+import { readChangeMetadata } from '../utils/change-metadata.js';
 
 interface ChangeInfo {
   name: string;
   completedTasks: number;
   totalTasks: number;
   lastModified: Date;
+  ticket?: string;
 }
 
 interface ListOptions {
@@ -131,7 +133,8 @@ export class ListCommand {
         name: changeDir,
         completedTasks: progress.completed,
         totalTasks: progress.total,
-        lastModified
+        lastModified,
+        ticket: readTicket(changesDir, changeDir)
       });
     }
     return changes;
@@ -143,7 +146,8 @@ export class ListCommand {
       completedTasks: c.completedTasks,
       totalTasks: c.totalTasks,
       lastModified: c.lastModified.toISOString(),
-      status: c.totalTasks === 0 ? 'no-tasks' : c.completedTasks === c.totalTasks ? 'complete' : 'in-progress'
+      status: c.totalTasks === 0 ? 'no-tasks' : c.completedTasks === c.totalTasks ? 'complete' : 'in-progress',
+      ticket: c.ticket
     }));
     console.log(JSON.stringify({ changes: jsonOutput }, null, 2));
   }
@@ -156,7 +160,8 @@ export class ListCommand {
       const paddedName = change.name.padEnd(nameWidth);
       const status = formatTaskStatus({ total: change.totalTasks, completed: change.completedTasks });
       const timeAgo = formatRelativeTime(change.lastModified);
-      console.log(`${padding}${paddedName}     ${status.padEnd(12)}  ${timeAgo}`);
+      const ticket = change.ticket ? `  ${change.ticket}` : '';
+      console.log(`${padding}${paddedName}     ${status.padEnd(12)}  ${timeAgo}${ticket}`);
     }
   }
 
@@ -196,6 +201,19 @@ async function readSubdirectories(dir: string, include: (name: string) => boolea
   return entries
     .filter(entry => entry.isDirectory() && include(entry.name))
     .map(entry => entry.name);
+}
+
+/**
+ * Read a change's ticket reference from its .spok.yaml.
+ * Returns undefined when the metadata is missing, unreadable, or invalid.
+ */
+function readTicket(changesDir: string, changeDir: string): string | undefined {
+  const projectRoot = path.resolve(changesDir, '..', '..');
+  try {
+    return readChangeMetadata(path.join(changesDir, changeDir), projectRoot)?.ticket;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -161,5 +161,60 @@ Regular text that should be ignored
       expect(logOutput.some(line => line.includes('partial') && line.includes('1/3 tasks'))).toBe(true);
       expect(logOutput.some(line => line.includes('no-tasks') && line.includes('No tasks'))).toBe(true);
     });
+
+    it('should show the ticket from change metadata as a trailing column', async () => {
+      const changesDir = path.join(tempDir, 'spok', 'changes');
+      await fs.mkdir(path.join(changesDir, 'ticketed'), { recursive: true });
+      await fs.mkdir(path.join(changesDir, 'untracked'), { recursive: true });
+      await fs.writeFile(
+        path.join(changesDir, 'ticketed', '.spok.yaml'),
+        'schema: spec-driven\nticket: ENG-123\n'
+      );
+      await fs.writeFile(
+        path.join(changesDir, 'untracked', '.spok.yaml'),
+        'schema: spec-driven\n'
+      );
+
+      const listCommand = new ListCommand();
+      await listCommand.execute(tempDir, 'changes', { sort: 'name' });
+
+      const ticketed = logOutput.find(line => line.includes('ticketed'));
+      const untracked = logOutput.find(line => line.includes('untracked'));
+      expect(ticketed?.endsWith('ENG-123')).toBe(true);
+      expect(untracked).not.toContain('ENG-123');
+      expect(untracked).toBe(untracked?.trimEnd());
+    });
+
+    it('should ignore unreadable metadata when listing', async () => {
+      const changesDir = path.join(tempDir, 'spok', 'changes');
+      await fs.mkdir(path.join(changesDir, 'broken-meta'), { recursive: true });
+      await fs.writeFile(path.join(changesDir, 'broken-meta', '.spok.yaml'), '{ invalid yaml');
+
+      const listCommand = new ListCommand();
+      await listCommand.execute(tempDir, 'changes');
+
+      expect(logOutput.some(line => line.includes('broken-meta'))).toBe(true);
+    });
+
+    it('should include the ticket in JSON output and omit it when absent', async () => {
+      const changesDir = path.join(tempDir, 'spok', 'changes');
+      await fs.mkdir(path.join(changesDir, 'ticketed'), { recursive: true });
+      await fs.mkdir(path.join(changesDir, 'untracked'), { recursive: true });
+      await fs.writeFile(
+        path.join(changesDir, 'ticketed', '.spok.yaml'),
+        'schema: spec-driven\nticket: ENG-123\n'
+      );
+
+      const listCommand = new ListCommand();
+      await listCommand.execute(tempDir, 'changes', { json: true });
+
+      const { changes } = JSON.parse(logOutput.join('\n')) as {
+        changes: Array<{ name: string; ticket?: string }>;
+      };
+      const ticketed = changes.find(c => c.name === 'ticketed');
+      const untracked = changes.find(c => c.name === 'untracked');
+      expect(ticketed?.ticket).toBe('ENG-123');
+      expect(untracked && 'ticket' in untracked).toBe(false);
+    });
   });
 });

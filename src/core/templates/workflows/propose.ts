@@ -20,6 +20,8 @@ This skill drives two phases:
 
 **Input**: The user's request should include a change name (kebab-case) OR a description of what they want to build.
 
+**Linear tickets**: If the input references a Linear issue — an identifier like \`ENG-123\` or a \`linear.app\` URL — fetch that issue with the Linear MCP tools and use its title and description as proposal input, then record the reference in the change's \`.spok.yaml\` (created in step 2) as \`ticket: ENG-123\`. If the Linear MCP tools are unavailable, continue from the user's own description and still record the reference.
+
 **CLI self-discovery**: When unsure about Spok's CLI surface, run \`spok capabilities --json\`. Use it only for discovery; keep the workflow recipe below as the primary path.
 
 **Steps**

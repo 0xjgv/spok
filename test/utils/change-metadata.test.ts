@@ -36,9 +36,28 @@ describe('ChangeMetadataSchema', () => {
         expect(result.data.created).toBeUndefined();
       }
     });
+
+    it('should accept a ticket reference', () => {
+      const result = ChangeMetadataSchema.safeParse({
+        schema: 'spec-driven',
+        ticket: 'ENG-123',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.ticket).toBe('ENG-123');
+      }
+    });
   });
 
   describe('invalid metadata', () => {
+    it('should reject empty ticket', () => {
+      const result = ChangeMetadataSchema.safeParse({
+        schema: 'spec-driven',
+        ticket: '',
+      });
+      expect(result.success).toBe(false);
+    });
+
     it('should reject empty schema', () => {
       const result = ChangeMetadataSchema.safeParse({
         schema: '',
