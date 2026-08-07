@@ -19,6 +19,29 @@ interface ListOptions {
   json?: boolean;
 }
 
+function isUnsafeTerminalCodePoint(codePoint: number): boolean {
+  return codePoint <= 0x1f ||
+    (codePoint >= 0x7f && codePoint <= 0x9f) ||
+    codePoint === 0x2028 ||
+    codePoint === 0x2029;
+}
+
+function sanitizeTerminalText(value: string): string {
+  return Array.from(value, character =>
+    isUnsafeTerminalCodePoint(character.codePointAt(0) ?? 0) ? ' ' : character
+  ).join('');
+}
+
+function stringifyJsonForTerminal(value: unknown): string {
+  return Array.from(JSON.stringify(value, null, 2), character => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint < 0x7f || !isUnsafeTerminalCodePoint(codePoint)) {
+      return character;
+    }
+    return `\\u${codePoint.toString(16).padStart(4, '0')}`;
+  }).join('');
+}
+
 /**
  * Get the most recent modification time of any file in a directory (recursive).
  * Falls back to the directory's own mtime if no files are found.
@@ -149,7 +172,7 @@ export class ListCommand {
       status: c.totalTasks === 0 ? 'no-tasks' : c.completedTasks === c.totalTasks ? 'complete' : 'in-progress',
       ticket: c.ticket
     }));
-    console.log(JSON.stringify({ changes: jsonOutput }, null, 2));
+    console.log(stringifyJsonForTerminal({ changes: jsonOutput }));
   }
 
   private printChangesTable(changes: ChangeInfo[]): void {
@@ -160,7 +183,7 @@ export class ListCommand {
       const paddedName = change.name.padEnd(nameWidth);
       const status = formatTaskStatus({ total: change.totalTasks, completed: change.completedTasks });
       const timeAgo = formatRelativeTime(change.lastModified);
-      const ticket = change.ticket ? `  ${change.ticket.replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ')}` : '';
+      const ticket = change.ticket ? `  ${sanitizeTerminalText(change.ticket)}` : '';
       console.log(`${padding}${paddedName}     ${status.padEnd(12)}  ${timeAgo}${ticket}`);
     }
   }

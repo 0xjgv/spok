@@ -14,6 +14,9 @@ interface ListedChange {
   ticket?: string;
 }
 
+const terminalControlTicket = 'ENG-123\u0007\u001B[31m\u009B31m\u009D0;owned\u2028tail';
+const unsafeTerminalControls = /[\u0000-\u0009\u000B\u000C\u000E-\u001F\u007F-\u009F\u2028\u2029]/u;
+
 function listedChange(world: ChangeTicketWorld, name: string): ListedChange {
   assert.ok(world.cliResult, 'cliResult must be set by a list step');
   const { changes } = JSON.parse(world.cliResult.stdout) as { changes: ListedChange[] };
@@ -58,6 +61,11 @@ Then('the list output contains {string}', function (this: ChangeTicketWorld, exp
   );
 });
 
+Then('the list output contains no unsafe terminal controls', function (this: ChangeTicketWorld) {
+  assert.ok(this.cliResult, 'cliResult must be set by a list step');
+  assert.doesNotMatch(this.cliResult.stdout, unsafeTerminalControls);
+});
+
 Then('the listed change {string} has ticket {string}', function (
   this: ChangeTicketWorld,
   changeName: string,
@@ -74,4 +82,11 @@ Then('the listed change {string} has no ticket', function (
     !('ticket' in listedChange(this, changeName)),
     `expected no ticket field for change ${changeName}`
   );
+});
+
+Then('the listed change {string} retains its terminal-control ticket', function (
+  this: ChangeTicketWorld,
+  changeName: string
+) {
+  assert.equal(listedChange(this, changeName).ticket, terminalControlTicket);
 });
