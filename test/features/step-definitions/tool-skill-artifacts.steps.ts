@@ -69,6 +69,11 @@ Given('the project has invalid Git metadata', async function (this: SkillArtifac
   await fs.writeFile(path.join(this.projectDir, '.git'), 'invalid git metadata\n');
 });
 
+Given('the project has an empty Git metadata directory', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  await fs.mkdir(path.join(this.projectDir, '.git'));
+});
+
 Given('the platform permits backslashes in directory names', function () {
   if (process.platform === 'win32') return 'skipped';
 });

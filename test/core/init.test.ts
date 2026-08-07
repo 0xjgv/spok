@@ -188,6 +188,23 @@ describe('InitCommand worktree link registration', () => {
     await expect(pathExists(path.join(projectDir, '.worktreelink'))).resolves.toBe(false);
   });
 
+  it.each([
+    { name: '.git directory', pointer: false },
+    { name: 'gitdir pointer target', pointer: true },
+  ])('skips registration when the $name is empty', async ({ pointer }) => {
+    const gitDir = path.join(testDir, pointer ? '.git-data' : '.git');
+    await fs.mkdir(gitDir);
+    if (pointer) {
+      await fs.writeFile(path.join(testDir, '.git'), 'gitdir: .git-data\n');
+    }
+    const projectDir = path.join(testDir, 'packages', 'app');
+
+    await new InitCommand({ tools: 'claude', force: true, interactive: false }).execute(projectDir);
+
+    await expect(pathExists(path.join(testDir, '.worktreelink'))).resolves.toBe(false);
+    await expect(pathExists(path.join(projectDir, '.worktreelink'))).resolves.toBe(false);
+  });
+
   it('creates .worktreelink and skips git exclude outside a git repo', async () => {
     await new InitCommand({ tools: 'claude', force: true, interactive: false }).execute(testDir);
 

@@ -10,7 +10,7 @@
  * existing entries. Projects outside git skip the exclude step, while invalid
  * git metadata skips registration entirely.
  */
-import { readFileSync, statSync } from 'fs';
+import { lstatSync, readFileSync, readlinkSync, statSync } from 'fs';
 import * as path from 'path';
 import { FileSystemUtils } from '../utils/file-system.js';
 import { SPOK_DIR_NAME } from './config.js';
@@ -67,12 +67,34 @@ function resolveCommonDirectory(gitDir: string): string {
   return requireDirectory(path.resolve(gitDir, pointer));
 }
 
+function hasValidHead(gitDir: string): boolean {
+  const headPath = path.join(gitDir, 'HEAD');
+  const marker = lstatSync(headPath);
+  if (marker.isSymbolicLink()) {
+    return readlinkSync(headPath).startsWith('refs/');
+  }
+  if (!marker.isFile()) return false;
+
+  const head = readFileSync(headPath, 'utf-8').trimEnd();
+  return /^ref:\s*refs\//.test(head) || /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(head);
+}
+
+function validateGitDirectory(gitDir: string, commonDir: string): void {
+  if (!hasValidHead(gitDir)) {
+    throw new Error(`Invalid Git HEAD at ${path.join(gitDir, 'HEAD')}`);
+  }
+  requireDirectory(path.join(commonDir, 'objects'));
+  requireDirectory(path.join(commonDir, 'refs'));
+}
+
 function resolveCheckoutAt(root: string): GitCheckout | null {
   const markerPath = path.join(root, '.git');
   if (!statSync(markerPath, { throwIfNoEntry: false })) return null;
 
   const gitDir = resolveGitDirectory(root, markerPath);
-  return { root, commonDir: resolveCommonDirectory(gitDir) };
+  const commonDir = resolveCommonDirectory(gitDir);
+  validateGitDirectory(gitDir, commonDir);
+  return { root, commonDir };
 }
 
 /** Append `line` to `filePath` unless an identical line is already present. */
