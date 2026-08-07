@@ -92,6 +92,8 @@ spok/
 # Plus equivalent paths for any other tools you selected.
 ```
 
+It also registers `spok/` with git-worktree tooling: `.worktreelink` at the project root gets a `spok/` line (created if missing, appended only when absent), and `.worktreelink` is added to the repo's `.git/info/exclude` so it doesn't show up as untracked. Both steps are idempotent, and the exclude step is skipped when the target isn't a git repo.
+
 See [Supported Tools](supported-tools.md) for each tool's exact skills path.
 
 ---

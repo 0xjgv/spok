@@ -103,6 +103,31 @@ describe('InitCommand', () => {
     await expect(pathExists(codexPromptDir)).resolves.toBe(false);
   });
 
+  it('registers spok/ in .worktreelink and excludes it from git, idempotently', async () => {
+    await fs.mkdir(path.join(testDir, '.git', 'info'), { recursive: true });
+    await fs.writeFile(path.join(testDir, '.worktreelink'), 'docs/\n');
+    await fs.writeFile(path.join(testDir, '.git', 'info', 'exclude'), '# git ls-files --others\n');
+
+    const options = { tools: 'claude', force: true, interactive: false };
+    await new InitCommand(options).execute(testDir);
+    await new InitCommand(options).execute(testDir);
+
+    const linkFile = await fs.readFile(path.join(testDir, '.worktreelink'), 'utf-8');
+    expect(linkFile.split('\n').filter((line) => line === 'spok/')).toHaveLength(1);
+    expect(linkFile).toContain('docs/');
+
+    const exclude = await fs.readFile(path.join(testDir, '.git', 'info', 'exclude'), 'utf-8');
+    expect(exclude.split('\n').filter((line) => line === '.worktreelink')).toHaveLength(1);
+    expect(exclude).toContain('# git ls-files --others');
+  });
+
+  it('creates .worktreelink and skips git exclude outside a git repo', async () => {
+    await new InitCommand({ tools: 'claude', force: true, interactive: false }).execute(testDir);
+
+    await expect(fs.readFile(path.join(testDir, '.worktreelink'), 'utf-8')).resolves.toBe('spok/\n');
+    await expect(pathExists(path.join(testDir, '.git'))).resolves.toBe(false);
+  });
+
   it('preselects detected tools in interactive first-time setup', async () => {
     await fs.mkdir(path.join(testDir, '.claude'), { recursive: true });
     await fs.mkdir(path.join(testDir, '.agents'), { recursive: true });
