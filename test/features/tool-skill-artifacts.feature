@@ -37,6 +37,14 @@ Feature: Tool skill artifacts
     And setup guidance mentions "/spok-propose"
     And Spok creates file "spok/config.toml"
 
+  Scenario: Init registers a nested Spok project for worktrees
+    Given a new project
+    And the project is a Git repository
+    When I initialize Spok for the tools "claude" in "packages/app"
+    And I initialize Spok for the tools "claude" in "packages/app"
+    Then the repository worktree link contains one "packages/app/spok/" entry
+    And the repository excludes ".worktreelink"
+
   Scenario: CLI warns about invalid project config and points to doctor
     Given a new project
     And project config contains:

@@ -3,25 +3,29 @@
  *
  * `wt` (git-worktree workspace tool) reads a `.worktreelink` file at the repo
  * root: one directory per line, each symlinked into every worktree so edits
- * land in the root checkout. Spok writes its specs under `spok/`, so a Spok
- * project wants `spok/` listed there.
+ * land in the root checkout. Spok registers its specs directory relative to
+ * that root (`spok/` at the root, or `<project>/spok/` for a nested project).
  *
  * Both steps are idempotent (exact-line match, append-only) and never clobber
  * existing entries. Projects that aren't git repos skip the exclude step.
  */
+import { execFileSync } from 'child_process';
 import * as path from 'path';
-import * as fs from 'fs';
 import { FileSystemUtils } from '../utils/file-system.js';
 import { SPOK_DIR_NAME } from './config.js';
 
 const WORKTREE_LINK_FILE = '.worktreelink';
-const WORKTREE_LINK_ENTRY = `${SPOK_DIR_NAME}/`;
 
 export type LineStatus = 'created' | 'appended' | 'exists' | 'skipped';
 
 export interface WorktreeLinkResult {
   linkFile: LineStatus;
   gitExclude: LineStatus;
+}
+
+interface GitCheckout {
+  root: string;
+  commonDir: string;
 }
 
 /** Append `line` to `filePath` unless an identical line is already present. */
@@ -42,60 +46,60 @@ async function ensureLine(filePath: string, line: string): Promise<LineStatus> {
 }
 
 /**
- * Resolve the git *common* dir for `projectPath` (where `info/exclude` lives).
+ * Resolve the enclosing checkout root and shared git directory.
  *
- * In a linked worktree `.git` is a file pointing at `<common>/worktrees/<name>`,
- * whose `commondir` file points back at the shared dir — the fs equivalent of
- * `git rev-parse --path-format=absolute --git-common-dir`.
- *
- * @returns Absolute path, or null when `projectPath` isn't a git checkout.
+ * Git owns repository discovery, including nested paths, linked worktrees, and
+ * gitdir indirection. Failures are non-fatal because worktree registration is
+ * an optional init integration.
  */
-export function resolveGitCommonDir(projectPath: string): string | null {
-  const gitPath = path.join(projectPath, '.git');
-
-  let stats: fs.Stats;
+export function resolveGitCheckout(projectPath: string): GitCheckout | null {
   try {
-    stats = fs.statSync(gitPath);
+    const output = execFileSync(
+      'git',
+      [
+        '-C',
+        projectPath,
+        'rev-parse',
+        '--show-toplevel',
+        '--git-common-dir',
+      ],
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+    const [root, commonDir] = output.trim().split(/\r?\n/);
+    if (!root || !commonDir) return null;
+
+    return {
+      root: FileSystemUtils.canonicalizeExistingPath(path.resolve(projectPath, root)),
+      commonDir: FileSystemUtils.canonicalizeExistingPath(path.resolve(projectPath, commonDir)),
+    };
   } catch {
     return null;
-  }
-
-  if (stats.isDirectory()) return gitPath;
-  if (!stats.isFile()) return null;
-
-  const pointer = fs.readFileSync(gitPath, 'utf-8').match(/^gitdir:\s*(.+?)\s*$/m);
-  if (!pointer) return null;
-
-  const gitDir = path.resolve(projectPath, pointer[1]);
-  const commondirFile = path.join(gitDir, 'commondir');
-
-  try {
-    return path.resolve(gitDir, fs.readFileSync(commondirFile, 'utf-8').trim());
-  } catch {
-    return gitDir;
   }
 }
 
 /**
- * Register `spok/` in the project's `.worktreelink` and keep that file out of
- * git's untracked listing via `.git/info/exclude`.
+ * Register the project's `spok/` directory in the enclosing checkout's
+ * `.worktreelink` and keep that file out of git's untracked listing.
  *
  * @param projectPath Absolute path to the project root.
  */
 export async function ensureWorktreeLink(projectPath: string): Promise<WorktreeLinkResult> {
-  const linkFile = await ensureLine(
-    path.join(projectPath, WORKTREE_LINK_FILE),
-    WORKTREE_LINK_ENTRY
-  );
+  const canonicalProjectPath = FileSystemUtils.canonicalizeExistingPath(projectPath);
+  const checkout = resolveGitCheckout(canonicalProjectPath);
+  const linkRoot = checkout?.root ?? canonicalProjectPath;
+  const relativeSpokPath = checkout
+    ? path.relative(linkRoot, path.join(canonicalProjectPath, SPOK_DIR_NAME))
+    : SPOK_DIR_NAME;
+  const linkEntry = `${FileSystemUtils.toPosixPath(relativeSpokPath)}/`;
+  const linkFile = await ensureLine(path.join(linkRoot, WORKTREE_LINK_FILE), linkEntry);
 
-  const commonDir = resolveGitCommonDir(projectPath);
-  if (!commonDir) {
+  if (!checkout) {
     return { linkFile, gitExclude: 'skipped' };
   }
 
   try {
     const gitExclude = await ensureLine(
-      path.join(commonDir, 'info', 'exclude'),
+      path.join(checkout.commonDir, 'info', 'exclude'),
       WORKTREE_LINK_FILE
     );
     return { linkFile, gitExclude };

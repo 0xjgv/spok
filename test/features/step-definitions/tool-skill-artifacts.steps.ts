@@ -1,5 +1,6 @@
 import { After, Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -56,6 +57,11 @@ Given('a new project', async function (this: SkillArtifactWorld) {
   delete process.env.SPOK_FLOW_PROFILE;
   process.env.XDG_CONFIG_HOME = path.join(this.projectDir, 'xdg-config');
   await fs.mkdir(this.projectDir, { recursive: true });
+});
+
+Given('the project is a Git repository', function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  execFileSync('git', ['init', '--quiet', this.projectDir]);
 });
 
 Given('a staged flow task', async function (this: SkillArtifactWorld) {
@@ -269,6 +275,18 @@ When('I initialize Spok for the tools {string}', async function (this: SkillArti
   });
 });
 
+When(
+  'I initialize Spok for the tools {string} in {string}',
+  async function (this: SkillArtifactWorld, tools: string, relativePath: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    this.setupGuidance = await captureConsoleLog(async () => {
+      await new InitCommand({ tools, force: true, interactive: false }).execute(
+        path.join(this.projectDir!, relativePath)
+      );
+    });
+  }
+);
+
 When('I run spok flow next for the staged task', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
@@ -395,6 +413,24 @@ Then('Spok does not create {string}', async function (this: SkillArtifactWorld, 
 Then('Spok creates file {string}', async function (this: SkillArtifactWorld, relativePath: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.equal(await pathExists(path.join(this.projectDir, relativePath)), true);
+});
+
+Then(
+  'the repository worktree link contains one {string} entry',
+  async function (this: SkillArtifactWorld, entry: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    const content = await fs.readFile(path.join(this.projectDir, '.worktreelink'), 'utf-8');
+    assert.equal(
+      content.split(/\r?\n/).filter((line) => line === entry).length,
+      1
+    );
+  }
+);
+
+Then('the repository excludes {string}', async function (this: SkillArtifactWorld, entry: string) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  const content = await fs.readFile(path.join(this.projectDir, '.git', 'info', 'exclude'), 'utf-8');
+  assert.equal(content.split(/\r?\n/).filter((line) => line === entry).length, 1);
 });
 
 Then('Spok removes the retired command artifacts', async function (this: SkillArtifactWorld) {
