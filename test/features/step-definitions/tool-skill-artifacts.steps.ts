@@ -64,6 +64,15 @@ Given('the project is a Git repository', function (this: SkillArtifactWorld) {
   execFileSync('git', ['init', '--quiet', this.projectDir]);
 });
 
+Given('the project has invalid Git metadata', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  await fs.writeFile(path.join(this.projectDir, '.git'), 'invalid git metadata\n');
+});
+
+Given('the platform permits backslashes in directory names', function () {
+  if (process.platform === 'win32') return 'skipped';
+});
+
 Given('a staged flow task', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   this.flowTaskDir = path.join(this.projectDir, 'spok', 'changes', 'demo', '.flow', 'chunk-one');

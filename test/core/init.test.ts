@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'child_process';
-import { promises as fs, realpathSync } from 'fs';
+import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
@@ -158,11 +158,34 @@ describe('InitCommand worktree link registration', () => {
 
     const linkFilePath = path.join(linkedDir, '.worktreelink');
     await expect(fs.readFile(linkFilePath, 'utf-8')).resolves.toBe('packages/app/spok/\n');
-    expect(realpathSync.native(path.dirname(linkFilePath))).toBe(realpathSync.native(linkedDir));
     await expect(pathExists(path.join(mainDir, '.worktreelink'))).resolves.toBe(false);
 
     const exclude = await fs.readFile(path.join(mainDir, '.git', 'info', 'exclude'), 'utf-8');
     expect(exclude.split('\n').filter((line) => line === '.worktreelink')).toHaveLength(1);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'preserves literal backslashes in a nested project path',
+    async () => {
+      runGit(testDir, 'init', '--quiet');
+      const projectDir = path.join(testDir, 'packages', 'app\\alias');
+
+      await new InitCommand({ tools: 'claude', force: true, interactive: false }).execute(projectDir);
+
+      await expect(fs.readFile(path.join(testDir, '.worktreelink'), 'utf-8')).resolves.toBe(
+        'packages/app\\alias/spok/\n'
+      );
+    }
+  );
+
+  it('skips registration when enclosing Git metadata is invalid', async () => {
+    await fs.writeFile(path.join(testDir, '.git'), 'invalid git metadata\n');
+    const projectDir = path.join(testDir, 'packages', 'app');
+
+    await new InitCommand({ tools: 'claude', force: true, interactive: false }).execute(projectDir);
+
+    await expect(pathExists(path.join(testDir, '.worktreelink'))).resolves.toBe(false);
+    await expect(pathExists(path.join(projectDir, '.worktreelink'))).resolves.toBe(false);
   });
 
   it('creates .worktreelink and skips git exclude outside a git repo', async () => {

@@ -45,6 +45,20 @@ Feature: Tool skill artifacts
     Then the repository worktree link contains one "packages/app/spok/" entry
     And the repository excludes ".worktreelink"
 
+  Scenario: Init skips worktree registration for invalid Git metadata
+    Given a new project
+    And the project has invalid Git metadata
+    When I initialize Spok for the tools "claude" in "packages/app"
+    Then Spok does not create ".worktreelink"
+    And Spok does not create "packages/app/.worktreelink"
+
+  Scenario: Init preserves backslashes in POSIX project directory names
+    Given a new project
+    And the project is a Git repository
+    And the platform permits backslashes in directory names
+    When I initialize Spok for the tools "claude" in "packages/app\\alias"
+    Then the repository worktree link contains one "packages/app\\alias/spok/" entry
+
   Scenario: CLI warns about invalid project config and points to doctor
     Given a new project
     And project config contains:
