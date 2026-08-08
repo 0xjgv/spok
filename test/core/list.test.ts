@@ -4,6 +4,10 @@ import path from 'path';
 import os from 'os';
 import { ListCommand } from '../../src/core/list.js';
 
+const terminalControlTicket = 'ENG-123\u0007\u001B[31m\u009B31m\u009D0;owned\u2028tail';
+const terminalControlMetadata =
+  'schema: spec-driven\nticket: "ENG-123\\x07\\x1B[31m\\x9B31m\\x9D0;owned\\u2028tail"\n';
+
 describe('ListCommand', () => {
   let tempDir: string;
   let originalLog: typeof console.log;
@@ -160,6 +164,101 @@ Regular text that should be ignored
       expect(logOutput.some(line => line.includes('completed') && line.includes('✓ Complete'))).toBe(true);
       expect(logOutput.some(line => line.includes('partial') && line.includes('1/3 tasks'))).toBe(true);
       expect(logOutput.some(line => line.includes('no-tasks') && line.includes('No tasks'))).toBe(true);
+    });
+
+    it('should show the ticket from change metadata as a trailing column', async () => {
+      const changesDir = path.join(tempDir, 'spok', 'changes');
+      await fs.mkdir(path.join(changesDir, 'ticketed'), { recursive: true });
+      await fs.mkdir(path.join(changesDir, 'untracked'), { recursive: true });
+      await fs.writeFile(
+        path.join(changesDir, 'ticketed', '.spok.yaml'),
+        'schema: spec-driven\nticket: ENG-123\n'
+      );
+      await fs.writeFile(
+        path.join(changesDir, 'untracked', '.spok.yaml'),
+        'schema: spec-driven\n'
+      );
+
+      const listCommand = new ListCommand();
+      await listCommand.execute(tempDir, 'changes', { sort: 'name' });
+
+      const ticketed = logOutput.find(line => line.includes('ticketed'));
+      const untracked = logOutput.find(line => line.includes('untracked'));
+      expect(ticketed?.endsWith('ENG-123')).toBe(true);
+      expect(untracked).not.toContain('ENG-123');
+      expect(untracked).toBe(untracked?.trimEnd());
+    });
+
+    it('should neutralize terminal controls in the table ticket', async () => {
+      const changesDir = path.join(tempDir, 'spok', 'changes');
+      await fs.mkdir(path.join(changesDir, 'hostile-ticket'), { recursive: true });
+      await fs.writeFile(
+        path.join(changesDir, 'hostile-ticket', '.spok.yaml'),
+        terminalControlMetadata
+      );
+
+      const listCommand = new ListCommand();
+      await listCommand.execute(tempDir, 'changes');
+
+      const output = logOutput.join('\n');
+      for (const control of ['\u0007', '\u001B', '\u009B', '\u009D', '\u2028']) {
+        expect(output).not.toContain(control);
+      }
+      expect(output).toContain('ENG-123');
+    });
+
+    it('should ignore unreadable metadata when listing', async () => {
+      const changesDir = path.join(tempDir, 'spok', 'changes');
+      await fs.mkdir(path.join(changesDir, 'broken-meta'), { recursive: true });
+      await fs.writeFile(path.join(changesDir, 'broken-meta', '.spok.yaml'), '{ invalid yaml');
+
+      const listCommand = new ListCommand();
+      await listCommand.execute(tempDir, 'changes');
+
+      expect(logOutput.some(line => line.includes('broken-meta'))).toBe(true);
+    });
+
+    it('should include the ticket in JSON output and omit it when absent', async () => {
+      const changesDir = path.join(tempDir, 'spok', 'changes');
+      await fs.mkdir(path.join(changesDir, 'ticketed'), { recursive: true });
+      await fs.mkdir(path.join(changesDir, 'untracked'), { recursive: true });
+      await fs.writeFile(
+        path.join(changesDir, 'ticketed', '.spok.yaml'),
+        'schema: spec-driven\nticket: ENG-123\n'
+      );
+
+      const listCommand = new ListCommand();
+      await listCommand.execute(tempDir, 'changes', { json: true });
+
+      const { changes } = JSON.parse(logOutput.join('\n')) as {
+        changes: Array<{ name: string; ticket?: string }>;
+      };
+      const ticketed = changes.find(c => c.name === 'ticketed');
+      const untracked = changes.find(c => c.name === 'untracked');
+      expect(ticketed?.ticket).toBe('ENG-123');
+      expect(untracked && 'ticket' in untracked).toBe(false);
+    });
+
+    it('should escape terminal controls in JSON without changing the ticket', async () => {
+      const changesDir = path.join(tempDir, 'spok', 'changes');
+      await fs.mkdir(path.join(changesDir, 'hostile-ticket'), { recursive: true });
+      await fs.writeFile(
+        path.join(changesDir, 'hostile-ticket', '.spok.yaml'),
+        terminalControlMetadata
+      );
+
+      const listCommand = new ListCommand();
+      await listCommand.execute(tempDir, 'changes', { json: true });
+
+      const output = logOutput.join('\n');
+      expect(output).toContain('\\u009b');
+      expect(output).toContain('\\u009d');
+      expect(output).toContain('\\u2028');
+      for (const control of ['\u0007', '\u001B', '\u009B', '\u009D', '\u2028']) {
+        expect(output).not.toContain(control);
+      }
+      const { changes } = JSON.parse(output) as { changes: Array<{ ticket?: string }> };
+      expect(changes[0]?.ticket).toBe(terminalControlTicket);
     });
   });
 });

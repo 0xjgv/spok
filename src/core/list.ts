@@ -4,17 +4,42 @@ import { getTaskProgressForChange, formatTaskStatus } from '../utils/task-progre
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { MarkdownParser } from './parsers/markdown-parser.js';
+import { readChangeMetadata } from '../utils/change-metadata.js';
 
 interface ChangeInfo {
   name: string;
   completedTasks: number;
   totalTasks: number;
   lastModified: Date;
+  ticket?: string;
 }
 
 interface ListOptions {
   sort?: 'recent' | 'name';
   json?: boolean;
+}
+
+function isUnsafeTerminalCodePoint(codePoint: number): boolean {
+  return codePoint <= 0x1f ||
+    (codePoint >= 0x7f && codePoint <= 0x9f) ||
+    codePoint === 0x2028 ||
+    codePoint === 0x2029;
+}
+
+function sanitizeTerminalText(value: string): string {
+  return Array.from(value, character =>
+    isUnsafeTerminalCodePoint(character.codePointAt(0) ?? 0) ? ' ' : character
+  ).join('');
+}
+
+function stringifyJsonForTerminal(value: unknown): string {
+  return Array.from(JSON.stringify(value, null, 2), character => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint < 0x7f || !isUnsafeTerminalCodePoint(codePoint)) {
+      return character;
+    }
+    return `\\u${codePoint.toString(16).padStart(4, '0')}`;
+  }).join('');
 }
 
 /**
@@ -131,7 +156,8 @@ export class ListCommand {
         name: changeDir,
         completedTasks: progress.completed,
         totalTasks: progress.total,
-        lastModified
+        lastModified,
+        ticket: readTicket(changesDir, changeDir)
       });
     }
     return changes;
@@ -143,9 +169,10 @@ export class ListCommand {
       completedTasks: c.completedTasks,
       totalTasks: c.totalTasks,
       lastModified: c.lastModified.toISOString(),
-      status: c.totalTasks === 0 ? 'no-tasks' : c.completedTasks === c.totalTasks ? 'complete' : 'in-progress'
+      status: c.totalTasks === 0 ? 'no-tasks' : c.completedTasks === c.totalTasks ? 'complete' : 'in-progress',
+      ticket: c.ticket
     }));
-    console.log(JSON.stringify({ changes: jsonOutput }, null, 2));
+    console.log(stringifyJsonForTerminal({ changes: jsonOutput }));
   }
 
   private printChangesTable(changes: ChangeInfo[]): void {
@@ -156,7 +183,8 @@ export class ListCommand {
       const paddedName = change.name.padEnd(nameWidth);
       const status = formatTaskStatus({ total: change.totalTasks, completed: change.completedTasks });
       const timeAgo = formatRelativeTime(change.lastModified);
-      console.log(`${padding}${paddedName}     ${status.padEnd(12)}  ${timeAgo}`);
+      const ticket = change.ticket ? `  ${sanitizeTerminalText(change.ticket)}` : '';
+      console.log(`${padding}${paddedName}     ${status.padEnd(12)}  ${timeAgo}${ticket}`);
     }
   }
 
@@ -196,6 +224,19 @@ async function readSubdirectories(dir: string, include: (name: string) => boolea
   return entries
     .filter(entry => entry.isDirectory() && include(entry.name))
     .map(entry => entry.name);
+}
+
+/**
+ * Read a change's ticket reference from its .spok.yaml.
+ * Returns undefined when the metadata is missing, unreadable, or invalid.
+ */
+function readTicket(changesDir: string, changeDir: string): string | undefined {
+  const projectRoot = path.resolve(changesDir, '..', '..');
+  try {
+    return readChangeMetadata(path.join(changesDir, changeDir), projectRoot)?.ticket;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

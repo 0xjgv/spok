@@ -359,3 +359,25 @@ describe('skill-generation', () => {
     });
   });
 });
+
+describe('spok-propose instructions', () => {
+  function proposeInstructions(): string {
+    const [propose] = getSkillTemplates(['propose']);
+    return propose.template.instructions;
+  }
+
+  it('tells the agent to fetch a referenced Linear issue via MCP', () => {
+    const instructions = proposeInstructions();
+
+    expect(instructions).toContain('an identifier like `ENG-123` or a `linear.app` URL');
+    expect(instructions).toContain('fetch that issue with the Linear MCP tools');
+    expect(instructions).toContain('use its title and description as proposal input');
+  });
+
+  it('records the reference as a ticket in the change metadata', () => {
+    const instructions = proposeInstructions();
+
+    expect(instructions).toContain("record the reference in the change's `.spok.yaml`");
+    expect(instructions).toContain('`ticket: ENG-123`');
+  });
+});

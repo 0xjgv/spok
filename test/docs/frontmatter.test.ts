@@ -11,6 +11,7 @@ const FILES = [
   'docs/customization.md',
   'docs/getting-started.md',
   'docs/installation.md',
+  'docs/linear-tickets.md',
   'docs/migration-guide.md',
   'docs/multi-language.md',
   'docs/supported-tools.md',

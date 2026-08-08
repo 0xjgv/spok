@@ -55,6 +55,10 @@ export const ChangeMetadataSchema = z.object({
   // artifacts as the source of planning detail.
   goal: z.string().min(1).optional(),
   affected_areas: z.array(z.string().min(1)).optional(),
+
+  // Optional issue-tracker reference for this change (e.g. "ENG-123" or a
+  // Linear issue URL). Free-form: Spok records and displays it, nothing else.
+  ticket: z.string().min(1).optional(),
 });
 
 export type ChangeMetadata = z.infer<typeof ChangeMetadataSchema>;
