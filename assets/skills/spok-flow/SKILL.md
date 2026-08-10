@@ -36,7 +36,7 @@ Hybrid equivalent:
 SPOK_FLOW_PROFILE=hybrid spok flow status "<task-dir>" --json
 ```
 
-If it returns `state: "blocked"`, halt and report the `reason` exactly.
+If it returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches.
 
 Then repeat this loop until the CLI returns `state: "complete"`:
 
@@ -52,7 +52,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    SPOK_FLOW_PROFILE=hybrid spok flow next "<task-dir>" --json
    ```
 
-2. If `next` returns `state: "blocked"`, halt and report the `reason` exactly. If it returns `state: "complete"`, return success to `spok-apply`.
+2. If `next` returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches. If it returns `state: "complete"`, return success to `spok-apply`.
 
 3. Read the returned `step` object:
    - `id` is the workflow step id.
@@ -134,7 +134,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      project config enables `flow.self_learn: true`. Complete it like any other
      file-producing step. Its findings do not fail or amend the commit.
 
-6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly.
+6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly. When the `reason` starts with `Step design-review recorded a FAIL verdict`, read `<task-dir>/design-review.md` and present its `## Human Decisions Required` section verbatim alongside the reason, then halt — do not retry the step and do not edit `design-review.md` to unblock it.
 
 Do not restate or assume the step order — `spok flow next` is the only source of truth.
 Do not derive or override runner or model routing inside this skill — `spok flow next --json` is the source of truth, including `step.runner`, `step.model`, and `step.effort`.

@@ -52,13 +52,17 @@ MUST prompt the user.
 
    Before staging a hybrid run:
    - Resolve the project root with \`git rev-parse --show-toplevel\`.
-   - Verify both harnesses can discover the Spok helper closure, using
-     \`spok-flow/SKILL.md\` as its installation marker:
+   - Verify both harnesses can discover the Spok helper closure, using these
+     files as its installation markers:
      - Claude: \`<project-root>/.claude/skills/spok-flow/SKILL.md\` or
-       \`~/.claude/skills/spok-flow/SKILL.md\`.
+       \`~/.claude/skills/spok-flow/SKILL.md\`, and
+       \`<project-root>/.claude/skills/spok-review-design/SKILL.md\` or
+       \`~/.claude/skills/spok-review-design/SKILL.md\`.
      - Codex: \`<project-root>/.agents/skills/spok-flow/SKILL.md\` or
-       \`~/.agents/skills/spok-flow/SKILL.md\`.
-   - If either harness has no marker, tell the user to run
+       \`~/.agents/skills/spok-flow/SKILL.md\`, and
+       \`<project-root>/.agents/skills/spok-review-design/SKILL.md\` or
+       \`~/.agents/skills/spok-review-design/SKILL.md\`.
+   - If either harness is missing any marker, tell the user to run
      \`spok skills install --tools claude,codex\` and STOP before staging.
 
 3. **Parse the chunked tasks.md**

@@ -167,6 +167,8 @@ Feature: Tool skill artifacts
     Then the workflow skill "spok-apply" under ".claude/skills" mentions "Before staging a hybrid run"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.claude/skills/spok-flow/SKILL.md"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.agents/skills/spok-flow/SKILL.md"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.claude/skills/spok-review-design/SKILL.md"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.agents/skills/spok-review-design/SKILL.md"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "spok skills install --tools claude,codex"
 
   Scenario: Inner flow implementation overrides standalone orchestration
