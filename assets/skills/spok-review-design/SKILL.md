@@ -52,6 +52,10 @@ silently change a design decision.
    - Record the rationale and evidence in the design discussion.
    - Only then reconcile `<task-dir>/structure-outline.md` with the revised design.
    - If the design is already correct, leave it unchanged and repair only the outline.
+   - Limit autonomous edits to objective factual errors that leave the decision set
+     intact. If a correction would overturn, narrow, or replace a decision, option, or
+     tradeoff already recorded in `design-discussion.md`, do not apply it. Record it
+     under `## Human Decisions Required` and return `FAIL`.
 7. Re-read both artifacts after editing and repeat the consistency check.
 8. Do not choose between consequential product, API, UX, behavior, or scope options.
    Record each unresolved choice under `## Human Decisions Required` and return `FAIL`.
