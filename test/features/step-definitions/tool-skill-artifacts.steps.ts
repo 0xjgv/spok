@@ -122,6 +122,31 @@ Given('the staged flow task is completed through research', async function (
   }
 });
 
+Given('the staged flow task is completed through structure outline', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+
+  const completedSteps = [
+    ['validate-problem', 'problem-validation.md', '# Problem Validation\n\n## Flow Decision\n\nproceed\n'],
+    ['research-questions', 'research-questions.md', '# Research Questions\n'],
+    ['research', 'research.md', '# Research\n'],
+    ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
+    ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
+  ] as const;
+
+  for (const [step, filename, content] of completedSteps) {
+    const output = path.join(this.flowTaskDir, filename);
+    await fs.writeFile(output, content, 'utf-8');
+    const result = await runCLI(
+      ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
+      { cwd: this.projectDir }
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+  }
+});
+
 Given('project config contains:', async function (this: SkillArtifactWorld, configContent: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   const configDir = path.join(this.projectDir, 'spok');
@@ -179,6 +204,11 @@ Given('the staged flow task is completed through validation', async function (th
     ['research', 'research.md', '# Research\n'],
     ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
     ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
+    [
+      'design-review',
+      'design-review.md',
+      '---\ntype: design-review\nverdict: PASS\n---\n\n# Design Review\n',
+    ],
     ['plan', 'plan.md', '# Plan\n'],
     ['validate', 'validation.md', '---\nverdict: PASS\n---\n\n# Validation\n'],
   ] as const;
@@ -200,11 +230,11 @@ Given('the staged flow task is completed through validation', async function (th
     path.join(taskDir, 'workflow-state.json'),
     `${JSON.stringify(
       {
-        version: 1,
+        version: 2,
         taskDir,
         status: 'ready',
         steps: [
-          ...fileSteps.slice(0, 6).map(completedFileStep),
+          ...fileSteps.slice(0, 7).map(completedFileStep),
           {
             id: 'implement',
             status: 'completed',
@@ -215,7 +245,7 @@ Given('the staged flow task is completed through validation', async function (th
             status: 'completed',
             result: { summary: 'Simplified the implementation.', completedAt },
           },
-          completedFileStep(fileSteps[6]),
+          completedFileStep(fileSteps[7]),
         ],
         createdAt: completedAt,
         updatedAt: completedAt,
@@ -306,6 +336,24 @@ When('I run spok flow next for the staged task', async function (this: SkillArti
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
   this.cliResult = await runCLI(['flow', 'next', this.flowTaskDir], { cwd: this.projectDir });
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
+});
+
+When('I attempt the staged flow design-review step', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  this.cliResult = await runCLI(
+    [
+      'flow',
+      'complete',
+      this.flowTaskDir,
+      '--step',
+      'design-review',
+      '--output',
+      path.join(this.flowTaskDir, 'design-review.md'),
+      '--json',
+    ],
+    { cwd: this.projectDir }
+  );
 });
 
 When('I run the Spok CLI in the project with {string}', async function (this: SkillArtifactWorld, args: string) {

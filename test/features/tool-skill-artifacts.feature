@@ -138,6 +138,19 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.toml. To enable it, add:"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
 
+  Scenario: Design review makes the discussion the final design authority
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-review-design" under ".claude/skills" mentions "Design discussion owns behavior, scope, APIs, UX, and tradeoffs."
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "Update `<task-dir>/design-discussion.md` first"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "then reconcile `<task-dir>/structure-outline.md`"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "type: design-review"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "verdict: PASS"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "verdict: FAIL"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "## Human Decisions Required"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "Do not read, create, or edit `<task-dir>/plan.md`"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "spok-create-plan"
+
   Scenario: Apply exposes a hybrid Claude and Codex execution mode
     Given a new project
     When I initialize Spok for the tools "claude,codex"
@@ -222,6 +235,104 @@ Feature: Tool skill artifacts
     Then the Spok CLI output contains "Next step: design-discussion"
     And the Spok CLI output contains "Model: fable"
     And the Spok CLI output contains "Effort: xhigh"
+
+  Scenario: Flow reviews the design before exposing planning
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through structure outline
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Next step: design-review"
+    And the Spok CLI output does not contain "Next step: plan"
+
+  Scenario: A passing design review advances the flow to planning
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through structure outline
+    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
+      """
+      ---
+      type: design-review
+      verdict: PASS
+      ---
+
+      # Design Review
+      """
+    When I attempt the staged flow design-review step
+    Then the Spok CLI exits with code 0
+    And the Spok CLI output contains "\"id\": \"plan\""
+
+  Scenario: A failing design review blocks planning
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through structure outline
+    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
+      """
+      ---
+      type: design-review
+      verdict: FAIL
+      ---
+
+      # Design Review
+      """
+    When I attempt the staged flow design-review step
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "\"state\": \"blocked\""
+    And the Spok CLI output contains "recorded a FAIL verdict"
+
+  Scenario: A passing verdict with the wrong artifact type blocks planning
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through structure outline
+    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
+      """
+      ---
+      type: validation
+      verdict: PASS
+      ---
+
+      # Design Review
+      """
+    When I attempt the staged flow design-review step
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "\"state\": \"blocked\""
+    And the Spok CLI output contains "has no readable verdict"
+
+  Scenario: An unrecognized design-review verdict blocks planning
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through structure outline
+    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
+      """
+      ---
+      type: design-review
+      verdict: MAYBE
+      ---
+
+      # Design Review
+      """
+    When I attempt the staged flow design-review step
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "\"state\": \"blocked\""
+    And the Spok CLI output contains "has no readable verdict"
+
+  Scenario: A design-review verdict outside frontmatter blocks planning
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through structure outline
+    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
+      """
+      ---
+      type: design-review
+      ---
+
+      # Design Review
+
+      verdict: PASS
+      """
+    When I attempt the staged flow design-review step
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "\"state\": \"blocked\""
+    And the Spok CLI output contains "has no readable verdict"
 
   Scenario: Flow next prints the Codex-routed model and effort for the first step
     Given a new project
