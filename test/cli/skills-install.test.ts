@@ -93,5 +93,17 @@ describe('global Spok skills CLI', () => {
     expect(`${updateResult.stdout}${updateResult.stderr}`).toContain(
       'The [path] argument cannot be used with --global.'
     );
+
+    const dotResult = await runCLI(['update', '.', '--global'], {
+      env: {
+        HOME: homeDir,
+        SPOK_TELEMETRY: '0',
+        USERPROFILE: homeDir,
+      },
+    });
+    expect(dotResult.exitCode).not.toBe(0);
+    expect(`${dotResult.stdout}${dotResult.stderr}`).toContain(
+      'The [path] argument cannot be used with --global.'
+    );
   });
 });

@@ -366,10 +366,10 @@ program
   .description('Update project-local or globally installed Spok skills')
   .option('--force', 'Force update even when tools are up to date')
   .option('--global', 'Update globally installed Spok skills')
-  .action(async (targetPath = '.', options?: { force?: boolean; global?: boolean }) => {
+  .action(async (targetPath?: string, options?: { force?: boolean; global?: boolean }) => {
     try {
       if (options?.global) {
-        if (targetPath !== '.') {
+        if (targetPath !== undefined) {
           throw new Error('The [path] argument cannot be used with --global.');
         }
 
@@ -382,7 +382,7 @@ program
         return;
       }
 
-      const resolvedPath = path.resolve(targetPath);
+      const resolvedPath = path.resolve(targetPath ?? '.');
       const updateCommand = new UpdateCommand({ force: options?.force });
       await updateCommand.execute(resolvedPath);
     } catch (error) {
