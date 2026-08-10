@@ -1,23 +1,18 @@
 ### Status
 
-- Overview: [.humanlayer/tasks/<parent-slug>/chunks-overview.md](cloud permalink from hook)
+- Tasks: `spok/changes/<change-slug>/tasks.md`
 - Chunks: [count]
-- Parent task: [.humanlayer/tasks/<parent-slug>/parent-task.md](cloud permalink from hook)
 
 ### Chunk Summary
 
-1. `<parent-slug>-01-<chunk-slug>` — [user-observable behavior]
-2. `<parent-slug>-02-<chunk-slug>` — [user-observable behavior]
+1. `<chunk-1-slug>` — [user-observable behavior]
+2. `<chunk-2-slug>` — [user-observable behavior]
 …
 
 ### Next Steps
 
-Run each chunk through `hl-commit-agents` independently, starting with the first chunk (no prereqs). Example:
+Run the next unchecked chunk, starting with the first chunk that has no prerequisites:
 
 ```text
-use the hl-commit-agents skill for .humanlayer/tasks/<parent-slug>-01-<chunk-slug>
+/spok-apply <change-slug>
 ```
-
----
-
-You can view the chunk plan here: [chunks-overview.md](cloud permalink from hook)

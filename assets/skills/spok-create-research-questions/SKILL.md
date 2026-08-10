@@ -52,7 +52,7 @@ You have access to specialized agents to help research the codebase:
 
    This question is mandatory because downstream stages consume `research.md` as fact. A guessed command reaches the plan unchallenged and gets reported as passing. The mandatory question counts toward the maximum number of questions.
 
-Good questions will include some basic path steering, like "... in apps/wui ..." or "in the riptide-* packages"
+Good questions will include some basic path steering, like "... in apps/wui ..." or "in the relevant packages"
 
 CRITICAL - DO NOT LEAK ANY IMPLEMENTATION DETAILS OR THE NATURE OF YOUR TASK INTO THE QUESTION LIST. NO "HOW WOULD WE XYZ" - ONLY "HOW DOES IT WORK"
 

@@ -26,14 +26,28 @@ This skill drives two phases:
 
 **Steps**
 
-1. **If no clear input provided, ask what they want to build**
+1. **Assess the request and run an adaptive interview when needed**
 
-   Use the **AskUserQuestion tool** (open-ended, no preset options) to ask:
-   > "What change do you want to work on? Describe what you want to build or fix."
+   Assess the request before creating the change directory or any planning artifact.
+   Determine whether it establishes the problem, observable outcome, scope, capabilities, and material constraints.
+   If all five are established, proceed without asking an interview question.
 
-   From their description, derive a kebab-case name (e.g., "add user authentication" → \`add-user-auth\`).
+   Otherwise, use the **AskUserQuestion tool**. Ask exactly one consequential question per message. Choose the highest-value unknown. Offer 2–3 concrete options that are mutually exclusive, recommend one option, and wait for the answer before
+   asking another question. Select the question that resolves the most
+   consequential unknown first, then reassess the five areas using the request
+   and every prior answer. Do not ask for information the request or prior answers already establish.
 
-   **IMPORTANT**: Do NOT proceed without understanding what the user wants to build.
+   If no clear input exists, ask first which change is intended, with options
+   such as fixing a known defect, adding a user-facing capability, or changing
+   internal workflow behavior; recommend the best-supported option when any
+   context exists. Do not proceed until the intended change is understood.
+
+   From the request and interview answers, derive a kebab-case name (e.g.,
+   "add user authentication" → \`add-user-auth\`). When feedback arrives after
+   an artifact exists, use that artifact's instructions and template again.
+   Repaint the affected proposal, spec, or design section in place so it reflects
+   the current decision. Never append an interview transcript. Do not create
+   \`prd.md\`.
 
 2. **Create the change directory**
    \`\`\`bash

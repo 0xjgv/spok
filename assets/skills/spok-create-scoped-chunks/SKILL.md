@@ -99,7 +99,7 @@ Do NOT create per-chunk directories. `spok-apply` will stage each chunk's `ticke
 
   `Read({SKILLBASE}/references/chunks_final_answer.md)`
 
-- Respond to the user following that template, but reference `spok/changes/<change-slug>/tasks.md` (not the legacy per-chunk directories).
+- Respond to the user following that template, reference `spok/changes/<change-slug>/tasks.md`, and hand off with `/spok-apply <change-slug>`.
 - Do NOT invoke `spok-flow` or `spok-apply`. The user (or `spok-apply` on the next invocation) picks which chunk to ship next.
 
 <guidance>
@@ -115,14 +115,7 @@ If your candidate chunk fits any of these, it's wrong — re-cut:
 
 ## When the task is too small to chunk
 
-If the description touches <2 layers or is <1 day of work, say so explicitly and tell the user to invoke `hl-commit-agents` directly. Do not force a single-chunk plan.
-
-## Cloud Permalinks
-
-When you write or edit documents in `.humanlayer/tasks/`, a cloud permalink is automatically provided in the hook response.
-- The permalink appears as `additionalContext` after Write/Edit/MultiEdit/Read operations.
-- Use this permalink in your final output for easy navigation.
-- Example format: `http(s)://{DOMAIN}/artifacts/{artifactId}`
+If the description touches <2 layers or is <1 day of work, say so explicitly and ask whether to record it as one entry in `spok/changes/<change-slug>/tasks.md`. Do not force a single-chunk plan. If the user accepts, write that entry in the canonical format and hand off with `/spok-apply <change-slug>`; do not introduce another task store or runtime.
 
 ## Markdown Formatting
 

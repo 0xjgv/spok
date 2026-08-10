@@ -64,7 +64,6 @@ Wait for the human to:
 ### 6. Commit the changes
 - Create a new commit for the changes
 - do not include any claude attribution
-- remember - the rpi/ directory should not be committed, its a symlink to another repo
 
 ### 7. Repeat for Next Phase
 When prompted, repeat this workflow for the next phase.

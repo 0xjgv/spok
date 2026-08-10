@@ -48,7 +48,6 @@ itself — never from memory, never from a scan of whatever directory you happen
    - Use `git -C <work-root> add` with specific files (never use `-A` or `.`)
    - Never stage a path you did not modify — other agents may be working in this repository concurrently, and their in-progress edits are not yours to commit. The artifact-derived list is how you know which paths those are.
    - Never treat a gitignored path as committable — run `git -C <work-root> check-ignore` on a path before listing it as an expected file, and drop the ones that are ignored
-   - Never commit the `rpi/` directory or anything inside it!
    - Never commit dummy files, test scripts, or other files which you created or which appear to have been created but which were not part of your changes or directly caused by them (e.g. generated code)
    - Create commits with your planned messages until all of your changes are committed with `git -C <work-root> commit -m`
 

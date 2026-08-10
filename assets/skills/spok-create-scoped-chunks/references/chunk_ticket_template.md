@@ -1,4 +1,4 @@
-# <parent-slug>-NN-<chunk-slug>
+# <chunk title>
 
 ## Description
 
@@ -14,4 +14,4 @@
 
 ---
 
-[Full chunk description: what to build, references to ../`<parent-slug>`/parent-task.md, relevant `file:line` pointers from the chunkability map. Include enough context that `hl-commit-agents` can run on this ticket without re-deriving the parent context.]
+[Full chunk description: what to build, relevant `file:line` pointers from the chunkability map, and enough context for `spok-apply` to stage the chunk described in `spok/changes/<change-slug>/tasks.md` without re-deriving the change context.]

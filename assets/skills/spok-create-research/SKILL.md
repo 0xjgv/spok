@@ -1,149 +1,50 @@
 ---
 name: spok-create-research
-description:  research the codebase 
+description: Research the codebase from supplied research questions and write an evidence-based research document.
 ---
 
 # Research Codebase
 
-You are tasked with conducting comprehensive research across the codebase to answer user questions by spawning parallel sub-agents and synthesizing their findings.
+Your only job is to document and explain the codebase as it exists today. This is read-only research: do not change source code, diagnose root causes, critique the implementation, recommend changes, or propose future work unless the user explicitly requests it.
 
-## CRITICAL: YOUR ONLY JOB IS TO DOCUMENT AND EXPLAIN THE CODEBASE AS IT EXISTS TODAY
-- DO NOT suggest improvements or changes unless the user explicitly asks for them
-- DO NOT perform root cause analysis unless the user explicitly asks for them
-- DO NOT propose future enhancements unless the user explicitly asks for them
-- DO NOT critique the implementation or identify problems
-- DO NOT recommend refactoring, optimization, or architectural changes
-- ONLY describe what exists, where it exists, how it works, and how components interact
-- You are creating a technical map/documentation of the existing system
+## Invocation contract
 
-## Initial Setup:
+- The skill argument is the absolute path to `<task-dir>/research-questions.md`.
+- Read the supplied `<task-dir>/research-questions.md` immediately and fully before response/planning/delegation. Use a full-file read with no offset or limit.
+- Derive `<task-dir>` from that file's parent directory. Do not create or search for the directory.
+- Never read `<task-dir>/ticket.md`. Do not infer ticket intent from its filename or contents. Use ticket metadata only when it is supplied in the user context; otherwise omit it.
+- Write exactly one research artifact at `<task-dir>/research.md`. Use `{SKILLBASE}/references/research_template.md` as its structure and `{SKILLBASE}/references/research_final_answer.md` for the final response contract.
 
-When this command is invoked, respond with:
-```
-I'm ready to research the codebase. Please provide your research question or area of interest, and I'll analyze it thoroughly by exploring relevant components and connections.
-```
+## Workflow
 
-Then wait for the user's research query.
+1. Read the supplied research questions as required above. Identify the concrete questions, named areas, and any directly mentioned non-ticket files. Read each such file fully before planning or delegation.
+2. Make a short research plan that separates independent codebase areas. Use focused, read-only subagents only when they add coverage or speed: locate relevant files first, then analyze or compare established patterns. Give each subagent a bounded question and require local `path:line` evidence. Wait for every subagent before synthesis.
+3. Investigate and synthesize from the live codebase. Treat source and tests as the primary evidence. Cite every factual finding with a local `path:line` reference. Add external links only when the user explicitly asks for them.
+4. Gather the repository, branch, commit, and timestamp values required by the research template. Before writing, delete any sibling file matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-research.md` from legacy runs. Write a self-contained technical narrative to `<task-dir>/research.md`, then confirm the file exists and is non-empty. Do not alter unrelated files.
+5. Read the final-answer template and reply with the artifact's absolute path, a concise evidence-based summary, key local references, open-question status, and the template's next-phase prompt.
 
-## Steps to follow after receiving the research query:
+## Research document requirements
 
-1. **Read any directly mentioned files first:**
-   - If the user mentions specific files (docs, JSON, research questions), read them FULLY first
-   - **IMPORTANT**: Use the Read tool WITHOUT limit/offset parameters to read entire files
-   - **CRITICAL**: Read these files yourself in the main context before spawning any sub-tasks
-   - **DO NOT read ticket files** - research must stay objective about the current codebase, not be influenced by what a ticket wants to build. The research questions already capture what needs to be investigated.
-   - This ensures you have full context before decomposing the research
+- Use takeaway-first headers: each section title states the conclusion, followed by the evidence and explanation.
+- Cite every factual finding. Cite local files as `path/to/file.ts:42`; citations must resolve in the current checkout. Do not rely on uncited summaries from subagents.
+- Explain component connections where evidence supports them. Use a diagram only when relationships among three or more components are materially clearer than concise prose; otherwise use prose or a small list.
+- Include a `Testing patterns` subsection for every researched component area. State the current unit, integration, acceptance, or end-to-end patterns with test locations and what each pattern exercises. If no test evidence is found, say that explicitly with the searched-area evidence.
+- Keep the document factual and self-contained. Describe what exists, where it exists, how it works, and how parts interact. Do not turn unknowns into recommendations.
+- Put genuine unresolved facts under `Open Questions`. Do not ask why an unbuilt feature is missing or what should be built next.
 
-2. **Analyze and decompose the research question:**
-   - Break down the user's query into composable research areas
-   - Take time to ultrathink about the underlying patterns, connections, and architectural implications the user might be seeking
-   - Identify specific components, patterns, or concepts to investigate
-   - Create a research plan using TodoWrite to track all subtasks
-   - Consider which directories, files, or architectural patterns are relevant
+## Follow-up research
 
-3. **Spawn parallel sub-agent tasks for comprehensive research:**
-   - Create multiple Task agents to research different aspects concurrently
-   - Do not run agents in the background — FOREGROUND AGENTS ONLY.
-   - We now have specialized agents that know how to do specific research tasks:
+- At most one targeted follow-up pass is allowed when a specific unresolved fact blocks a complete answer. Scope it to that fact and use the same evidence standard.
+- After the pass, repaint the affected sections of `research.md` so the document is coherent. Never append a follow-up transcript, timestamped follow-up section, or frontmatter update trail.
+- If the fact remains unresolved after that pass, leave it under `Open Questions` and finalize.
 
-   **For codebase research:**
-   - Use the **codebase-locator** agent to find WHERE files and components live
-   - Use the **codebase-analyzer** agent to understand HOW specific code works 
-   - Use the **codebase-pattern-finder** agent to find examples of existing patterns 
+## Guardrails
 
-   **For web research (only if user explicitly asks):**
-   - Use the **web-search-researcher** agent for external documentation and resources
-   - IF you use web-research agents, instruct them to return LINKS with their findings, and please INCLUDE those links in your final report
+- Do not read ticket files, including through a subagent prompt or an indirect command.
+- Do not use placeholder values in the artifact.
+- Do not make claims based on conventions, filenames, or assumptions without code or test evidence.
+- External research and links are out of scope unless the user explicitly asks for them.
 
-   The key is to use these agents intelligently:
-   - **Combine related questions**: Don't necessarily launch one subagent per research question. Group related questions that touch the same area of the codebase into a single subagent prompt. For example, if 3 questions are about how the daemon handles sessions, combine them into one codebase-analyzer call.
-   - Aim for 2-6 well-scoped subagents rather than 1:1 question-to-agent mapping - this is not a hard rule, just guidance
-   - Start with locator agents to find what exists
-   - Then use analyzer agents on the most promising findings to document how they work
-   - Run multiple agents in parallel when they're searching for **different areas** of the codebase
-   - Each agent knows its job - just tell it what you're looking for
-   - Don't write detailed prompts about HOW to search - the agents already know
+## Markdown formatting
 
-4. **Wait for all sub-agents to complete and synthesize findings:**
-   - IMPORTANT: Wait for ALL sub-agent tasks to complete before proceeding
-   - Compile all sub-agent results
-   - Prioritize live codebase findings as primary source of truth
-   - Connect findings across different components
-   - Include specific file paths and line numbers for reference
-   - Verify path correctness — task-specific files go in `<task-dir>/`
-   - Highlight patterns, connections, and architectural decisions
-   - Answer the user's specific questions with concrete evidence
-
-5. **Gather metadata for the research document:**
-   - Output path: `<task-dir>/research.md`
-   - The skill argument is the absolute path to the research-questions file. Derive `<task-dir>` as its parent directory (the directory already exists — do not create or search for it).
-   - Filename is bare: `research.md` (no date prefix).
-
-6. **Generate research document:**
-   - Use the metadata gathered in step 4
-   - Read the research template:
-
-   `Read({SKILLBASE}/references/research_template.md)`
-
-   - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-research.md` (legacy date-prefixed orphans from pre-fork runs).
-   - Write the document to `<task-dir>/research.md`
-   - After writing, confirm the file exists and is non-empty: run `ls -la <task-dir>/research.md`. If missing or empty, re-write before continuing. Include the absolute path in your response.
-
-7. **Note cloud permalinks:**
-   Cloud permalinks are automatically provided when you write artifacts. Include them in your final output.
-
-   For code references in the synclayer repo (if on main or pushed):
-   - Get repo info: `gh repo view --json owner,name`
-   - Create permalinks: `https://github.com/{owner}/{repo}/blob/{commit}/{file}#L{line}`
-
-
-8. **Respond to the user according to the template**
-   - Read the final output template:
-   `Read({SKILLBASE}/references/research_final_answer.md)`
-   - Respond with a summary following the template, including GitHub permalinks.
-
-9. **Handle follow-up questions:**
-   - If the user has follow-up questions, append to the same research document
-   - Update the frontmatter fields `last_updated` and `last_updated_by` to reflect the update
-   - Add `last_updated_note: "Added follow-up research for [brief description]"` to frontmatter
-   - Add a new section: `## Follow-up Research [timestamp]`
-   - Spawn new sub-agents as needed for additional investigation
-   - Continue updating the document 
-
-<guidance>
-## Important notes:
-- Use parallel Task agents to maximize efficiency and minimize context usage
-- Focus on finding concrete file paths and line numbers for developer reference
-- Research documents should be self-contained with all necessary context
-- Each sub-agent prompt should be specific and focused on read-only documentation operations
-- Document cross-component connections and how systems interact
-- Link to GitHub when possible for permanent references
-- Stay focused on synthesis, not deep file reading
-- Have sub-agents document examples and usage patterns as they exist
-- **REMEMBER**: Document and Ask about what IS and WHY, not what SHOULD BE
-- **NO RECOMMENDATIONS OR IMPLEMENTATION SUGGESTIONS**: Only describe the current state of the codebase
-- **Testing patterns**: For each component area you research, document how it's currently tested (unit, integration, e2e). Include test file locations and patterns. The research template has a "Testing patterns" section under each component - always fill it in.
-- **File reading**: Always read mentioned files FULLY (no limit/offset) before spawning sub-tasks
-- **Critical ordering**: Follow the numbered steps exactly
-  - ALWAYS read mentioned files first before spawning sub-tasks (step 1)
-  - ALWAYS wait for all sub-agents to complete before synthesizing (step 4)
-  - ALWAYS gather metadata before writing the document (step 5 before step 6)
-  - NEVER write the research document with placeholder values
-- **Path handling**: Task-specific research goes in `<task-dir>/research.md`
-
-## Response
-
-Remember, you must respond to the user according to the output template at `{SKILLBASE}/references/research_final_answer.md`
-
-## Markdown Formatting
-
-When writing markdown files that contain code blocks showing other markdown (like README examples or SKILL.md templates), use 4 backticks (````) for the outer fence so inner 3-backtick code blocks don't prematurely close it:
-
-````markdown
-# Example README
-## Installation
-```bash
-npm install example
-```
-````
-</guidance>
+When writing markdown that contains a code block showing Markdown, use four backticks for the outer fence so an inner three-backtick block cannot close it early.

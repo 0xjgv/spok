@@ -26,9 +26,16 @@ You are now in the Design Discussion phase. Based on the research findings and t
    - Accept only `required` or `not-applicable`. Stop and ask the user to correct any other value.
    - For `required`, the packet path must be `spok/evidence/<change>/<chunk>/`, using the change and chunk slugs recorded in the ticket. Resolve it from the repository root; never place evidence under the task directory.
 
-4. **Create a research todo list** using TodoWrite to track exploration tasks
+4. **Check the completion gate before drafting**:
+   - If `<task-dir>/design-discussion.md` already exists, do not create or edit it. Its existence marks this flow step complete. Report the existing path and stop this phase.
+   - Do not create or edit `<task-dir>/design-discussion.md` until every consequential decision is resolved and, when required, the visual-evidence packet is explicitly approved.
 
-5. **Spawn parallel sub-tasks for comprehensive research**:
+5. **Inventory consequential decisions**:
+   - List the unresolved decisions that materially affect behavior, scope, APIs, UX, compatibility, data, security, or tradeoffs.
+   - Resolve facts from the repository and research before treating a point as a decision. Do not ask about settled conventions or implementation detail owned by later phases.
+   - If the inventory is empty, state why the design is already determined by verified evidence.
+
+6. **Research gaps before presenting a decision**:
    - Create multiple Task agents to research different aspects concurrently
    - Do not run agents in the background — FOREGROUND AGENTS ONLY.
    - Use the right agent for each type of research:
@@ -53,22 +60,27 @@ You are now in the Design Discussion phase. Based on the research findings and t
    - Identify existing patterns in the codebase that should be followed
    - Include file locations and multiline code snippets showing the pattern
 
-2. **Discuss design decisions**
-   - For each major design choice, present options with pros/cons
-   - Make recommendations based on codebase conventions
-   - Record final decisions with rationale
+2. **Run the decision interview**
+   - Ask exactly one consequential design question per message.
+   - Give 2–3 concrete options, with tradeoffs and a recommendation. Tie the recommendation to verified codebase evidence where available.
+   - Wait for the answer before asking the next question.
+   - Record the selected option, rationale, rejected tradeoffs, and any explicit scope boundary. Do not replace an earlier decision because a later document was written.
    - If the research surfaced testing patterns for the components being changed, include a brief testing approach (e.g. "follow the existing unit test pattern in `__tests__/foo.test.ts`")
 
-3. **If the user gives any input along the way**:
+3. **Repaint the synthesis after each resolved decision**
+   - Restate the current end state, scope boundaries, and the decisions that now constrain the design.
+   - Identify the next unresolved consequential decision, if any. Do not draft the final artifact while any remain.
+
+4. **If the user gives any input along the way**:
    - DO NOT just accept the correction
-   - Spawn new research tasks to verify the correct information
+   - Verify the referenced facts from primary repository evidence before updating the decision record
    - Read the specific files/directories they mention
-   - Only proceed with updates once you've verified the facts yourself
-   - interpret ALL user feedback as instructions to update the document, not to begin implementation
+   - Only proceed with decision updates once the facts are verified
+   - Treat user feedback as design input, not authorization to begin implementation
 
 ## Produce visual evidence when required
 
-Complete this section after resolving the design decisions and before finalizing `design-discussion.md`.
+Complete this section after resolving the design decisions and before finalizing `design-discussion.md`. For `required`, obtain explicit approval before writing the discussion artifact.
 
 ### `not-applicable`
 
@@ -143,10 +155,11 @@ Complete this section after resolving the design decisions and before finalizing
 `Read({SKILLBASE}/references/design_discussion_template.md)`
 
 2. **Write the design discussion** to `<task-dir>/design-discussion.md`
-   - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-design-discussion.md` (legacy date-prefixed orphans from pre-fork runs).
    - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
    - Filename is bare: `design-discussion.md` (no date prefix).
-   - Include the `## Visual Evidence` result produced above. For `required`, do not write the final document until the packet is approved.
+   - Write only once the completion gate is satisfied. Do not create partial drafts, placeholders, or date-prefixed sibling artifacts.
+   - Retain the template's `type: design-discussion` frontmatter.
+   - Organize cross-component deltas under `## System Design` and the in-code shape under `## Program Design`. Include the `## Visual Evidence` result produced above. For `required`, do not write the final document until the packet is approved.
    - After writing, confirm the file exists and is non-empty: run `ls -la <task-dir>/design-discussion.md`. If missing or empty, re-write before continuing. Include the absolute path in your response.
 
 3. **Read the final output template**
@@ -168,11 +181,11 @@ npm install example
 ```
 ````
 
-## Document Precedence
+## Decision Authority and Conflicts
 
-When documents conflict, the most recent document wins:
-**design discussion > research > ticket**
+- Design discussion owns behavior, scope, APIs, UX, and tradeoffs.
+- Structure outline owns decomposition only. It must conform to the design discussion.
+- Plan owns implementation detail only. It cannot override the reviewed design.
 
-Decisions made during the design discussion supersede the original ticket description.
-The ticket provides the initial request; the design discussion refines and finalizes the approach.
+Chronology does not determine authority. Use research and the ticket as evidence and starting context, not as automatic overrides. Unresolved or contradictory decisions block review and planning; surface them to the human and never silently select a winner.
 </guidance>

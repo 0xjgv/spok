@@ -13,6 +13,11 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
    - Use Read tool WITHOUT limit/offset to read all provided file paths
    - The skill argument is the absolute path to the task directory. Use `ls <task-dir>` to enumerate all related documents.
    - Read everything in the task directory to build full context
+   - Verify the expected typed frontmatter before planning:
+     - `<task-dir>/design-discussion.md`: `type: design-discussion`
+     - `<task-dir>/structure-outline.md`: `type: structure-outline`
+     - `<task-dir>/design-review.md`: `type: design-review` and `verdict: PASS`
+   - If the design review is missing, unreadable, not a `PASS`, or records unresolved or contradictory decisions, stop. Unresolved or contradictory decisions block review and planning; do not silently override them.
 
 2. **Read relevant code files**:
    - Read any source files mentioned in the research, design, or structure documents
@@ -25,6 +30,7 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
 4. **Write the implementation plan**:
    - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-plan.md` (legacy date-prefixed orphans from pre-fork runs).
    - Write to `<task-dir>/plan.md` (bare filename; the task directory is the absolute path passed as the skill argument and already exists)
+   - The output must retain the plan template's `type: plan` frontmatter.
    - After writing, confirm the file exists and is non-empty: run `ls -la <task-dir>/plan.md`. If missing or empty, re-write before continuing. Include the absolute path in your response.
    - Convert each phase from the structure outline into detailed implementation steps
    - Include specific code examples for each change
@@ -41,13 +47,13 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
 - Pause for human confirmation between phases
 - If the research documented testing patterns for the components being changed, include test code in the plan (new test files or additions to existing test files). Follow the existing test patterns found in the research.
 
-## Document Precedence
+## Artifact Authority
 
-When documents conflict, the most recent document wins:
-**plan > structure outline > design discussion > research > ticket**
+- Design discussion owns behavior, scope, APIs, UX, and tradeoffs.
+- Structure outline owns decomposition only. It must conform to the design discussion.
+- Plan owns implementation detail only. It cannot override the reviewed design.
 
-The plan is the final authority. Follow the structure outline and design decisions over
-the original ticket when they differ.
+Chronology does not determine authority. Unresolved or contradictory decisions block review and planning; surface them to the human and never silently override them.
 
 ## Output
 

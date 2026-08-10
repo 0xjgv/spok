@@ -14,6 +14,14 @@ You are creating a phased implementation plan based on research findings and des
 - `designDecisions`: List of design decisions made during the design discussion phase
 - `patternsToFollow`: List of patterns identified during research
 
+The relevant task artifacts must have their expected YAML frontmatter types:
+
+- `<task-dir>/research.md`: `type: research`
+- `<task-dir>/design-discussion.md`: `type: design-discussion`
+- `<task-dir>/structure-outline.md` output: `type: structure-outline`
+
+Verify these types before writing. Stop and report a missing or mismatched type; do not infer an artifact's authority from its filename.
+
 ## Steps
 
 1. **Read all input documents FULLY**:
@@ -110,11 +118,11 @@ code change and then having to figure out which part went wrong.
 Automated testing is always better than manual testing - be thoughtful based on your knowledge
 of the codebase and testing patterns, and be clear about which tests are manual versus automated.
 
-## Document Precedence
+## Artifact Authority
 
-When documents conflict, the most recent document wins:
-**structure outline > design discussion > research > ticket**
+- Design discussion owns behavior, scope, APIs, UX, and tradeoffs.
+- Structure outline owns decomposition only. It must conform to the design discussion.
+- Plan owns implementation detail only. It cannot override the reviewed design.
 
-The structure outline captures the final phased approach. If the ticket or research
-suggested something different, the structure outline reflects the latest decisions.
+Chronology does not determine authority. Unresolved or contradictory decisions block review and planning; surface them to the human and never silently override them.
 </guidance>

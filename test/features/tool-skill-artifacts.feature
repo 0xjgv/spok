@@ -207,6 +207,65 @@ Feature: Tool skill artifacts
     And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Current"
     And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Target"
 
+  Scenario: Proposal interviews only for consequential missing intent
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-propose" under ".claude/skills" mentions "Assess the request before creating the change directory or any planning artifact."
+    And the workflow skill "spok-propose" under ".claude/skills" mentions "problem, observable outcome, scope, capabilities, and material constraints"
+    And the workflow skill "spok-propose" under ".claude/skills" mentions "If all five are established, proceed without asking an interview question."
+    And the workflow skill "spok-propose" under ".claude/skills" mentions "Ask exactly one consequential question per message."
+    And the workflow skill "spok-propose" under ".claude/skills" mentions "Offer 2–3 concrete options"
+    And the workflow skill "spok-propose" under ".claude/skills" mentions "Do not ask for information the request or prior answers already establish."
+    And the workflow skill "spok-propose" under ".claude/skills" mentions "Repaint the affected proposal, spec, or design section"
+    And the workflow skill "spok-propose" under ".claude/skills" mentions "Never append an interview transcript."
+
+  Scenario: Research stays evidence-first and bounds follow-up work
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-create-research" under ".claude/skills" mentions "Read the supplied `<task-dir>/research-questions.md` immediately and fully"
+    And the workflow skill "spok-create-research" under ".claude/skills" mentions "Never read `<task-dir>/ticket.md`"
+    And the workflow skill "spok-create-research" under ".claude/skills" mentions "takeaway-first headers"
+    And the workflow skill "spok-create-research" under ".claude/skills" mentions "Cite every factual finding"
+    And the workflow skill "spok-create-research" under ".claude/skills" mentions "Testing patterns"
+    And the workflow skill "spok-create-research" under ".claude/skills" mentions "Use a diagram only when"
+    And the workflow skill "spok-create-research" under ".claude/skills" mentions "At most one targeted follow-up pass"
+    And the workflow skill "spok-create-research" under ".claude/skills" mentions "repaint the affected sections"
+    And the workflow skill "spok-create-research" under ".claude/skills" mentions "Open Questions"
+
+  Scenario: Design resolves one decision at a time before completing its artifact
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Ask exactly one consequential design question per message."
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "2–3 concrete options"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "tradeoffs and a recommendation"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Wait for the answer before asking the next question."
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Do not create or edit `<task-dir>/design-discussion.md` until every consequential decision is resolved"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Its existence marks this flow step complete."
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "System Design"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Program Design"
+
+  Scenario: Planning artifacts enforce typed authority instead of chronology
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Design discussion owns behavior, scope, APIs, UX, and tradeoffs."
+    And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "Structure outline owns decomposition only."
+    And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "Chronology does not determine authority."
+    And the workflow skill "spok-create-plan" under ".claude/skills" mentions "Plan owns implementation detail only."
+    And the workflow skill "spok-create-plan" under ".claude/skills" mentions "It cannot override the reviewed design."
+    And the workflow skill "spok-create-plan" under ".claude/skills" mentions "Unresolved or contradictory decisions block review"
+
+  Scenario: Installed workflow assets use Spok task handoffs
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "spok/changes/<change-slug>/tasks.md"
+    And the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "/spok-apply <change-slug>"
+    And the workflow skill resource "references/chunks_final_answer.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "/spok-apply <change-slug>"
+    And the workflow skill resource "references/chunk_ticket_template.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "spok/changes/<change-slug>/tasks.md"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "The final commit is owned by the `commit` step in `spok-flow`."
+    And the workflow skill "spok-ci-commit" under ".claude/skills" mentions "Run **every** git command with `-C <work-root>`"
+    And the workflow skill "spok-ci-commit" under ".claude/skills" mentions "Stage exactly the **intersection**"
+    And Spok does not create ".claude/skills/spok-create-scoped-chunks/references/chunks_overview_template.md"
+
   Scenario: Flow self-learn gate runs after commit when enabled
     Given a new project
     And self-learn is enabled in project config
