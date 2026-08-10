@@ -145,7 +145,7 @@ export class GlobalSkillsInstallCommand {
 
     const toolStates = getGlobalToolStates(this.homeDir);
     const selectedToolIds = this.mode === 'update'
-      ? this.getInstalledToolIds(toolStates)
+      ? this.getConfiguredToolIds(toolStates)
       : await this.getSelectedTools(toolStates);
 
     if (this.mode === 'update' && selectedToolIds.length === 0) {
@@ -174,7 +174,7 @@ export class GlobalSkillsInstallCommand {
     this.displaySuccessMessage(results);
   }
 
-  private getInstalledToolIds(toolStates: Map<string, GlobalToolState>): string[] {
+  private getConfiguredToolIds(toolStates: Map<string, GlobalToolState>): string[] {
     return [...toolStates.entries()]
       .filter(([, state]) => state.hasSpokSkills)
       .map(([toolId]) => toolId);
@@ -216,11 +216,7 @@ export class GlobalSkillsInstallCommand {
       throw new Error('No tools available for global skill installation.');
     }
 
-    const configuredToolIds = new Set(
-      [...toolStates.entries()]
-        .filter(([, status]) => status.hasSpokSkills)
-        .map(([toolId]) => toolId)
-    );
+    const configuredToolIds = new Set(this.getConfiguredToolIds(toolStates));
     const detectedToolIds = new Set(
       [...toolStates.entries()]
         .filter(([, status]) => status.hasToolDir)
