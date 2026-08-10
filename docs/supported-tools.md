@@ -98,15 +98,19 @@ For every selected tool, Spok installs the same set of skill directories:
 
 - `spok-flow`
 - `spok-create-scoped-chunks`
+- `spok-validate-problem`
 - `spok-create-research-questions`
 - `spok-create-research`
 - `spok-create-design-discussion`
 - `spok-create-structure-outline`
+- `spok-review-design`
 - `spok-create-plan`
 - `spok-implement-plan`
-- `spok-code-review`
+- `spok-simplify`
 - `spok-validate-implementation`
+- `spok-repair`
 - `spok-ci-commit`
+- `spok-self-learn`
 
 The helper closure is refreshed by project-local `spok update` and home-scoped `spok update --global`, keeping each installation self-contained.
 

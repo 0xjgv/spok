@@ -69,6 +69,7 @@ describe('global Spok skills CLI', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Global Spok Skills Updated');
+    await expect(fs.readFile(installedSkill, 'utf-8')).resolves.not.toBe('old skill');
     await expect(pathExists(path.join(homeDir, '.agents', 'skills', 'spok-flow', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
   }, 30_000);
