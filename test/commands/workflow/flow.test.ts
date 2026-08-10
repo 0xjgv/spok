@@ -436,6 +436,10 @@ describe('design review gate', () => {
     ['verdict case deviation', '---\ntype: design-review\nverdict: pass\n---\n'],
     ['quoted type', '---\ntype: "design-review"\nverdict: PASS\n---\n'],
     ['quoted verdict', "---\ntype: design-review\nverdict: 'PASS'\n---\n"],
+    ['extra field with FAIL verdict', '---\ntype: design-review\nverdict: FAIL\nreviewer: codex\n---\n'],
+    ['reordered fields with FAIL verdict', '---\nverdict: FAIL\ntype: design-review\n---\n'],
+    ['type case deviation with FAIL verdict', '---\ntype: Design-Review\nverdict: FAIL\n---\n'],
+    ['quoted verdict FAIL', "---\ntype: design-review\nverdict: 'FAIL'\n---\n"],
   ])('rejects %s', async (_caseName, content) => {
     await flow.advanceToDesignReview();
 

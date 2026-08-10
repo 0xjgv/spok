@@ -138,6 +138,13 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.toml. To enable it, add:"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
 
+  Scenario: Flow relays design-review human decisions on FAIL and unreadable verdicts
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-flow" under ".claude/skills" mentions "Step design-review recorded a FAIL verdict"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "Step design-review has no readable verdict"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "## Human Decisions Required"
+
   Scenario: Design review makes the discussion the final design authority
     Given a new project
     When I initialize Spok for the tools "claude"
@@ -170,6 +177,13 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.claude/skills/spok-review-design/SKILL.md"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.agents/skills/spok-review-design/SKILL.md"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "spok skills install --tools claude,codex"
+
+  Scenario: Default apply preflights the current tool's skill closure
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-apply" under ".claude/skills" mentions "Default execution"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "check only that harness's markers."
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "check both harnesses' markers."
 
   Scenario: Inner flow implementation overrides standalone orchestration
     Given a new project

@@ -134,7 +134,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      project config enables `flow.self_learn: true`. Complete it like any other
      file-producing step. Its findings do not fail or amend the commit.
 
-6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly. When the `reason` starts with `Step design-review recorded a FAIL verdict`, read `<task-dir>/design-review.md` and present its `## Human Decisions Required` section verbatim alongside the reason, then halt — do not retry the step and do not edit `design-review.md` to unblock it.
+6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly. When the `reason` starts with `Step design-review recorded a FAIL verdict`, read `<task-dir>/design-review.md` and present its `## Human Decisions Required` section verbatim alongside the reason, then halt — do not retry the step and do not edit `design-review.md` to unblock it. When the `reason` starts with `Step design-review has no readable verdict`, read `<task-dir>/design-review.md` if it exists and present its `## Human Decisions Required` section verbatim alongside the reason if that section is present, then halt and report as a generic blocked state.
 
 Do not restate or assume the step order — `spok flow next` is the only source of truth.
 Do not derive or override runner or model routing inside this skill — `spok flow next --json` is the source of truth, including `step.runner`, `step.model`, and `step.effort`.
