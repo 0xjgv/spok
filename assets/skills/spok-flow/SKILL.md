@@ -2,7 +2,7 @@
 name: spok-flow
 description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk, with native or hybrid model routing and an optional post-commit self-learn gate. Driven by spok-apply.
 argument-hint: [hybrid] <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
-version: 0.8.0
+version: 0.9.0
 ---
 # Flow Instructions
 
@@ -67,7 +67,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      and the repository rules from `spok/MEMORY.md`. Do not rewrite, summarize, or
      add to it.
 
-   If the response carries `memoryWarning`, surface it to the user once and continue.
+   If the response carries `memoryWarning` or `workRootWarning`, surface it to the user once and continue.
 
 4. Dispatch the step through `step.runner`.
 
@@ -124,11 +124,28 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      spok flow complete "<task-dir>" --step "<id>" --summary "<summary>" --json
      ```
 
+     The `implement` prompt requires the subagent to end its reply with a
+     `Work root: <absolute path>` line naming the repository it edited. Pass that
+     path through so the commit step is told where the changes live:
+
+     ```bash
+     spok flow complete "<task-dir>" --step "implement" --summary "<summary>" --work-root "<absolute-path>" --json
+     ```
+
+     Pass `--work-root` on `simplify` or `repair` too when that subagent reports a
+     different repository. If the subagent reported no work root, omit the flag —
+     the CLI degrades to unsteered commit discovery and warns. Never invent the
+     path. A path that is relative or does not exist blocks the completion.
+
    - `commit`:
 
      ```bash
      spok flow complete "<task-dir>" --step "commit" --commit "<commit-sha>" --summary "<summary>" --json
      ```
+
+     When a work root was recorded, the CLI resolves the SHA in that repository
+     and blocks when it is not a commit reachable from `HEAD` there. Report such
+     a block exactly; do not retry with a different SHA.
 
    - `self-learn` is an optional file-producing advisory gate returned only when
      project config enables `flow.self_learn: true`. Complete it like any other

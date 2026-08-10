@@ -1,6 +1,10 @@
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { existsSync, promises as fs, readFileSync } from 'node:fs';
+import { promisify } from 'node:util';
 import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
+
+const execFileAsync = promisify(execFile);
 
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 export const FLOW_EVENT_LOG_FILE = 'flow-events.jsonl';
@@ -115,6 +119,8 @@ export interface FlowStepResult {
   summary?: string;
   output?: string;
   commit?: string;
+  /** Absolute path of the repository the step edited; recorded so the commit step never rediscovers it. */
+  workRoot?: string;
 }
 
 export interface FlowStep {
@@ -158,6 +164,8 @@ export interface FlowResponse {
   memoryRuleCount?: number;
   memoryRuleTotal?: number;
   memoryWarning?: string;
+  workRoot?: string;
+  workRootWarning?: string;
 }
 
 export interface FlowCompleteInput {
@@ -165,6 +173,7 @@ export interface FlowCompleteInput {
   output?: string;
   summary?: string;
   commit?: string;
+  workRoot?: string;
 }
 
 export interface FlowCommandOptions {
@@ -419,12 +428,32 @@ function buildMemoryWarning(memory: MemoryRead | undefined): string | undefined 
 const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
   implement:
     'You are running inside spok-flow. Implement and verify the plan, return a ' +
-    'summary of what you did, and do NOT create any commits — the commit step owns that.',
+    'summary of what you did, and do NOT create any commits — the commit step owns that. ' +
+    'End your reply with a final line reading `Work root: <absolute path>`, naming the ' +
+    'absolute path of the repository working tree you edited (the git worktree root that ' +
+    'holds the changed files, which may differ from the task directory). Report the path ' +
+    '`git -C <edited file> rev-parse --show-toplevel` prints, not a guess.',
   [SELF_LEARN_STEP_ID]: 'This gate is advisory. Do not fail, amend, or rewrite the commit.',
 };
 
+/**
+ * The commit step runs as a fresh subagent with no session history, so the
+ * repository it must commit in is stated outright rather than rediscovered.
+ */
+function workRootClause(workRoot: string): string {
+  return (
+    `The changes to commit are in \`${workRoot}\`. Run every git command with ` +
+    `\`-C ${workRoot}\`. If that repository has no changes, stop and report — do not ` +
+    'search other directories, and never commit from a repository you were not given.'
+  );
+}
+
 /** The whole subagent prompt. The driver dispatches it verbatim and assembles nothing. */
-function buildStepPrompt(definition: StepDefinition, rules: string[]): string {
+function buildStepPrompt(
+  definition: StepDefinition,
+  rules: string[],
+  workRoot?: string
+): string {
   const sections: string[] = [];
 
   if (rules.length > 0) {
@@ -447,6 +476,8 @@ function buildStepPrompt(definition: StepDefinition, rules: string[]): string {
 
   const clause = STEP_PROMPT_CLAUSES[definition.id];
   if (clause) sections.push(clause);
+
+  if (definition.completionKind === 'commit' && workRoot) sections.push(workRootClause(workRoot));
 
   return sections.join('\n\n');
 }
@@ -750,6 +781,10 @@ function flowBlockCode(reason: string): string {
   if (reason.includes('has no readable verdict')) return 'validation_verdict_unreadable';
   if (reason.includes('must provide a non-empty --summary')) return 'missing_summary';
   if (reason.includes('must provide a commit SHA')) return 'missing_commit';
+  if (reason.includes('must provide an absolute --work-root')) return 'invalid_work_root';
+  if (reason.startsWith('Work root directory does not exist')) return 'missing_work_root';
+  if (reason.includes('is not a commit object in')) return 'commit_not_found';
+  if (reason.includes('is not reachable from HEAD in')) return 'commit_not_reachable';
   return 'blocked';
 }
 
@@ -875,14 +910,34 @@ function withStepPrompt(
   step: FlowStep | undefined,
   rules: string[],
   repairAttempts: number,
-  profile: FlowProfile
+  profile: FlowProfile,
+  workRoot?: string
 ): FlowStep | undefined {
   if (!step) return step;
 
   const definition = getDefinitionById(taskDir, step.id, repairAttempts, profile);
   if (!definition) return step;
 
-  return { ...step, prompt: buildStepPrompt(definition, rules) };
+  return { ...step, prompt: buildStepPrompt(definition, rules, workRoot) };
+}
+
+/** The most recently recorded work root: repair can move the work after implement. */
+function recordedWorkRoot(state: WorkflowState): string | undefined {
+  let workRoot: string | undefined;
+  for (const step of state.steps) {
+    if (step.status === 'completed' && step.result?.workRoot) workRoot = step.result.workRoot;
+  }
+  return workRoot;
+}
+
+/**
+ * Warns only where the gap bites: a state file written before work roots
+ * existed still reaches commit, it just reaches it unsteered.
+ */
+function buildWorkRootWarning(state: WorkflowState, workRoot: string | undefined): string | undefined {
+  if (workRoot || getCurrentStep(state)?.id !== 'commit') return;
+
+  return 'No work root was recorded by an earlier step; the commit agent must discover the repository itself.';
 }
 
 function buildResponse(
@@ -890,12 +945,14 @@ function buildResponse(
   extra: Pick<FlowResponse, 'step' | 'completedStep' | 'reason'> = {}
 ): FlowResponse {
   const memory = readMemory(state.taskDir);
+  const workRoot = recordedWorkRoot(state);
   const nextStep = withStepPrompt(
     state.taskDir,
     getCurrentStep(state),
     memory?.rules ?? [],
     state.repairAttempts,
-    state.profile
+    state.profile,
+    workRoot
   );
   return {
     state: state.status,
@@ -911,6 +968,8 @@ function buildResponse(
     memoryRuleCount: memory?.rules.length,
     memoryRuleTotal: memory && memory.rules.length + memory.ignoredOverCap,
     memoryWarning: buildMemoryWarning(memory),
+    workRoot,
+    workRootWarning: buildWorkRootWarning(state, workRoot),
   };
 }
 
@@ -1085,9 +1144,78 @@ async function validateValidationVerdict(definition: StepDefinition): Promise<st
   return `Step ${VALIDATE_STEP_ID} has no readable verdict (expected PASS or FAIL): ${definition.expectedOutput}`;
 }
 
+/** Stdout of a git invocation, or undefined when git is missing or exits nonzero. */
+async function runGit(workRoot: string, args: string[]): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', workRoot, ...args]);
+    return stdout;
+  } catch {
+    return;
+  }
+}
+
+/**
+ * A recorded work root is only useful if it names a real directory now: an
+ * absent one means the flow resumed somewhere the work no longer exists.
+ */
+async function validateWorkRoot(
+  definition: StepDefinition,
+  workRoot: string
+): Promise<string | undefined> {
+  if (!path.isAbsolute(workRoot)) {
+    return `Step ${definition.id} must provide an absolute --work-root path, got ${workRoot}.`;
+  }
+  if (!(await pathIsDirectory(workRoot))) {
+    return `Work root directory does not exist for step ${definition.id}: ${workRoot}`;
+  }
+}
+
+/**
+ * Without this, a wrong-repo or hallucinated SHA is recorded exactly like a
+ * correct one. Only runs when a work root was recorded — legacy state keeps
+ * the old accept-any-string behavior.
+ */
+async function verifyCommitSha(workRoot: string, commit: string): Promise<string | undefined> {
+  const objectType = (await runGit(workRoot, ['cat-file', '-t', commit]))?.trim();
+  if (objectType !== 'commit') {
+    return `Commit ${commit} is not a commit object in ${workRoot}.`;
+  }
+
+  if ((await runGit(workRoot, ['merge-base', '--is-ancestor', commit, 'HEAD'])) === undefined) {
+    return `Commit ${commit} is not reachable from HEAD in ${workRoot}.`;
+  }
+}
+
+async function completeCommitResult(
+  definition: StepDefinition,
+  input: FlowCompleteInput,
+  workRoot: string | undefined
+): Promise<FlowStepResult | string> {
+  const commit = input.commit?.trim();
+  if (!commit) {
+    return `Step ${definition.id} must provide a commit SHA with --commit.`;
+  }
+
+  if (workRoot) {
+    const workRootError = await validateWorkRoot(definition, workRoot);
+    if (workRootError) return workRootError;
+
+    const commitError = await verifyCommitSha(workRoot, commit);
+    if (commitError) return commitError;
+  }
+
+  return {
+    commit,
+    summary: input.summary?.trim() || undefined,
+    workRoot,
+    completedAt: nowIso(),
+  };
+}
+
 async function completeStepResult(
   definition: StepDefinition,
-  input: FlowCompleteInput
+  input: FlowCompleteInput,
+  recordedRoot?: string
 ): Promise<FlowStepResult | string> {
   if (definition.completionKind === 'file') {
     const validationError = validateFileCompletion(definition, input);
@@ -1115,22 +1243,22 @@ async function completeStepResult(
       return `Step ${definition.id} must provide a non-empty --summary.`;
     }
 
+    // Omitting --work-root degrades to the pre-work-root behavior; a supplied
+    // one is checked here so the commit step never inherits an unusable path.
+    const workRoot = input.workRoot?.trim() || undefined;
+    if (workRoot) {
+      const workRootError = await validateWorkRoot(definition, workRoot);
+      if (workRootError) return workRootError;
+    }
+
     return {
       summary,
+      workRoot,
       completedAt: nowIso(),
     };
   }
 
-  const commit = input.commit?.trim();
-  if (!commit) {
-    return `Step ${definition.id} must provide a commit SHA with --commit.`;
-  }
-
-  return {
-    commit,
-    summary: input.summary?.trim() || undefined,
-    completedAt: nowIso(),
-  };
+  return completeCommitResult(definition, input, recordedRoot);
 }
 
 function repairAttemptsExhaustedReason(expectedOutput: string): string {
@@ -1317,7 +1445,7 @@ export async function completeFlowStep(
     return response;
   }
 
-  const result = await completeStepResult(definition, input);
+  const result = await completeStepResult(definition, input, recordedWorkRoot(loaded.state));
   if (typeof result === 'string') {
     // Only the validate step can produce this code, so expectedOutput is set.
     const isValidationFail =
@@ -1421,5 +1549,11 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
   }
   if (response.memoryWarning) {
     console.log(`Memory warning: ${response.memoryWarning}`);
+  }
+  if (response.workRoot) {
+    console.log(`Work root: ${response.workRoot}`);
+  }
+  if (response.workRootWarning) {
+    console.log(`Work root warning: ${response.workRootWarning}`);
   }
 }

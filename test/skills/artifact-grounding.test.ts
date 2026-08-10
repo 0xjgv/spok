@@ -86,6 +86,9 @@ describe('artifact grounding rules in skill assets', () => {
     });
   });
 
+});
+
+describe('spok-ci-commit grounding rules', () => {
   describe('spok-ci-commit', () => {
     it('forbids staging paths the agent did not modify', async () => {
       const body = await readSkill('spok-ci-commit');
@@ -99,6 +102,30 @@ describe('artifact grounding rules in skill assets', () => {
 
       expect(body).toContain('Never treat a gitignored path as committable');
       expect(body).toContain('`git check-ignore`');
+    });
+
+    it('scopes every git command to the given work root', async () => {
+      const body = await readSkill('spok-ci-commit');
+
+      expect(body).toContain('Run **every** git command with `-C <work-root>`');
+      expect(body).toContain('It is often a **different** repository from `<work-root>`');
+    });
+
+    it('grounds the file list in the task artifacts rather than session history', async () => {
+      const body = await readSkill('spok-ci-commit');
+
+      expect(body).toContain('You have **no session history of the work**');
+      expect(body).not.toContain('Review the conversation history');
+      expect(body).not.toContain('You have the full context of what was done in this session');
+      expect(body).toContain('Derive the expected file list from the artifacts');
+      expect(body).toContain('Stage exactly the **intersection**');
+    });
+
+    it('fails loudly instead of scanning a directory when the sets disagree', async () => {
+      const body = await readSkill('spok-ci-commit');
+
+      expect(body).toContain('**Fail loudly instead of falling back to a directory scan.**');
+      expect(body).toContain('do not widen the search to another directory');
     });
   });
 });

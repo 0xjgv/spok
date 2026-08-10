@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -1075,7 +1076,9 @@ describe('flow step prompt composition', () => {
     expect(result.step?.id).toBe('implement');
     expect(result.step?.prompt).toContain('do NOT create any commits');
     expect(result.step?.prompt).toContain('return a concise summary');
-    expect(result.step?.prompt).not.toContain('absolute path');
+    expect(result.step?.prompt).not.toContain(
+      'return the absolute path of the document that was created'
+    );
   });
 
   it('never persists the prompt into the state file', async () => {
@@ -1176,5 +1179,186 @@ describe('flow command output', () => {
       },
     });
     expectStepRouting(response.steps);
+  });
+});
+
+interface WorkRootRepo {
+  readonly path: string;
+  readonly headSha: string;
+  /** A real commit object in the repository that HEAD cannot reach. */
+  readonly unreachableSha: string;
+}
+
+function useWorkRootRepo(): WorkRootRepo {
+  let repoPath: string;
+  let headSha: string;
+  let unreachableSha: string;
+
+  function git(args: string[]): string {
+    return execFileSync('git', ['-C', repoPath, ...args], { encoding: 'utf-8' }).trim();
+  }
+
+  beforeEach(async () => {
+    repoPath = path.join(os.tmpdir(), `spok-work-root-${randomUUID()}`);
+    await fs.mkdir(repoPath, { recursive: true });
+    execFileSync('git', ['init', '-b', 'main', repoPath], { encoding: 'utf-8' });
+    git(['config', 'user.email', 'flow@example.com']);
+    git(['config', 'user.name', 'Flow Test']);
+    await fs.writeFile(path.join(repoPath, 'a.txt'), 'one\n', 'utf-8');
+    git(['add', 'a.txt']);
+    git(['commit', '--no-gpg-sign', '-m', 'first']);
+    headSha = git(['rev-parse', 'HEAD']);
+
+    await fs.writeFile(path.join(repoPath, 'a.txt'), 'two\n', 'utf-8');
+    git(['add', 'a.txt']);
+    git(['commit', '--no-gpg-sign', '-m', 'second']);
+    unreachableSha = git(['rev-parse', 'HEAD']);
+    git(['reset', '--hard', headSha]);
+  });
+
+  afterEach(async () => {
+    await fs.rm(repoPath, { recursive: true, force: true });
+  });
+
+  return {
+    get path() {
+      return repoPath;
+    },
+    get headSha() {
+      return headSha;
+    },
+    get unreachableSha() {
+      return unreachableSha;
+    },
+  };
+}
+
+async function advanceToImplement(flow: FlowHarness): Promise<void> {
+  await flow.completeProblemValidation();
+  await flow.completeFileStep('research-questions', 'research-questions.md');
+  await flow.completeFileStep('research', 'research.md');
+  await flow.completeFileStep('design-discussion', 'design-discussion.md');
+  await flow.completeFileStep('structure-outline', 'structure-outline.md');
+  await flow.completeFileStep('plan', 'plan.md');
+  await getFlowNext(flow.taskDir);
+}
+
+async function advanceToCommit(flow: FlowHarness, workRoot: string): Promise<void> {
+  await advanceToImplement(flow);
+  const implemented = await completeFlowStep(flow.taskDir, {
+    step: 'implement',
+    summary: 'Implemented the plan.',
+    workRoot,
+  });
+  expect(implemented.state).not.toBe('blocked');
+  await flow.completeSummaryStep('simplify', 'Simplified the implementation.');
+  const validated = await flow.completeValidate(PASS_VALIDATION);
+  expect(validated.state).not.toBe('blocked');
+}
+
+describe('work root attribution', () => {
+  const flow = useFlowHarness();
+  const repo = useWorkRootRepo();
+
+  it('asks the implement subagent to report the repository it edited', async () => {
+    await advanceToImplement(flow);
+    const atImplement = await getFlowStatus(flow.taskDir);
+
+    expect(atImplement.nextStep?.id).toBe('implement');
+    expect(atImplement.nextStep?.prompt).toContain('`Work root: <absolute path>`');
+  });
+
+  it('persists the implement work root in workflow state', async () => {
+    await advanceToCommit(flow, repo.path);
+
+    const state = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    const implement = state.steps.find((step: { id: string }) => step.id === 'implement');
+    expect(implement.result.workRoot).toBe(repo.path);
+
+    // Reloading state must not drop it: the commit prompt is built from it.
+    expect((await getFlowStatus(flow.taskDir)).workRoot).toBe(repo.path);
+  });
+
+  it('names the work root in the commit step prompt', async () => {
+    await advanceToCommit(flow, repo.path);
+
+    const next = await getFlowNext(flow.taskDir);
+
+    expect(next.step?.id).toBe('commit');
+    expect(next.step?.prompt).toContain(`Run every git command with \`-C ${repo.path}\``);
+    expect(next.step?.prompt).toContain('do not search other directories');
+    expect(next.workRootWarning).toBeUndefined();
+  });
+
+  it('blocks a relative or missing work root at record time', async () => {
+    await advanceToImplement(flow);
+
+    const relative = await completeFlowStep(flow.taskDir, {
+      step: 'implement',
+      summary: 'Implemented the plan.',
+      workRoot: 'some/relative/path',
+    });
+    expect(relative.state).toBe('blocked');
+    expect(relative.reason).toContain('absolute --work-root');
+
+    const missing = await completeFlowStep(flow.taskDir, {
+      step: 'implement',
+      summary: 'Implemented the plan.',
+      workRoot: path.join(repo.path, 'not-here'),
+    });
+    expect(missing.state).toBe('blocked');
+    expect(missing.reason).toContain('Work root directory does not exist');
+  });
+});
+
+describe('commit SHA verification', () => {
+  const flow = useFlowHarness();
+  const repo = useWorkRootRepo();
+
+  it('accepts a commit reachable from HEAD in the recorded work root', async () => {
+    await advanceToCommit(flow, repo.path);
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: repo.headSha });
+
+    expect(result.state).toBe('complete');
+    expect(result.completedStep?.result).toMatchObject({
+      commit: repo.headSha,
+      workRoot: repo.path,
+    });
+  });
+
+  it('blocks a SHA that names no commit object in the recorded work root', async () => {
+    await advanceToCommit(flow, repo.path);
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: 'abc123' });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('is not a commit object in');
+  });
+
+  it('blocks a real commit that HEAD cannot reach', async () => {
+    await advanceToCommit(flow, repo.path);
+
+    const result = await completeFlowStep(flow.taskDir, {
+      step: 'commit',
+      commit: repo.unreachableSha,
+    });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('is not reachable from HEAD in');
+  });
+
+  it('warns and accepts any SHA when no work root was recorded', async () => {
+    await flow.completeThroughValidation();
+
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.step?.id).toBe('commit');
+    expect(next.step?.prompt).not.toContain('Run every git command with');
+    expect(next.workRootWarning).toContain('No work root was recorded');
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: 'abc123' });
+    expect(result.state).toBe('complete');
   });
 });
