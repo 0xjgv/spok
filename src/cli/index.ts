@@ -363,10 +363,25 @@ program
 
 program
   .command('update [path]')
-  .description('Update Spok instruction files')
+  .description('Update project-local or globally installed Spok skills')
   .option('--force', 'Force update even when tools are up to date')
-  .action(async (targetPath = '.', options?: { force?: boolean }) => {
+  .option('--global', 'Update globally installed Spok skills')
+  .action(async (targetPath = '.', options?: { force?: boolean; global?: boolean }) => {
     try {
+      if (options?.global) {
+        if (targetPath !== '.') {
+          throw new Error('The [path] argument cannot be used with --global.');
+        }
+
+        const { GlobalSkillsInstallCommand } = await import('../core/skills-install.js');
+        const updateCommand = new GlobalSkillsInstallCommand({
+          mode: 'update',
+          force: options.force,
+        });
+        await updateCommand.execute();
+        return;
+      }
+
       const resolvedPath = path.resolve(targetPath);
       const updateCommand = new UpdateCommand({ force: options?.force });
       await updateCommand.execute(resolvedPath);

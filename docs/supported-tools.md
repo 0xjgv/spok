@@ -67,6 +67,22 @@ spok init --tools none
 
 **Available tool IDs (`--tools`):** `amazon-q`, `antigravity`, `auggie`, `bob`, `claude`, `cline`, `codex`, `codebuddy`, `continue`, `costrict`, `crush`, `cursor`, `factory`, `gemini`, `github-copilot`, `iflow`, `junie`, `kilocode`, `kimi`, `kiro`, `opencode`, `pi`, `qoder`, `lingma`, `qwen`, `roocode`, `trae`, `windsurf`
 
+## Global Skills
+
+Install or refresh selected tools under your home directory with `spok skills install`:
+
+```bash
+spok skills install --tools claude,codex
+```
+
+After the initial installation, update every tool that already contains global Spok skills from any directory:
+
+```bash
+spok update --global
+```
+
+Global updates do not add tools and do not require a project `spok/` directory. Use `spok update --global --force` to rewrite every existing global installation even when its version and skill set are current.
+
 ## Installed Skills
 
 For every selected tool, Spok installs the same set of skill directories:
@@ -92,7 +108,7 @@ For every selected tool, Spok installs the same set of skill directories:
 - `spok-validate-implementation`
 - `spok-ci-commit`
 
-The helper closure is refreshed every time you run `spok update` so each project always has a self-contained skill set.
+The helper closure is refreshed by project-local `spok update` and home-scoped `spok update --global`, keeping each installation self-contained.
 
 ## Related
 

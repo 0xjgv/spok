@@ -46,6 +46,57 @@ function loggedText(): string {
     .join('\n');
 }
 
+async function updateExistingGlobalSkills(homeDir: string, projectDir: string): Promise<void> {
+  process.chdir(projectDir);
+  await new GlobalSkillsInstallCommand({
+    tools: 'codex',
+    interactive: false,
+    homeDir,
+  }).execute();
+  await fs.rm(path.join(homeDir, '.agents', 'skills', 'spok-flow'), {
+    recursive: true,
+    force: true,
+  });
+  await fs.mkdir(path.join(homeDir, '.claude'), { recursive: true });
+
+  await new GlobalSkillsInstallCommand({
+    mode: 'update',
+    interactive: false,
+    homeDir,
+  }).execute();
+
+  await expect(pathExists(path.join(homeDir, '.agents', 'skills', 'spok-flow', 'SKILL.md'))).resolves.toBe(true);
+  await expect(pathExists(path.join(homeDir, '.claude', 'skills', 'spok-flow', 'SKILL.md'))).resolves.toBe(false);
+  await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
+  expect(loggedText()).toContain('Global Spok Skills Updated');
+}
+
+async function forceGlobalSkillsUpdate(homeDir: string): Promise<void> {
+  await new GlobalSkillsInstallCommand({
+    tools: 'codex',
+    interactive: false,
+    homeDir,
+  }).execute();
+  const flowSkill = path.join(homeDir, '.agents', 'skills', 'spok-flow', 'SKILL.md');
+  await fs.writeFile(flowSkill, 'local customization');
+
+  await new GlobalSkillsInstallCommand({
+    mode: 'update',
+    interactive: false,
+    homeDir,
+  }).execute();
+  await expect(fs.readFile(flowSkill, 'utf-8')).resolves.toBe('local customization');
+  expect(loggedText()).toContain('Global Spok skills are up to date.');
+
+  await new GlobalSkillsInstallCommand({
+    mode: 'update',
+    force: true,
+    interactive: false,
+    homeDir,
+  }).execute();
+  await expect(fs.readFile(flowSkill, 'utf-8')).resolves.not.toBe('local customization');
+}
+
 describe('GlobalSkillsInstallCommand', () => {
   let testDir: string;
   let homeDir: string;
@@ -114,6 +165,14 @@ describe('GlobalSkillsInstallCommand', () => {
     expect(output).toContain('Global Spok skills found: Claude Code (pre-selected for refresh)');
     expect(output).toContain('Refreshing existing global Spok skills for: Claude Code');
     await expect(fs.readFile(staleSkill, 'utf-8')).resolves.toContain('Explore mode is for thinking');
+  });
+
+  it('updates existing global skills and repairs a missing vendored helper', async () => {
+    await updateExistingGlobalSkills(homeDir, projectDir);
+  });
+
+  it('skips a complete global installation unless forced', async () => {
+    await forceGlobalSkillsUpdate(homeDir);
   });
 
   it('fails non-interactive global install without --tools', async () => {

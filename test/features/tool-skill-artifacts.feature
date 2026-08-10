@@ -412,3 +412,12 @@ Feature: Tool skill artifacts
     And Spok creates the global workflow skill "spok-explore" under ".factory/skills"
     And Spok creates the global workflow skill "spok-self-learn" under ".factory/skills"
     And Spok does not create "spok"
+
+  Scenario: Global update refreshes existing home-scoped skills without project state
+    Given a new project
+    When I install global Spok skills for the tools "codex"
+    And I remove the global workflow skill "spok-flow" under ".agents/skills"
+    And I run spok update globally
+    Then Spok creates the global workflow skill "spok-flow" under ".agents/skills"
+    And the Spok CLI output contains "Global Spok Skills Updated"
+    And Spok does not create "spok"

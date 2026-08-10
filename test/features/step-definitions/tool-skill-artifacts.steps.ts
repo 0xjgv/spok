@@ -427,6 +427,31 @@ When('I install global Spok skills for the tools {string}', async function (this
   });
 });
 
+When(
+  'I remove the global workflow skill {string} under {string}',
+  async function (this: SkillArtifactWorld, skillName: string, relativeDir: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    await fs.rm(path.join(this.projectDir, relativeDir, skillName), {
+      recursive: true,
+      force: true,
+    });
+  }
+);
+
+When('I run spok update globally', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  this.cliResult = await runCLI(['update', '--global'], {
+    cwd: this.projectDir,
+    env: {
+      HOME: this.projectDir,
+      SPOK_TELEMETRY: '0',
+      USERPROFILE: this.projectDir,
+    },
+    timeoutMs: 10_000,
+  });
+  assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
+});
+
 Then('Spok creates skills under {string}', async function (this: SkillArtifactWorld, relativeDir: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.equal(
