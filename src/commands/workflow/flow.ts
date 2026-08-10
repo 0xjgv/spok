@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
+import { FileSystemUtils } from '../../utils/file-system.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -462,6 +463,15 @@ function workRootClause(workRoot: string): string {
   );
 }
 
+function editingWorkRootClause(workRoot: string): string {
+  return (
+    `The implementation repository is \`${workRoot}\`, which may differ from the task directory. ` +
+    'Read and edit source files there, and run verification commands from that directory. ' +
+    `Run every git command with \`-C ${workRoot}\`. Do not edit source files in the task ` +
+    'directory unless it is the same repository.'
+  );
+}
+
 /** The whole subagent prompt. The driver dispatches it verbatim and assembles nothing. */
 function buildStepPrompt(
   definition: StepDefinition,
@@ -491,7 +501,12 @@ function buildStepPrompt(
   const clause = STEP_PROMPT_CLAUSES[definition.id];
   if (clause) sections.push(clause);
 
-  if (definition.completionKind === 'commit' && workRoot) sections.push(workRootClause(workRoot));
+  if (workRoot) {
+    if (definition.completionKind === 'commit') sections.push(workRootClause(workRoot));
+    if (definition.id === 'simplify' || definition.id === REPAIR_STEP_ID) {
+      sections.push(editingWorkRootClause(workRoot));
+    }
+  }
 
   return sections.join('\n\n');
 }
@@ -831,6 +846,7 @@ function flowBlockCode(reason: string): string {
   if (reason.includes('must provide a commit SHA')) return 'missing_commit';
   if (reason.includes('must provide an absolute --work-root')) return 'invalid_work_root';
   if (reason.startsWith('Work root directory does not exist')) return 'missing_work_root';
+  if (reason.includes('conflicts with recorded work root')) return 'work_root_conflict';
   if (reason.includes('is not a commit object in')) return 'commit_not_found';
   if (reason.includes('is not reachable from HEAD in')) return 'commit_not_reachable';
   return 'blocked';
@@ -1251,18 +1267,36 @@ async function resolveCommitSha(
 async function completeCommitResult(
   definition: StepDefinition,
   input: FlowCompleteInput,
-  workRoot: string | undefined
+  recordedRoot: string | undefined
 ): Promise<FlowStepResult | string> {
   const commit = input.commit?.trim();
   if (!commit) {
     return `Step ${definition.id} must provide a commit SHA with --commit.`;
   }
 
+  if (recordedRoot) {
+    const workRootError = await validateWorkRoot(definition, recordedRoot);
+    if (workRootError) return workRootError;
+  }
+
+  const suppliedRoot = input.workRoot?.trim();
+  if (suppliedRoot !== undefined) {
+    const workRootError = await validateWorkRoot(definition, suppliedRoot);
+    if (workRootError) return workRootError;
+  }
+
+  if (
+    recordedRoot &&
+    suppliedRoot &&
+    FileSystemUtils.canonicalizeExistingPath(recordedRoot) !==
+      FileSystemUtils.canonicalizeExistingPath(suppliedRoot)
+  ) {
+    return `Step ${definition.id} --work-root ${suppliedRoot} conflicts with recorded work root ${recordedRoot}.`;
+  }
+
+  const workRoot = recordedRoot ?? suppliedRoot;
   let resolvedCommit = commit;
   if (workRoot) {
-    const workRootError = await validateWorkRoot(definition, workRoot);
-    if (workRootError) return workRootError;
-
     const resolution = await resolveCommitSha(workRoot, commit);
     if ('error' in resolution) return resolution.error;
     resolvedCommit = resolution.commit;
@@ -1327,8 +1361,8 @@ async function completeStepResult(
 
     // Omitting --work-root degrades to the pre-work-root behavior; a supplied
     // one is checked here so the commit step never inherits an unusable path.
-    const workRoot = input.workRoot?.trim() || undefined;
-    if (workRoot) {
+    const workRoot = input.workRoot?.trim();
+    if (workRoot !== undefined) {
       const workRootError = await validateWorkRoot(definition, workRoot);
       if (workRootError) return workRootError;
     }

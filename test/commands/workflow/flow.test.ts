@@ -1621,8 +1621,45 @@ describe('work root attribution', () => {
     expect(recordedRoot).toBe(repo.aliasPath);
     expect(realpathSync.native(recordedRoot!)).toBe(realpathSync.native(repo.path));
 
-    const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: repo.headSha });
+    const result = await completeFlowStep(flow.taskDir, {
+      step: 'commit',
+      commit: repo.headSha,
+      workRoot: repo.path,
+    });
     expect(result.state).toBe('complete');
+  });
+
+  it('names the recorded work root in the simplify step prompt', async () => {
+    await advanceToImplement(flow);
+
+    const implemented = await completeFlowStep(flow.taskDir, {
+      step: 'implement',
+      summary: 'Implemented the plan.',
+      workRoot: repo.path,
+    });
+
+    expect(implemented.nextStep?.id).toBe('simplify');
+    expect(implemented.nextStep?.prompt).toContain(
+      `The implementation repository is \`${repo.path}\``
+    );
+  });
+
+  it('names the recorded work root in the repair step prompt', async () => {
+    await advanceToImplement(flow);
+    const implemented = await completeFlowStep(flow.taskDir, {
+      step: 'implement',
+      summary: 'Implemented the plan.',
+      workRoot: repo.path,
+    });
+    expect(implemented.state).not.toBe('blocked');
+    await flow.completeSummaryStep('simplify', 'Simplified the implementation.');
+
+    const failedValidation = await flow.completeValidate(FAIL_VALIDATION);
+
+    expect(failedValidation.nextStep?.id).toBe('repair');
+    expect(failedValidation.nextStep?.prompt).toContain(
+      `The implementation repository is \`${repo.path}\``
+    );
   });
 
   it('names the work root in the commit step prompt', async () => {
@@ -1638,6 +1675,14 @@ describe('work root attribution', () => {
 
   it('blocks a relative or missing work root at record time', async () => {
     await advanceToImplement(flow);
+
+    const blank = await completeFlowStep(flow.taskDir, {
+      step: 'implement',
+      summary: 'Implemented the plan.',
+      workRoot: '   ',
+    });
+    expect(blank.state).toBe('blocked');
+    expect(blank.reason).toContain('absolute --work-root');
 
     const relative = await completeFlowStep(flow.taskDir, {
       step: 'implement',
@@ -1713,5 +1758,34 @@ describe('commit SHA verification', () => {
 
     const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: 'abc123' });
     expect(result.state).toBe('complete');
+  });
+
+  it('verifies and records an explicitly supplied work root for legacy state', async () => {
+    await flow.completeThroughValidation();
+
+    const result = await completeFlowStep(flow.taskDir, {
+      step: 'commit',
+      commit: repo.headSha,
+      workRoot: repo.path,
+    });
+
+    expect(result.state).toBe('complete');
+    expect(result.completedStep?.result).toMatchObject({
+      commit: repo.headSha,
+      workRoot: repo.path,
+    });
+  });
+
+  it('blocks an explicitly supplied work root that conflicts with recorded state', async () => {
+    await advanceToCommit(flow, repo.path);
+
+    const result = await completeFlowStep(flow.taskDir, {
+      step: 'commit',
+      commit: repo.headSha,
+      workRoot: flow.projectRoot,
+    });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('conflicts with recorded work root');
   });
 });

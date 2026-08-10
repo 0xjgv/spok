@@ -19,6 +19,7 @@ interface SkillArtifactWorld {
   setupGuidance?: string;
   flowTaskDir?: string;
   flowWorkRoot?: string;
+  flowHeadCommit?: string;
   unreachableFlowCommit?: string;
   cliResult?: RunCLIResult;
   retiredCommandArtifacts?: string[];
@@ -47,6 +48,19 @@ async function captureConsoleLog(run: () => Promise<void>): Promise<string> {
   }
 
   return lines.join('\n');
+}
+
+async function runStagedFlowComplete(
+  world: SkillArtifactWorld,
+  step: string,
+  args: readonly string[]
+): Promise<RunCLIResult> {
+  assert.ok(world.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(world.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  return runCLI(
+    ['flow', 'complete', world.flowTaskDir, '--step', step, ...args, '--json'],
+    { cwd: world.projectDir }
+  );
 }
 
 Given('a new project', async function (this: SkillArtifactWorld) {
@@ -78,6 +92,7 @@ Given('a separate flow work repository', async function (this: SkillArtifactWorl
   git(['add', 'work.txt']);
   git(['commit', '--no-gpg-sign', '-m', 'first']);
   const headCommit = git(['rev-parse', 'HEAD']);
+  this.flowHeadCommit = headCommit;
 
   await fs.writeFile(path.join(this.flowWorkRoot, 'work.txt'), 'two\n', 'utf-8');
   git(['add', 'work.txt']);
@@ -169,34 +184,38 @@ Given('the staged flow task is completed through structure outline', async funct
   }
 });
 
-Given('the staged flow task is ready to implement', async function (this: SkillArtifactWorld) {
-  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
-  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+Given(
+  'the staged flow task is ready to implement',
+  { timeout: 15_000 },
+  async function (this: SkillArtifactWorld) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
 
-  const completedSteps = [
-    ['validate-problem', 'problem-validation.md', '# Problem Validation\n\n## Flow Decision\n\nproceed\n'],
-    ['research-questions', 'research-questions.md', '# Research Questions\n'],
-    ['research', 'research.md', '# Research\n'],
-    ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
-    ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
-    [
-      'design-review',
-      'design-review.md',
-      '---\ntype: design-review\nverdict: PASS\n---\n\n# Design Review\n',
-    ],
-    ['plan', 'plan.md', '# Plan\n'],
-  ] as const;
+    const completedSteps = [
+      ['validate-problem', 'problem-validation.md', '# Problem Validation\n\n## Flow Decision\n\nproceed\n'],
+      ['research-questions', 'research-questions.md', '# Research Questions\n'],
+      ['research', 'research.md', '# Research\n'],
+      ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
+      ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
+      [
+        'design-review',
+        'design-review.md',
+        '---\ntype: design-review\nverdict: PASS\n---\n\n# Design Review\n',
+      ],
+      ['plan', 'plan.md', '# Plan\n'],
+    ] as const;
 
-  for (const [step, filename, content] of completedSteps) {
-    const output = path.join(this.flowTaskDir, filename);
-    await fs.writeFile(output, content, 'utf-8');
-    const result = await runCLI(
-      ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
-      { cwd: this.projectDir }
-    );
-    assert.equal(result.exitCode, 0, result.stderr);
+    for (const [step, filename, content] of completedSteps) {
+      const output = path.join(this.flowTaskDir, filename);
+      await fs.writeFile(output, content, 'utf-8');
+      const result = await runCLI(
+        ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
+        { cwd: this.projectDir }
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+    }
   }
-});
+);
 
 Given('project config contains:', async function (this: SkillArtifactWorld, configContent: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
@@ -404,6 +423,15 @@ When('I run spok flow next for the staged task', async function (this: SkillArti
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
 });
 
+When('I run spok flow next as JSON for the staged task', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  this.cliResult = await runCLI(['flow', 'next', this.flowTaskDir, '--json'], {
+    cwd: this.projectDir,
+  });
+  assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
+});
+
 When('I attempt the staged flow design-review step', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
@@ -445,6 +473,17 @@ When('I complete the staged flow implement step with the separate work root', as
   );
 });
 
+When('I attempt the staged flow implement step with a blank work root', async function (
+  this: SkillArtifactWorld
+) {
+  this.cliResult = await runStagedFlowComplete(this, 'implement', [
+    '--summary',
+    'Implemented the plan.',
+    '--work-root',
+    '   ',
+  ]);
+});
+
 When('I run the Spok CLI in the project with {string}', async function (this: SkillArtifactWorld, args: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   this.cliResult = await runCLI(args.split(' '), {
@@ -475,6 +514,36 @@ When('I complete the staged flow commit step', async function (this: SkillArtifa
     { cwd: this.projectDir }
   );
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
+});
+
+When('I complete the staged flow commit step with the separate work root', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.flowWorkRoot, 'flowWorkRoot must be set by Given a separate flow work repository');
+  assert.ok(this.flowHeadCommit, 'flowHeadCommit must be set by Given a separate flow work repository');
+  this.cliResult = await runStagedFlowComplete(this, 'commit', [
+    '--commit',
+    this.flowHeadCommit,
+    '--work-root',
+    this.flowWorkRoot,
+    '--summary',
+    'Committed the chunk.',
+  ]);
+});
+
+When('I attempt the staged flow commit step with a conflicting work root', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowHeadCommit, 'flowHeadCommit must be set by Given a separate flow work repository');
+  this.cliResult = await runStagedFlowComplete(this, 'commit', [
+    '--commit',
+    this.flowHeadCommit,
+    '--work-root',
+    this.projectDir,
+    '--summary',
+    'Committed the chunk.',
+  ]);
 });
 
 /** Same call as the step above, without asserting success: blocked outcomes exit 1. */
@@ -704,6 +773,32 @@ Then('the staged flow state records the separate work root', async function (
   const workRoot = state.steps.find((step) => step.id === 'implement')?.result?.workRoot;
   assert.ok(workRoot, 'implement result must record a work root');
   assert.equal(await fs.realpath(workRoot), await fs.realpath(this.flowWorkRoot));
+});
+
+Then('the editing prompt directs work to the separate work root', function (this: SkillArtifactWorld) {
+  assert.ok(this.cliResult, 'cliResult must be set by a CLI run step');
+  assert.ok(this.flowWorkRoot, 'flowWorkRoot must be set by Given a separate flow work repository');
+  assert.ok(
+    `${this.cliResult.stdout}${this.cliResult.stderr}`.includes(
+      `The implementation repository is \`${this.flowWorkRoot}\``
+    ),
+    `editing prompt must identify ${this.flowWorkRoot}`
+  );
+});
+
+Then('the staged flow commit records the separate work root', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.flowWorkRoot, 'flowWorkRoot must be set by Given a separate flow work repository');
+  assert.ok(this.flowHeadCommit, 'flowHeadCommit must be set by Given a separate flow work repository');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  const state = JSON.parse(
+    await fs.readFile(path.join(this.flowTaskDir, 'workflow-state.json'), 'utf-8')
+  ) as { steps: Array<{ id: string; result?: { commit?: string; workRoot?: string } }> };
+  const result = state.steps.find((step) => step.id === 'commit')?.result;
+  assert.equal(result?.commit, this.flowHeadCommit);
+  assert.ok(result?.workRoot, 'commit result must record a work root');
+  assert.equal(await fs.realpath(result.workRoot), await fs.realpath(this.flowWorkRoot));
 });
 
 Then('the Spok CLI error does not contain {string}', function (this: SkillArtifactWorld, expected: string) {

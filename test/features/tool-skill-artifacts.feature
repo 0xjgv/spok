@@ -241,6 +241,35 @@ Feature: Tool skill artifacts
     When I complete the staged flow implement step with the separate work root
     Then the Spok CLI exits with code 0
     And the staged flow state records the separate work root
+    And the Spok CLI output contains "\"id\": \"simplify\""
+    And the editing prompt directs work to the separate work root
+
+  Scenario: Flow steers repair to the recorded work root
+    Given a new project
+    And a separate flow work repository
+    And a staged flow task
+    And the staged flow task is completed through validation
+    And the staged flow task has the separate work root recorded
+    And "spok/changes/demo/.flow/chunk-one/validation.md" contains:
+      """
+      ---
+      verdict: FAIL
+      ---
+
+      # Validation
+      """
+    And a repair cycle is pending
+    When I run spok flow next as JSON for the staged task
+    Then the Spok CLI output contains "\"id\": \"repair\""
+    And the editing prompt directs work to the separate work root
+
+  Scenario: Flow rejects a blank implementation work root
+    Given a new project
+    And a staged flow task
+    And the staged flow task is ready to implement
+    When I attempt the staged flow implement step with a blank work root
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "absolute --work-root"
 
   Scenario: Flow rejects a commit outside the recorded work root
     Given a new project
@@ -258,6 +287,25 @@ Feature: Tool skill artifacts
     And the staged flow task is completed through validation
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Work root warning: No work root was recorded"
+
+  Scenario: Commit completion verifies an explicit work root for legacy state
+    Given a new project
+    And a separate flow work repository
+    And a staged flow task
+    And the staged flow task is completed through validation
+    When I complete the staged flow commit step with the separate work root
+    Then the Spok CLI exits with code 0
+    And the staged flow commit records the separate work root
+
+  Scenario: Commit completion rejects a work root that conflicts with recorded state
+    Given a new project
+    And a separate flow work repository
+    And a staged flow task
+    And the staged flow task is completed through validation
+    And the staged flow task has the separate work root recorded
+    When I attempt the staged flow commit step with a conflicting work root
+    Then the Spok CLI exits with code 1
+    And the Spok CLI output contains "conflicts with recorded work root"
 
   Scenario: Flow next prints the Claude-routed model and effort for the first step
     Given a new project
