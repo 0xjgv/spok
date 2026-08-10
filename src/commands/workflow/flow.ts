@@ -20,6 +20,7 @@ interface Routing {
 }
 
 const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
+const DESIGN_REVIEW_STEP_ID = 'design-review';
 const VALIDATE_STEP_ID = 'validate';
 const REPAIR_STEP_ID = 'repair';
 const SELF_LEARN_STEP_ID = 'self-learn';
@@ -43,6 +44,7 @@ const FLOW_STEP_TIER_BY_ID = {
   research: 'mid',
   'design-discussion': 'max',
   'structure-outline': 'heavy',
+  [DESIGN_REVIEW_STEP_ID]: 'heavy',
   plan: 'max',
   implement: 'mid',
   simplify: 'heavy',
@@ -60,6 +62,7 @@ const CLAUDE_ROUTING_BY_ID = {
   research: { runner: 'claude', model: 'sonnet', effort: 'medium' },
   'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
   'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  [DESIGN_REVIEW_STEP_ID]: { runner: 'claude', model: 'opus', effort: 'medium' },
   plan: { runner: 'claude', model: 'fable', effort: 'xhigh' },
   implement: { runner: 'claude', model: 'opus', effort: 'medium' },
   simplify: { runner: 'claude', model: 'opus' },
@@ -84,6 +87,9 @@ const HYBRID_ROUTING_BY_ID = {
   research: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
   'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
   'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  [DESIGN_REVIEW_STEP_ID]: {
+    runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh',
+  },
   plan: { runner: 'claude', model: 'fable', effort: 'xhigh' },
   implement: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
   simplify: { runner: 'claude', model: 'opus' },
@@ -193,6 +199,7 @@ interface FlowStepPaths {
   research: string;
   designDiscussion: string;
   structureOutline: string;
+  designReview: string;
   plan: string;
   validation: string;
   selfLearn: string;
@@ -255,6 +262,13 @@ const BASE_STEP_DEFINITION_SPECS = [
     skill: 'spok-create-structure-outline',
     argument: 'taskDir',
     expectedOutput: 'structureOutline',
+    completionKind: 'file',
+  },
+  {
+    id: DESIGN_REVIEW_STEP_ID,
+    skill: 'spok-review-design',
+    argument: 'taskDir',
+    expectedOutput: 'designReview',
     completionKind: 'file',
   },
   {
@@ -466,6 +480,7 @@ function buildFlowStepPaths(taskDir: string): FlowStepPaths {
     research: path.join(taskDir, 'research.md'),
     designDiscussion: path.join(taskDir, 'design-discussion.md'),
     structureOutline: path.join(taskDir, 'structure-outline.md'),
+    designReview: path.join(taskDir, 'design-review.md'),
     plan: path.join(taskDir, 'plan.md'),
     validation: path.join(taskDir, 'validation.md'),
     selfLearn: path.join(taskDir, 'self-learn.md'),
@@ -597,6 +612,25 @@ function shouldSkipProblemValidationForLegacyState(completed: Map<string, FlowSt
   return completed.size > 0 && !completed.has(occurrenceKey(PROBLEM_VALIDATION_STEP_ID, 0));
 }
 
+const STEPS_AT_OR_AFTER_PLAN = new Set([
+  'plan',
+  'implement',
+  'simplify',
+  VALIDATE_STEP_ID,
+  REPAIR_STEP_ID,
+  'commit',
+  SELF_LEARN_STEP_ID,
+]);
+
+function shouldCompleteDesignReviewForLegacyState(storedSteps: unknown[]): boolean {
+  if (storedSteps.some((step) => storedStepId(step) === DESIGN_REVIEW_STEP_ID)) return false;
+
+  return storedSteps.some((step) => {
+    const id = storedStepId(step);
+    return id !== undefined && STEPS_AT_OR_AFTER_PLAN.has(id) && isCompletedStep(step);
+  });
+}
+
 function inferLegacyProfile(stored: unknown): FlowRunner | undefined {
   if (!stored || typeof stored !== 'object') return;
   const steps = Array.isArray((stored as Partial<WorkflowState>).steps)
@@ -660,12 +694,20 @@ function normalizeState(
 
   const definitions = buildStepDefinitions(taskDir, repairAttempts, profile);
   const skipProblemValidation = shouldSkipProblemValidationForLegacyState(completedByKey);
+  const completeDesignReview = shouldCompleteDesignReviewForLegacyState(storedSteps);
   const definitionOccurrences = new Map<string, number>();
   const steps = definitions.map((definition) => {
     const completed = completedByKey.get(takeOccurrenceKey(definitionOccurrences, definition.id));
     if (!completed && definition.id === PROBLEM_VALIDATION_STEP_ID && skipProblemValidation) {
       return stepFromDefinition(definition, 'completed', {
         summary: 'Skipped for legacy workflow state created before validate-problem existed.',
+        completedAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
+      });
+    }
+
+    if (!completed && definition.id === DESIGN_REVIEW_STEP_ID && completeDesignReview) {
+      return stepFromDefinition(definition, 'completed', {
+        summary: 'Completed synthetically for legacy workflow state with plan or later work completed.',
         completedAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
       });
     }
@@ -746,6 +788,12 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Expected output file is missing or empty for step ')) return 'missing_output';
   if (reason.includes('must set Flow Decision to proceed')) return 'flow_decision_not_proceed';
   if (reason.includes('repair attempts')) return 'repair_attempts_exhausted';
+  if (reason.startsWith(`Step ${DESIGN_REVIEW_STEP_ID} recorded a FAIL verdict`)) {
+    return 'design_review_verdict_fail';
+  }
+  if (reason.startsWith(`Step ${DESIGN_REVIEW_STEP_ID} has no readable verdict`)) {
+    return 'design_review_verdict_unreadable';
+  }
   if (reason.includes('recorded a FAIL verdict')) return 'validation_verdict_fail';
   if (reason.includes('has no readable verdict')) return 'validation_verdict_unreadable';
   if (reason.includes('must provide a non-empty --summary')) return 'missing_summary';
@@ -939,10 +987,13 @@ async function validateCompletedArtifacts(state: WorkflowState): Promise<string 
       return `Missing completed artifact for step ${step.id}: ${definition.expectedOutput}`;
     }
 
-    // Both gates self-guard on step id. Re-running them keeps a completed
+    // The gates self-guard on step id. Re-running them keeps a completed
     // artifact that was edited after completion from carrying the flow forward.
     const decisionError = await validateProblemValidationFlowDecision(definition);
     if (decisionError) return decisionError;
+
+    const designReviewError = await validateDesignReviewVerdict(definition);
+    if (designReviewError) return designReviewError;
 
     // The verdict gate fires only on the final validate occurrence: an earlier
     // completed validate legitimately holds a FAIL artifact mid-cycle.
@@ -1036,6 +1087,16 @@ async function validateProblemValidationFlowDecision(
 
 type Verdict = 'PASS' | 'FAIL';
 
+const DESIGN_REVIEW_FRONTMATTER_PATTERN =
+  /^---\ntype: design-review\nverdict: (PASS|FAIL)\n---(?:\n|$)/;
+
+/** Pure. The review contract permits only the exact, ordered frontmatter fields. */
+function readDesignReviewVerdict(content: string): Verdict | undefined {
+  const normalized = content.replace(/\r\n/g, '\n');
+  const match = normalized.match(DESIGN_REVIEW_FRONTMATTER_PATTERN);
+  return match?.[1] as Verdict | undefined;
+}
+
 function parseVerdictValue(raw: string): Verdict | undefined {
   const value = raw
     .replace(/^[`'"]+|[`'"]+$/g, '')
@@ -1085,6 +1146,21 @@ async function validateValidationVerdict(definition: StepDefinition): Promise<st
   return `Step ${VALIDATE_STEP_ID} has no readable verdict (expected PASS or FAIL): ${definition.expectedOutput}`;
 }
 
+async function validateDesignReviewVerdict(
+  definition: StepDefinition
+): Promise<string | undefined> {
+  if (definition.id !== DESIGN_REVIEW_STEP_ID || !definition.expectedOutput) return;
+
+  const content = await readArtifact(definition.expectedOutput);
+  const verdict = content === undefined ? undefined : readDesignReviewVerdict(content);
+  if (verdict === 'PASS') return;
+  if (verdict === 'FAIL') {
+    return `Step ${DESIGN_REVIEW_STEP_ID} recorded a FAIL verdict: ${definition.expectedOutput}`;
+  }
+
+  return `Step ${DESIGN_REVIEW_STEP_ID} has no readable verdict (expected strict frontmatter with type: design-review and verdict: PASS or FAIL): ${definition.expectedOutput}`;
+}
+
 async function completeStepResult(
   definition: StepDefinition,
   input: FlowCompleteInput
@@ -1099,6 +1175,9 @@ async function completeStepResult(
 
     const decisionError = await validateProblemValidationFlowDecision(definition);
     if (decisionError) return decisionError;
+
+    const designReviewError = await validateDesignReviewVerdict(definition);
+    if (designReviewError) return designReviewError;
 
     const verdictError = await validateValidationVerdict(definition);
     if (verdictError) return verdictError;

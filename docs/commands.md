@@ -254,13 +254,15 @@ Different AI tools surface slash commands slightly differently. The intent is th
 |-------|---------|---------|
 | `spok-flow` | `/spok-apply` | Drives research → design → plan → implement → review → commit for a single ticket |
 | `spok-create-scoped-chunks` | `/spok-propose` | Slices a design into cross-layer chunks and writes `tasks.md` |
+| `spok-validate-problem` | `spok-flow` | Reproduces the bug or baselines the behavior before research |
 | `spok-create-research-questions` | `spok-flow` | Generates research questions from a ticket |
 | `spok-create-research` | `spok-flow` | Executes research against the codebase |
 | `spok-create-design-discussion` | `spok-flow` | Opens a design discussion for the chunk |
 | `spok-create-structure-outline` | `spok-flow` | Produces a structure outline before a plan |
+| `spok-review-design` | `spok-flow` | Reconciles the design discussion with the outline and records a PASS/FAIL verdict before planning |
 | `spok-create-plan` | `spok-flow` | Converts the outline into a detailed plan |
 | `spok-implement-plan` | `spok-flow` | Phased implementation of the plan |
-| `spok-code-review` | `spok-flow` | Reviews the diff |
+| `spok-simplify` | `spok-flow` | Simplifies the chunk implementation before validation |
 | `spok-validate-implementation` | `spok-flow` | Validates implementation against the plan |
 | `spok-repair` | `spok-flow` | Fixes the blocking findings from a failing validation so the flow can re-validate (at most two repair attempts) |
 | `spok-ci-commit` | `spok-flow` | Commits the chunk with a conventional message |
