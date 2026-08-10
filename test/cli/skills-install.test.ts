@@ -14,7 +14,7 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
-describe('spok skills install', () => {
+describe('global Spok skills CLI', () => {
   let testDir: string;
   let homeDir: string;
   let projectDir: string;
@@ -50,4 +50,60 @@ describe('spok skills install', () => {
     await expect(pathExists(path.join(homeDir, '.factory', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
   }, 30_000);
+
+  it('updates existing global skills without creating project state', async () => {
+    const installedSkill = path.join(homeDir, '.agents', 'skills', 'spok-explore', 'SKILL.md');
+    await fs.mkdir(path.dirname(installedSkill), { recursive: true });
+    await fs.writeFile(installedSkill, 'old skill');
+
+    const result = await runCLI(['update', '--global'], {
+      cwd: projectDir,
+      env: {
+        HOME: homeDir,
+        SPOK_TELEMETRY: '0',
+        USERPROFILE: homeDir,
+        XDG_CONFIG_HOME: path.join(testDir, 'xdg-config'),
+      },
+      timeoutMs: 20_000,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Global Spok Skills Updated');
+    await expect(fs.readFile(installedSkill, 'utf-8')).resolves.not.toBe('old skill');
+    await expect(pathExists(path.join(homeDir, '.agents', 'skills', 'spok-flow', 'SKILL.md'))).resolves.toBe(true);
+    await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
+  }, 30_000);
+
+  it('documents the global update flag and rejects a project path', async () => {
+    const helpResult = await runCLI(['update', '--help'], {
+      env: { SPOK_TELEMETRY: '0' },
+    });
+    expect(helpResult.exitCode).toBe(0);
+    expect(helpResult.stdout).toContain('--global');
+    expect(helpResult.stdout).toContain('Update globally installed Spok skills');
+
+    const updateResult = await runCLI(['update', projectDir, '--global'], {
+      env: {
+        HOME: homeDir,
+        SPOK_TELEMETRY: '0',
+        USERPROFILE: homeDir,
+      },
+    });
+    expect(updateResult.exitCode).not.toBe(0);
+    expect(`${updateResult.stdout}${updateResult.stderr}`).toContain(
+      'The [path] argument cannot be used with --global.'
+    );
+
+    const dotResult = await runCLI(['update', '.', '--global'], {
+      env: {
+        HOME: homeDir,
+        SPOK_TELEMETRY: '0',
+        USERPROFILE: homeDir,
+      },
+    });
+    expect(dotResult.exitCode).not.toBe(0);
+    expect(`${dotResult.stdout}${dotResult.stderr}`).toContain(
+      'The [path] argument cannot be used with --global.'
+    );
+  });
 });

@@ -50,16 +50,26 @@ MUST prompt the user.
    - \`planningHome.changesDir\` and \`changeRoot\` — use these instead of guessing paths.
    - \`actionContext.mode\` — if it is \`workspace-planning\` and \`allowedEditRoots\` is empty, explain that workspace apply is not supported here, treat linked repos as read-only context, and STOP before staging.
 
-   Before staging a hybrid run:
+   Before staging, verify every harness that will execute the flow steps can
+   discover the Spok helper closure:
    - Resolve the project root with \`git rev-parse --show-toplevel\`.
-   - Verify both harnesses can discover the Spok helper closure, using
-     \`spok-flow/SKILL.md\` as its installation marker:
+   - Each harness's installation markers:
      - Claude: \`<project-root>/.claude/skills/spok-flow/SKILL.md\` or
-       \`~/.claude/skills/spok-flow/SKILL.md\`.
+       \`~/.claude/skills/spok-flow/SKILL.md\`, and
+       \`<project-root>/.claude/skills/spok-review-design/SKILL.md\` or
+       \`~/.claude/skills/spok-review-design/SKILL.md\`.
      - Codex: \`<project-root>/.agents/skills/spok-flow/SKILL.md\` or
-       \`~/.agents/skills/spok-flow/SKILL.md\`.
-   - If either harness has no marker, tell the user to run
-     \`spok skills install --tools claude,codex\` and STOP before staging.
+       \`~/.agents/skills/spok-flow/SKILL.md\`, and
+       \`<project-root>/.agents/skills/spok-review-design/SKILL.md\` or
+       \`~/.agents/skills/spok-review-design/SKILL.md\`.
+   - Default execution (\`no arguments\` / \`<change>\`) uses the current tool for
+     every step — check only that harness's markers.
+   - Before staging a hybrid run (\`hybrid\` / \`hybrid <change>\`), both harnesses
+     execute steps — check both harnesses' markers.
+   - If the harness(es) that will execute the flow are missing any marker,
+     tell the user to run \`spok skills install --tools claude,codex\` (or just
+     \`--tools claude\` / \`--tools codex\` for a single-harness default run) and
+     STOP before staging.
 
 3. **Parse the chunked tasks.md**
 

@@ -11,8 +11,13 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { createRequire } from 'module';
 import { AI_TOOLS, type AIToolOption } from './config.js';
-import { getSkillTemplates, getToolsWithSkillsDir, generateSkillContent } from './shared/index.js';
-import { installVendoredSkills } from './skill-vendor.js';
+import {
+  getSkillTemplates,
+  getToolsWithSkillsDir,
+  generateSkillContent,
+  getToolVersionStatus,
+} from './shared/index.js';
+import { getVendoredSkillNames, installVendoredSkills } from './skill-vendor.js';
 import { FileSystemUtils } from '../utils/file-system.js';
 import { transformToHyphenCommands } from '../utils/command-references.js';
 import { isInteractive } from '../utils/interactive.js';
@@ -30,6 +35,8 @@ export interface GlobalSkillsInstallOptions {
   tools?: string;
   interactive?: boolean;
   homeDir?: string;
+  mode?: 'install' | 'update';
+  force?: boolean;
 }
 
 interface GlobalToolState {
@@ -87,6 +94,18 @@ function getGlobalToolStates(homeDir: string): Map<string, GlobalToolState> {
   return states;
 }
 
+function globalToolNeedsUpdate(homeDir: string, state: GlobalToolState): boolean {
+  const expectedSkillNames = new Set([
+    ...getSkillTemplates([...SPOK_WORKFLOWS]).map(({ dirName }) => dirName),
+    ...getVendoredSkillNames(),
+  ]);
+  const installedSkillNames = new Set(state.spokSkillNames);
+  const hasMissingSkill = [...expectedSkillNames].some((name) => !installedSkillNames.has(name));
+  const versionStatus = getToolVersionStatus(homeDir, state.tool.value, SPOK_VERSION);
+
+  return hasMissingSkill || versionStatus.needsUpdate;
+}
+
 async function writeGlobalToolSkills(
   homeDir: string,
   tool: Pick<ValidatedGlobalTool, 'value' | 'skillsDir'>
@@ -110,26 +129,60 @@ export class GlobalSkillsInstallCommand {
   private readonly toolsArg?: string;
   private readonly interactiveOption?: boolean;
   private readonly homeDir: string;
+  private readonly mode: 'install' | 'update';
+  private readonly force: boolean;
 
   constructor(options: GlobalSkillsInstallOptions = {}) {
     this.toolsArg = options.tools;
     this.interactiveOption = options.interactive;
     this.homeDir = path.resolve(options.homeDir ?? os.homedir());
+    this.mode = options.mode ?? 'install';
+    this.force = options.force ?? false;
   }
 
   async execute(): Promise<void> {
     await this.validateHome();
 
     const toolStates = getGlobalToolStates(this.homeDir);
-    const selectedToolIds = await this.getSelectedTools(toolStates);
+    const selectedToolIds = this.mode === 'update'
+      ? this.getConfiguredToolIds(toolStates)
+      : await this.getSelectedTools(toolStates);
+
+    if (this.mode === 'update' && selectedToolIds.length === 0) {
+      this.displayNoGlobalSkillsMessage();
+      return;
+    }
+
     const validatedTools = this.validateTools(selectedToolIds, toolStates);
+    const toolsToWrite = this.mode === 'update' && !this.force
+      ? validatedTools.filter((tool) => {
+        const state = toolStates.get(tool.value);
+        return state ? globalToolNeedsUpdate(this.homeDir, state) : false;
+      })
+      : validatedTools;
 
-    this.warnBeforeRefreshing(validatedTools);
+    if (this.mode === 'update' && toolsToWrite.length === 0) {
+      console.log(chalk.green('Global Spok skills are up to date.'));
+      return;
+    }
 
-    const results = await this.installTools(validatedTools);
+    this.warnBeforeRefreshing(toolsToWrite);
 
-    this.warnIfClaudeSubagentsMissing(validatedTools);
+    const results = await this.installTools(toolsToWrite);
+
+    this.warnIfClaudeSubagentsMissing(toolsToWrite);
     this.displaySuccessMessage(results);
+  }
+
+  private getConfiguredToolIds(toolStates: Map<string, GlobalToolState>): string[] {
+    return [...toolStates.entries()]
+      .filter(([, state]) => state.hasSpokSkills)
+      .map(([toolId]) => toolId);
+  }
+
+  private displayNoGlobalSkillsMessage(): void {
+    console.log(chalk.yellow('No globally installed Spok skills found.'));
+    console.log(chalk.dim('Run "spok skills install --tools <tools>" to set them up.'));
   }
 
   private async validateHome(): Promise<void> {
@@ -163,11 +216,7 @@ export class GlobalSkillsInstallCommand {
       throw new Error('No tools available for global skill installation.');
     }
 
-    const configuredToolIds = new Set(
-      [...toolStates.entries()]
-        .filter(([, status]) => status.hasSpokSkills)
-        .map(([toolId]) => toolId)
-    );
+    const configuredToolIds = new Set(this.getConfiguredToolIds(toolStates));
     const detectedToolIds = new Set(
       [...toolStates.entries()]
         .filter(([, status]) => status.hasToolDir)
@@ -282,12 +331,14 @@ export class GlobalSkillsInstallCommand {
     const failedTools: Array<{ name: string; error: Error }> = [];
 
     for (const tool of tools) {
-      const spinner = ora(`Installing global skills for ${tool.name}...`).start();
+      const action = this.mode === 'update' ? 'Updating' : 'Installing';
+      const completedAction = this.mode === 'update' ? 'Updated' : 'Installed';
+      const spinner = ora(`${action} global skills for ${tool.name}...`).start();
 
       try {
         await writeGlobalToolSkills(this.homeDir, tool);
 
-        spinner.succeed(`Installed global skills for ${tool.name}`);
+        spinner.succeed(`${completedAction} global skills for ${tool.name}`);
 
         if (tool.wasInstalled) {
           refreshedTools.push(tool);
@@ -315,7 +366,10 @@ export class GlobalSkillsInstallCommand {
 
   private displaySuccessMessage(results: GlobalInstallResult): void {
     console.log();
-    console.log(chalk.bold('Global Spok Skills Installed'));
+    const resultLabel = this.mode === 'update'
+      ? 'Global Spok Skills Updated'
+      : 'Global Spok Skills Installed';
+    console.log(chalk.bold(resultLabel));
     console.log();
 
     if (results.createdTools.length > 0) {

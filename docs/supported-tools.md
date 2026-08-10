@@ -11,7 +11,7 @@ Spok works with many AI coding assistants. `spok init` configures the tools you 
 For each selected tool, Spok installs:
 
 1. **User-facing skills**: `<tool-skills-dir>/skills/spok-explore/SKILL.md`, `spok-propose/SKILL.md`, `spok-apply/SKILL.md`, `spok-archive/SKILL.md`.
-2. **Vendored helper skills**: `<tool-skills-dir>/skills/spok-flow/`, `spok-create-scoped-chunks/`, `spok-create-research/`, `spok-create-research-questions/`, `spok-create-design-discussion/`, `spok-create-structure-outline/`, `spok-create-plan/`, `spok-implement-plan/`, `spok-code-review/`, `spok-validate-implementation/`, `spok-repair/`, `spok-ci-commit/`, `spok-self-learn/`.
+2. **Vendored helper skills**: `<tool-skills-dir>/skills/spok-flow/`, `spok-create-scoped-chunks/`, `spok-validate-problem/`, `spok-create-research-questions/`, `spok-create-research/`, `spok-create-design-discussion/`, `spok-create-structure-outline/`, `spok-review-design/`, `spok-create-plan/`, `spok-implement-plan/`, `spok-simplify/`, `spok-validate-implementation/`, `spok-repair/`, `spok-ci-commit/`, `spok-self-learn/`.
 
 You invoke `/spok-explore`, `/spok-propose`, `/spok-apply`, and `/spok-archive` directly in your AI tool. The implementation skills delegate to the vendored helpers internally.
 
@@ -67,6 +67,22 @@ spok init --tools none
 
 **Available tool IDs (`--tools`):** `amazon-q`, `antigravity`, `auggie`, `bob`, `claude`, `cline`, `codex`, `codebuddy`, `continue`, `costrict`, `crush`, `cursor`, `factory`, `gemini`, `github-copilot`, `iflow`, `junie`, `kilocode`, `kimi`, `kiro`, `opencode`, `pi`, `qoder`, `lingma`, `qwen`, `roocode`, `trae`, `windsurf`
 
+## Global Skills
+
+Install or refresh selected tools under your home directory with `spok skills install`:
+
+```bash
+spok skills install --tools claude,codex
+```
+
+After the initial installation, update every tool that already contains global Spok skills from any directory:
+
+```bash
+spok update --global
+```
+
+Global updates do not add tools and do not require a project `spok/` directory. Use `spok update --global --force` to rewrite every existing global installation even when its version and skill set are current.
+
 ## Installed Skills
 
 For every selected tool, Spok installs the same set of skill directories:
@@ -82,17 +98,21 @@ For every selected tool, Spok installs the same set of skill directories:
 
 - `spok-flow`
 - `spok-create-scoped-chunks`
+- `spok-validate-problem`
 - `spok-create-research-questions`
 - `spok-create-research`
 - `spok-create-design-discussion`
 - `spok-create-structure-outline`
+- `spok-review-design`
 - `spok-create-plan`
 - `spok-implement-plan`
-- `spok-code-review`
+- `spok-simplify`
 - `spok-validate-implementation`
+- `spok-repair`
 - `spok-ci-commit`
+- `spok-self-learn`
 
-The helper closure is refreshed every time you run `spok update` so each project always has a self-contained skill set.
+The helper closure is refreshed by project-local `spok update` and home-scoped `spok update --global`, keeping each installation self-contained.
 
 ## Related
 

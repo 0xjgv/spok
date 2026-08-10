@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { promises as fs, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -24,6 +24,8 @@ interface FlowHarness {
   completeProblemValidation(decision?: string): Promise<void>;
   completeFileStep(step: string, filename: string): Promise<void>;
   completeSummaryStep(step: string, summary: string): Promise<void>;
+  advanceToDesignReview(): Promise<void>;
+  completeDesignReview(content?: string): ReturnType<typeof completeFlowStep>;
   advanceToValidate(): Promise<void>;
   completeValidate(content: string): ReturnType<typeof completeFlowStep>;
   completeThroughValidation(): Promise<void>;
@@ -33,6 +35,8 @@ interface FlowHarness {
 const PASS_VALIDATION = '---\nverdict: PASS\n---\n\n# Validation\n';
 const FAIL_VALIDATION =
   '---\nverdict: FAIL\n---\n\n# Validation\n\n## Blocking Findings\n\n- something broke\n';
+const PASS_DESIGN_REVIEW = '---\ntype: design-review\nverdict: PASS\n---\n\n# Design Review\n';
+const FAIL_DESIGN_REVIEW = '---\ntype: design-review\nverdict: FAIL\n---\n\n# Design Review\n\n- revise the design\n';
 
 const EXPECTED_STEP_ROUTING = [
   { id: 'validate-problem', model: 'opus', effort: 'medium' },
@@ -40,6 +44,7 @@ const EXPECTED_STEP_ROUTING = [
   { id: 'research', model: 'sonnet', effort: 'medium' },
   { id: 'design-discussion', model: 'fable', effort: 'xhigh' },
   { id: 'structure-outline', model: 'fable', effort: 'xhigh' },
+  { id: 'design-review', model: 'opus', effort: 'medium' },
   { id: 'plan', model: 'fable', effort: 'xhigh' },
   { id: 'implement', model: 'opus', effort: 'medium' },
   { id: 'simplify', model: 'opus', effort: undefined },
@@ -58,6 +63,7 @@ const EXPECTED_HYBRID_STEP_ROUTING = [
   { id: 'research', runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
   { id: 'design-discussion', runner: 'claude', model: 'fable', effort: 'xhigh' },
   { id: 'structure-outline', runner: 'claude', model: 'fable', effort: 'xhigh' },
+  { id: 'design-review', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
   { id: 'plan', runner: 'claude', model: 'fable', effort: 'xhigh' },
   { id: 'implement', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
   { id: 'simplify', runner: 'claude', model: 'opus', effort: undefined },
@@ -159,12 +165,25 @@ function useFlowHarness(): FlowHarness {
     expect(result.state).not.toBe('blocked');
   }
 
-  async function advanceToValidate() {
+  async function advanceToDesignReview() {
     await completeProblemValidation();
     await completeFileStep('research-questions', 'research-questions.md');
     await completeFileStep('research', 'research.md');
     await completeFileStep('design-discussion', 'design-discussion.md');
     await completeFileStep('structure-outline', 'structure-outline.md');
+  }
+
+  async function completeDesignReview(content = PASS_DESIGN_REVIEW) {
+    await getFlowNext(taskDir);
+    const output = path.join(taskDir, 'design-review.md');
+    await fs.writeFile(output, content, 'utf-8');
+    return completeFlowStep(taskDir, { step: 'design-review', output });
+  }
+
+  async function advanceToValidate() {
+    await advanceToDesignReview();
+    const designReview = await completeDesignReview();
+    expect(designReview.state).not.toBe('blocked');
     await completeFileStep('plan', 'plan.md');
     await completeSummaryStep('implement', 'Implemented the plan.');
     await completeSummaryStep('simplify', 'Simplified the implementation.');
@@ -200,6 +219,8 @@ function useFlowHarness(): FlowHarness {
     completeProblemValidation,
     completeFileStep,
     completeSummaryStep,
+    advanceToDesignReview,
+    completeDesignReview,
     advanceToValidate,
     completeValidate,
     completeThroughValidation,
@@ -259,6 +280,7 @@ describe('deterministic workflow step state', () => {
       { id: 'research', runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
       { id: 'design-discussion', runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
       { id: 'structure-outline', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      { id: 'design-review', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
       { id: 'plan', runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
       { id: 'implement', runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
       { id: 'simplify', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
@@ -366,8 +388,210 @@ describe('deterministic workflow step state', () => {
   });
 });
 
+describe('design review gate', () => {
+  const flow = useFlowHarness();
+
+  it('runs after structure-outline with the task directory and advances to plan on PASS', async () => {
+    await flow.advanceToDesignReview();
+
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.step).toMatchObject({
+      id: 'design-review',
+      skill: 'spok-review-design',
+      runner: 'claude',
+      model: 'opus',
+      effort: 'medium',
+      argument: flow.taskDir,
+      expectedOutput: path.join(flow.taskDir, 'design-review.md'),
+      status: 'ready',
+    });
+
+    const result = await flow.completeDesignReview();
+    expect(result.state).toBe('ready');
+    expect(result.completedStep).toMatchObject({
+      id: 'design-review',
+      status: 'completed',
+    });
+    expect(result.nextStep?.id).toBe('plan');
+  });
+
+  it('accepts CRLF frontmatter and body content after the closing delimiter', async () => {
+    await flow.advanceToDesignReview();
+
+    const result = await flow.completeDesignReview(PASS_DESIGN_REVIEW.replaceAll('\n', '\r\n'));
+
+    expect(result.state).toBe('ready');
+    expect(result.nextStep?.id).toBe('plan');
+  });
+
+  it.each([
+    ['wrong type', '---\ntype: architecture-review\nverdict: PASS\n---\n'],
+    ['missing type', '---\nverdict: PASS\n---\n'],
+    ['missing verdict', '---\ntype: design-review\n---\n'],
+    ['unknown verdict', '---\ntype: design-review\nverdict: MAYBE\n---\n'],
+    ['reordered fields', '---\nverdict: PASS\ntype: design-review\n---\n'],
+    ['extra field', '---\ntype: design-review\nverdict: PASS\nreviewer: codex\n---\n'],
+    ['body fallback', '# Design Review\n\n## Verdict\n\nPASS\n'],
+    ['frontmatter after body content', '# Design Review\n\n---\ntype: design-review\nverdict: PASS\n---\n'],
+    ['type case deviation', '---\ntype: Design-Review\nverdict: PASS\n---\n'],
+    ['verdict case deviation', '---\ntype: design-review\nverdict: pass\n---\n'],
+    ['quoted type', '---\ntype: "design-review"\nverdict: PASS\n---\n'],
+    ['quoted verdict', "---\ntype: design-review\nverdict: 'PASS'\n---\n"],
+    ['extra field with FAIL verdict', '---\ntype: design-review\nverdict: FAIL\nreviewer: codex\n---\n'],
+    ['reordered fields with FAIL verdict', '---\nverdict: FAIL\ntype: design-review\n---\n'],
+    ['type case deviation with FAIL verdict', '---\ntype: Design-Review\nverdict: FAIL\n---\n'],
+    ['quoted verdict FAIL', "---\ntype: design-review\nverdict: 'FAIL'\n---\n"],
+  ])('rejects %s', async (_caseName, content) => {
+    await flow.advanceToDesignReview();
+
+    const result = await flow.completeDesignReview(content);
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('has no readable verdict');
+    expect(result.nextStep).toMatchObject({
+      id: 'design-review',
+      status: 'ready',
+    });
+  });
+
+  it('keeps a FAIL review ready without adding repair steps, then accepts a rewritten PASS', async () => {
+    await flow.advanceToDesignReview();
+
+    const failed = await flow.completeDesignReview(FAIL_DESIGN_REVIEW);
+    expect(failed.state).toBe('blocked');
+    expect(failed.reason).toContain('recorded a FAIL verdict');
+    expect(failed.completedStep).toBeUndefined();
+    expect(failed.nextStep).toMatchObject({
+      id: 'design-review',
+      status: 'ready',
+    });
+    expect(failed.steps.some((step) => step.id === 'repair')).toBe(false);
+    const state = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    expect(state.repairAttempts).toBe(0);
+
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      event: 'flow_complete',
+      state: 'blocked',
+      step: 'design-review',
+      code: 'design_review_verdict_fail',
+    });
+
+    const retried = await flow.completeDesignReview(PASS_DESIGN_REVIEW);
+    expect(retried.state).toBe('ready');
+    expect(retried.completedStep).toMatchObject({
+      id: 'design-review',
+      status: 'completed',
+    });
+    expect(retried.nextStep?.id).toBe('plan');
+  });
+
+  it('records design_review_verdict_unreadable for an unreadable review', async () => {
+    await flow.advanceToDesignReview();
+
+    const result = await flow.completeDesignReview('# Design Review\n');
+
+    expect(result.state).toBe('blocked');
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      event: 'flow_complete',
+      state: 'blocked',
+      step: 'design-review',
+      code: 'design_review_verdict_unreadable',
+    });
+  });
+});
+
 describe('deterministic workflow state resumption', () => {
   const flow = useFlowHarness();
+  const legacyStepOrder = [
+    'validate-problem',
+    'research-questions',
+    'research',
+    'design-discussion',
+    'structure-outline',
+    'plan',
+    'implement',
+    'simplify',
+    'validate',
+    'commit',
+  ];
+  const legacyFileByStep: Record<string, string> = {
+    'validate-problem': 'problem-validation.md',
+    'research-questions': 'research-questions.md',
+    research: 'research.md',
+    'design-discussion': 'design-discussion.md',
+    'structure-outline': 'structure-outline.md',
+    plan: 'plan.md',
+    validate: 'validation.md',
+  };
+
+  async function writeLegacyState(completedIds: string[], readyId?: string) {
+    const completed = new Set(completedIds);
+    const createdAt = '2026-01-01T00:00:00.000Z';
+
+    for (const id of completed) {
+      const filename = legacyFileByStep[id];
+      if (!filename) continue;
+      const content =
+        id === 'validate-problem'
+          ? '# Problem Validation\n\n## Flow Decision\n\nproceed\n'
+          : id === 'validate'
+          ? PASS_VALIDATION
+          : `# ${id}\n`;
+      await fs.writeFile(path.join(flow.taskDir, filename), content, 'utf-8');
+    }
+
+    const steps = legacyStepOrder.map((id) => {
+      const status = completed.has(id) ? 'completed' : id === readyId ? 'ready' : 'pending';
+      if (status !== 'completed') return { id, status };
+
+      const filename = legacyFileByStep[id];
+      if (filename) {
+        return {
+          id,
+          status,
+          result: {
+            output: path.join(flow.taskDir, filename),
+            completedAt: createdAt,
+          },
+        };
+      }
+      if (id === 'commit') {
+        return {
+          id,
+          status,
+          result: { commit: 'abc123', completedAt: createdAt },
+        };
+      }
+      return {
+        id,
+        status,
+        result: { summary: `Completed ${id}.`, completedAt: createdAt },
+      };
+    });
+
+    await fs.writeFile(
+      path.join(flow.taskDir, WORKFLOW_STATE_FILE),
+      `${JSON.stringify(
+        {
+          version: 2,
+          profile: 'claude',
+          taskDir: flow.taskDir,
+          status: 'ready',
+          steps,
+          repairAttempts: 0,
+          createdAt,
+          updatedAt: createdAt,
+        },
+        null,
+        2
+      )}\n`,
+      'utf-8'
+    );
+  }
 
   it('validates the expected output before advancing to the next step', async () => {
     await flow.completeProblemValidation();
@@ -513,11 +737,67 @@ describe('deterministic workflow state resumption', () => {
     expect(result.state).toBe('ready');
     expect(result.step?.id).toBe('research');
     expect(result.steps.some((step) => step.id === 'repair')).toBe(false);
-    expectStepRouting(result.steps); // the linear ten-step graph, routing intact
+    expectStepRouting(result.steps); // the linear eleven-step graph, routing intact
 
     const normalizedState = JSON.parse(await fs.readFile(statePath, 'utf-8'));
     expect(normalizedState.repairAttempts).toBe(0);
     expectStepRouting(normalizedState.steps);
+  });
+
+  it('runs design-review for a plan-ready legacy state that has not completed plan', async () => {
+    const completedBeforeReview = legacyStepOrder.slice(0, legacyStepOrder.indexOf('plan'));
+    await writeLegacyState(completedBeforeReview, 'plan');
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.step).toMatchObject({
+      id: 'design-review',
+      skill: 'spok-review-design',
+      argument: flow.taskDir,
+      expectedOutput: path.join(flow.taskDir, 'design-review.md'),
+      status: 'ready',
+    });
+    const state = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
+    expect(state.version).toBe(2);
+    expect(state.steps.find((step: { id: string }) => step.id === 'plan').status).toBe('pending');
+  });
+
+  it('inserts a synthetic completed review when a legacy state completed plan', async () => {
+    const completedThroughPlan = legacyStepOrder.slice(0, legacyStepOrder.indexOf('plan') + 1);
+    await writeLegacyState(completedThroughPlan, 'implement');
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.step?.id).toBe('implement');
+    const review = result.steps.find((step) => step.id === 'design-review');
+    expect(review).toMatchObject({ id: 'design-review', status: 'completed' });
+    expect(review?.result?.completedAt).toEqual(expect.any(String));
+    expect(review?.result?.output).toBeUndefined();
+
+    const state = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
+    expect(state.version).toBe(2);
+  });
+
+  it('preserves later legacy progress when plan itself is not recorded complete', async () => {
+    const completedBeforeReview = legacyStepOrder.slice(0, legacyStepOrder.indexOf('plan'));
+
+    for (const laterStep of ['implement', 'simplify', 'validate', 'commit']) {
+      await writeLegacyState([...completedBeforeReview, laterStep], 'plan');
+
+      const result = await getFlowStatus(flow.taskDir);
+      expect(result.state).toBe('ready');
+      expect(result.nextStep?.id).toBe('plan');
+      expect(result.steps.find((step) => step.id === 'design-review')).toMatchObject({
+        status: 'completed',
+        result: { completedAt: expect.any(String) },
+      });
+      expect(result.steps.find((step) => step.id === laterStep)?.status).toBe('completed');
+
+      const state = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
+      expect(state.version).toBe(2);
+    }
   });
 });
 
@@ -783,7 +1063,7 @@ describe('bounded repair cycle', () => {
     expect(state.repairAttempts).toBe(1);
     expect(state.steps.map((step: { id: string }) => step.id)).toEqual([
       'validate-problem', 'research-questions', 'research', 'design-discussion',
-      'structure-outline', 'plan', 'implement', 'simplify',
+      'structure-outline', 'design-review', 'plan', 'implement', 'simplify',
       'validate', 'repair', 'validate', 'commit',
     ]);
 
@@ -957,6 +1237,47 @@ describe('repair attempt exhaustion', () => {
 describe('completed artifact revalidation', () => {
   const flow = useFlowHarness();
 
+  it.each(['status', 'next', 'plan completion'])('revalidates a completed design review on %s', async (operation) => {
+    await flow.advanceToDesignReview();
+    const completed = await flow.completeDesignReview();
+    expect(completed.state).toBe('ready');
+    await fs.writeFile(path.join(flow.taskDir, 'design-review.md'), FAIL_DESIGN_REVIEW, 'utf-8');
+
+    const result =
+      operation === 'status'
+        ? await getFlowStatus(flow.taskDir)
+        : operation === 'next'
+        ? await getFlowNext(flow.taskDir)
+        : await completeFlowStep(flow.taskDir, {
+            step: 'plan',
+            output: path.join(flow.taskDir, 'plan.md'),
+          });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('recorded a FAIL verdict');
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      code: 'design_review_verdict_fail',
+    });
+  });
+
+  it('re-blocks a completed design review whose verdict becomes unreadable', async () => {
+    await flow.advanceToDesignReview();
+    const completed = await flow.completeDesignReview();
+    expect(completed.state).toBe('ready');
+    await fs.writeFile(path.join(flow.taskDir, 'design-review.md'), '# Design Review\n', 'utf-8');
+
+    const result = await getFlowStatus(flow.taskDir);
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('has no readable verdict');
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      event: 'flow_status',
+      code: 'design_review_verdict_unreadable',
+    });
+  });
+
   it('re-blocks a completed validate step whose verdict is edited to FAIL', async () => {
     await flow.completeThroughValidation();
     await fs.writeFile(
@@ -1069,6 +1390,8 @@ describe('flow step prompt composition', () => {
     await flow.completeFileStep('research', 'research.md');
     await flow.completeFileStep('design-discussion', 'design-discussion.md');
     await flow.completeFileStep('structure-outline', 'structure-outline.md');
+    const designReview = await flow.completeDesignReview();
+    expect(designReview.state).not.toBe('blocked');
     await flow.completeFileStep('plan', 'plan.md');
 
     const result = await getFlowNext(flow.taskDir);
@@ -1184,13 +1507,16 @@ describe('flow command output', () => {
 
 interface WorkRootRepo {
   readonly path: string;
+  readonly aliasPath: string;
   readonly headSha: string;
   /** A real commit object in the repository that HEAD cannot reach. */
   readonly unreachableSha: string;
 }
 
 function useWorkRootRepo(): WorkRootRepo {
+  let rootPath: string;
   let repoPath: string;
+  let aliasPath: string;
   let headSha: string;
   let unreachableSha: string;
 
@@ -1199,7 +1525,9 @@ function useWorkRootRepo(): WorkRootRepo {
   }
 
   beforeEach(async () => {
-    repoPath = path.join(os.tmpdir(), `spok-work-root-${randomUUID()}`);
+    rootPath = path.join(os.tmpdir(), `spok-work-root-${randomUUID()}`);
+    repoPath = path.join(rootPath, 'repo');
+    aliasPath = path.join(rootPath, 'alias');
     await fs.mkdir(repoPath, { recursive: true });
     execFileSync('git', ['init', '-b', 'main', repoPath], { encoding: 'utf-8' });
     git(['config', 'user.email', 'flow@example.com']);
@@ -1214,15 +1542,19 @@ function useWorkRootRepo(): WorkRootRepo {
     git(['commit', '--no-gpg-sign', '-m', 'second']);
     unreachableSha = git(['rev-parse', 'HEAD']);
     git(['reset', '--hard', headSha]);
+    await fs.symlink(repoPath, aliasPath, process.platform === 'win32' ? 'junction' : 'dir');
   });
 
   afterEach(async () => {
-    await fs.rm(repoPath, { recursive: true, force: true });
+    await fs.rm(rootPath, { recursive: true, force: true });
   });
 
   return {
     get path() {
       return repoPath;
+    },
+    get aliasPath() {
+      return aliasPath;
     },
     get headSha() {
       return headSha;
@@ -1234,11 +1566,9 @@ function useWorkRootRepo(): WorkRootRepo {
 }
 
 async function advanceToImplement(flow: FlowHarness): Promise<void> {
-  await flow.completeProblemValidation();
-  await flow.completeFileStep('research-questions', 'research-questions.md');
-  await flow.completeFileStep('research', 'research.md');
-  await flow.completeFileStep('design-discussion', 'design-discussion.md');
-  await flow.completeFileStep('structure-outline', 'structure-outline.md');
+  await flow.advanceToDesignReview();
+  const designReview = await flow.completeDesignReview();
+  expect(designReview.state).not.toBe('blocked');
   await flow.completeFileStep('plan', 'plan.md');
   await getFlowNext(flow.taskDir);
 }
@@ -1266,6 +1596,9 @@ describe('work root attribution', () => {
 
     expect(atImplement.nextStep?.id).toBe('implement');
     expect(atImplement.nextStep?.prompt).toContain('`Work root: <absolute path>`');
+    expect(atImplement.nextStep?.prompt).toContain(
+      '`git -C <directory containing an edited file> rev-parse --show-toplevel`'
+    );
   });
 
   it('persists the implement work root in workflow state', async () => {
@@ -1279,6 +1612,17 @@ describe('work root attribution', () => {
 
     // Reloading state must not drop it: the commit prompt is built from it.
     expect((await getFlowStatus(flow.taskDir)).workRoot).toBe(repo.path);
+  });
+
+  it('preserves an aliased work-root spelling while verifying its repository identity', async () => {
+    await advanceToCommit(flow, repo.aliasPath);
+
+    const recordedRoot = (await getFlowStatus(flow.taskDir)).workRoot;
+    expect(recordedRoot).toBe(repo.aliasPath);
+    expect(realpathSync.native(recordedRoot!)).toBe(realpathSync.native(repo.path));
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: repo.headSha });
+    expect(result.state).toBe('complete');
   });
 
   it('names the work root in the commit step prompt', async () => {
@@ -1327,6 +1671,15 @@ describe('commit SHA verification', () => {
       commit: repo.headSha,
       workRoot: repo.path,
     });
+  });
+
+  it('resolves a revision expression before recording the commit', async () => {
+    await advanceToCommit(flow, repo.path);
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: 'HEAD' });
+
+    expect(result.state).toBe('complete');
+    expect(result.completedStep?.result?.commit).toBe(repo.headSha);
   });
 
   it('blocks a SHA that names no commit object in the recorded work root', async () => {

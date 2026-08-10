@@ -12,7 +12,7 @@ For slash commands, see [Commands](commands.md). For workflow patterns, see [Wor
 
 | Surface | Verbs | Purpose |
 |---------|-------|---------|
-| **User-facing** | `version`, `init`, `doctor`, `update`, `archive`, `list` | Inspect, setup, diagnose, refresh, finalize, browse |
+| **User-facing** | `version`, `init`, `doctor`, `update`, `skills install`, `archive`, `list` | Inspect, setup, diagnose, refresh, finalize, browse |
 | **Agent discovery** | `capabilities` | Machine-readable CLI manifest for agents and scripts |
 | **Internal plumbing** | `new`, `status`, `instructions` | Called by skills; safe to inspect, not meant for daily human use |
 
@@ -100,7 +100,7 @@ See [Supported Tools](supported-tools.md) for each tool's exact skills path.
 
 ### `spok update`
 
-Re-install the four user-facing skills and refresh the vendored helper skill closure. Run this after upgrading the `spok` package, or whenever you want to re-sync a project's skills with the installed CLI version.
+Re-install the four user-facing skills and refresh the vendored helper skill closure. By default, this updates project-local skills. Use `--global` to update existing home-scoped installations instead. Run this after upgrading the `spok` package or whenever you want to re-sync skills with the installed CLI version.
 
 ```
 spok update [path] [options]
@@ -110,13 +110,14 @@ spok update [path] [options]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `path` | No | Target directory (default: current directory) |
+| `path` | No | Target directory (default: current directory). Cannot be combined with `--global`. |
 
 **Options:**
 
 | Option | Description |
 |--------|-------------|
 | `--force` | Force update even when files are up to date |
+| `--global` | Update globally installed Spok skills instead of project-local skills |
 
 **Examples:**
 
@@ -127,9 +128,17 @@ spok update
 
 # Force a clean rewrite
 spok update --force
+
+# Refresh every existing global Spok installation
+spok update --global
+
+# Force a clean rewrite of every existing global installation
+spok update --global --force
 ```
 
-`spok update` overwrites managed skill files but never touches `spok/specs/`, `spok/changes/`, or your project config (`spok/config.toml`, with `config.yaml`/`config.yml` still accepted for existing projects).
+`spok update --global` works from any directory and does not require a `spok/` project. It refreshes only tools that already contain global `spok-*` skills; use `spok skills install --tools <tools>` to add a new global tool installation.
+
+Both update modes overwrite managed skill files. Project-local updates never touch `spok/specs/`, `spok/changes/`, or your project config (`spok/config.toml`, with `config.yaml`/`config.yml` still accepted for existing projects).
 
 ---
 

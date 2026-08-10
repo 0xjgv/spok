@@ -101,7 +101,7 @@ describe('spok-ci-commit grounding rules', () => {
       const body = await readSkill('spok-ci-commit');
 
       expect(body).toContain('Never treat a gitignored path as committable');
-      expect(body).toContain('`git check-ignore`');
+      expect(body).toContain('`git -C <work-root> check-ignore`');
     });
 
     it('scopes every git command to the given work root', async () => {
