@@ -49,6 +49,11 @@ const HAND_MAINTAINED_SKILLS = new Set([
   'create-plan',
   'implement-plan',
   'validate-implementation',
+  // Deliberately diverges from the in-session ~/.claude/skills/ci-commit: the
+  // flow commit step runs as a fresh subagent with no conversation history, so
+  // this fork derives its file list from the task artifacts and a given work
+  // root instead of from the session.
+  'ci-commit',
 ]);
 
 function parseArgs(argv) {

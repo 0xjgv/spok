@@ -1,6 +1,11 @@
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { existsSync, promises as fs, readFileSync } from 'node:fs';
+import { promisify } from 'node:util';
 import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
+import { FileSystemUtils } from '../../utils/file-system.js';
+
+const execFileAsync = promisify(execFile);
 
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 export const FLOW_EVENT_LOG_FILE = 'flow-events.jsonl';
@@ -121,6 +126,8 @@ export interface FlowStepResult {
   summary?: string;
   output?: string;
   commit?: string;
+  /** Absolute path of the repository the step edited; recorded so the commit step never rediscovers it. */
+  workRoot?: string;
 }
 
 export interface FlowStep {
@@ -164,6 +171,8 @@ export interface FlowResponse {
   memoryRuleCount?: number;
   memoryRuleTotal?: number;
   memoryWarning?: string;
+  workRoot?: string;
+  workRootWarning?: string;
 }
 
 export interface FlowCompleteInput {
@@ -171,6 +180,7 @@ export interface FlowCompleteInput {
   output?: string;
   summary?: string;
   commit?: string;
+  workRoot?: string;
 }
 
 export interface FlowCommandOptions {
@@ -433,12 +443,41 @@ function buildMemoryWarning(memory: MemoryRead | undefined): string | undefined 
 const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
   implement:
     'You are running inside spok-flow. Implement and verify the plan, return a ' +
-    'summary of what you did, and do NOT create any commits — the commit step owns that.',
+    'summary of what you did, and do NOT create any commits — the commit step owns that. ' +
+    'End your reply with a final line reading `Work root: <absolute path>`, naming the ' +
+    'absolute path of the repository working tree you edited (the git worktree root that ' +
+    'holds the changed files, which may differ from the task directory). Report the path ' +
+    '`git -C <directory containing an edited file> rev-parse --show-toplevel` prints, not a guess.',
   [SELF_LEARN_STEP_ID]: 'This gate is advisory. Do not fail, amend, or rewrite the commit.',
 };
 
+/**
+ * The commit step runs as a fresh subagent with no session history, so the
+ * repository it must commit in is stated outright rather than rediscovered.
+ */
+function workRootClause(workRoot: string): string {
+  return (
+    `The changes to commit are in \`${workRoot}\`. Run every git command with ` +
+    `\`-C ${workRoot}\`. If that repository has no changes, stop and report — do not ` +
+    'search other directories, and never commit from a repository you were not given.'
+  );
+}
+
+function editingWorkRootClause(workRoot: string): string {
+  return (
+    `The implementation repository is \`${workRoot}\`, which may differ from the task directory. ` +
+    'Read and edit source files there, and run verification commands from that directory. ' +
+    `Run every git command with \`-C ${workRoot}\`. Do not edit source files in the task ` +
+    'directory unless it is the same repository.'
+  );
+}
+
 /** The whole subagent prompt. The driver dispatches it verbatim and assembles nothing. */
-function buildStepPrompt(definition: StepDefinition, rules: string[]): string {
+function buildStepPrompt(
+  definition: StepDefinition,
+  rules: string[],
+  workRoot?: string
+): string {
   const sections: string[] = [];
 
   if (rules.length > 0) {
@@ -461,6 +500,13 @@ function buildStepPrompt(definition: StepDefinition, rules: string[]): string {
 
   const clause = STEP_PROMPT_CLAUSES[definition.id];
   if (clause) sections.push(clause);
+
+  if (workRoot) {
+    if (definition.completionKind === 'commit') sections.push(workRootClause(workRoot));
+    if (definition.id === 'simplify' || definition.id === REPAIR_STEP_ID) {
+      sections.push(editingWorkRootClause(workRoot));
+    }
+  }
 
   return sections.join('\n\n');
 }
@@ -798,6 +844,11 @@ function flowBlockCode(reason: string): string {
   if (reason.includes('has no readable verdict')) return 'validation_verdict_unreadable';
   if (reason.includes('must provide a non-empty --summary')) return 'missing_summary';
   if (reason.includes('must provide a commit SHA')) return 'missing_commit';
+  if (reason.includes('must provide an absolute --work-root')) return 'invalid_work_root';
+  if (reason.startsWith('Work root directory does not exist')) return 'missing_work_root';
+  if (reason.includes('conflicts with recorded work root')) return 'work_root_conflict';
+  if (reason.includes('is not a commit object in')) return 'commit_not_found';
+  if (reason.includes('is not reachable from HEAD in')) return 'commit_not_reachable';
   return 'blocked';
 }
 
@@ -923,14 +974,34 @@ function withStepPrompt(
   step: FlowStep | undefined,
   rules: string[],
   repairAttempts: number,
-  profile: FlowProfile
+  profile: FlowProfile,
+  workRoot?: string
 ): FlowStep | undefined {
   if (!step) return step;
 
   const definition = getDefinitionById(taskDir, step.id, repairAttempts, profile);
   if (!definition) return step;
 
-  return { ...step, prompt: buildStepPrompt(definition, rules) };
+  return { ...step, prompt: buildStepPrompt(definition, rules, workRoot) };
+}
+
+/** The most recently recorded work root: repair can move the work after implement. */
+function recordedWorkRoot(state: WorkflowState): string | undefined {
+  let workRoot: string | undefined;
+  for (const step of state.steps) {
+    if (step.status === 'completed' && step.result?.workRoot) workRoot = step.result.workRoot;
+  }
+  return workRoot;
+}
+
+/**
+ * Warns only where the gap bites: a state file written before work roots
+ * existed still reaches commit, it just reaches it unsteered.
+ */
+function buildWorkRootWarning(state: WorkflowState, workRoot: string | undefined): string | undefined {
+  if (workRoot || getCurrentStep(state)?.id !== 'commit') return;
+
+  return 'No work root was recorded by an earlier step; the commit agent must discover the repository itself.';
 }
 
 function buildResponse(
@@ -938,12 +1009,14 @@ function buildResponse(
   extra: Pick<FlowResponse, 'step' | 'completedStep' | 'reason'> = {}
 ): FlowResponse {
   const memory = readMemory(state.taskDir);
+  const workRoot = recordedWorkRoot(state);
   const nextStep = withStepPrompt(
     state.taskDir,
     getCurrentStep(state),
     memory?.rules ?? [],
     state.repairAttempts,
-    state.profile
+    state.profile,
+    workRoot
   );
   return {
     state: state.status,
@@ -959,6 +1032,8 @@ function buildResponse(
     memoryRuleCount: memory?.rules.length,
     memoryRuleTotal: memory && memory.rules.length + memory.ignoredOverCap,
     memoryWarning: buildMemoryWarning(memory),
+    workRoot,
+    workRootWarning: buildWorkRootWarning(state, workRoot),
   };
 }
 
@@ -1146,6 +1221,95 @@ async function validateValidationVerdict(definition: StepDefinition): Promise<st
   return `Step ${VALIDATE_STEP_ID} has no readable verdict (expected PASS or FAIL): ${definition.expectedOutput}`;
 }
 
+/** Stdout of a git invocation, or undefined when git is missing or exits nonzero. */
+async function runGit(workRoot: string, args: string[]): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', workRoot, ...args]);
+    return stdout;
+  } catch {
+    return;
+  }
+}
+
+/**
+ * A recorded work root is only useful if it names a real directory now: an
+ * absent one means the flow resumed somewhere the work no longer exists.
+ */
+async function validateWorkRoot(
+  definition: StepDefinition,
+  workRoot: string
+): Promise<string | undefined> {
+  if (!path.isAbsolute(workRoot)) {
+    return `Step ${definition.id} must provide an absolute --work-root path, got ${workRoot}.`;
+  }
+  if (!(await pathIsDirectory(workRoot))) {
+    return `Work root directory does not exist for step ${definition.id}: ${workRoot}`;
+  }
+}
+
+/** Resolve a revision expression to the stable commit object ID that HEAD can reach. */
+async function resolveCommitSha(
+  workRoot: string,
+  commit: string
+): Promise<{ commit: string } | { error: string }> {
+  const resolved = (
+    await runGit(workRoot, ['rev-parse', '--verify', '--end-of-options', `${commit}^{commit}`])
+  )?.trim();
+  if (!resolved) return { error: `Commit ${commit} is not a commit object in ${workRoot}.` };
+
+  if ((await runGit(workRoot, ['merge-base', '--is-ancestor', resolved, 'HEAD'])) === undefined) {
+    return { error: `Commit ${commit} is not reachable from HEAD in ${workRoot}.` };
+  }
+
+  return { commit: resolved };
+}
+
+async function completeCommitResult(
+  definition: StepDefinition,
+  input: FlowCompleteInput,
+  recordedRoot: string | undefined
+): Promise<FlowStepResult | string> {
+  const commit = input.commit?.trim();
+  if (!commit) {
+    return `Step ${definition.id} must provide a commit SHA with --commit.`;
+  }
+
+  if (recordedRoot) {
+    const workRootError = await validateWorkRoot(definition, recordedRoot);
+    if (workRootError) return workRootError;
+  }
+
+  const suppliedRoot = input.workRoot?.trim();
+  if (suppliedRoot !== undefined) {
+    const workRootError = await validateWorkRoot(definition, suppliedRoot);
+    if (workRootError) return workRootError;
+  }
+
+  if (
+    recordedRoot &&
+    suppliedRoot &&
+    FileSystemUtils.canonicalizeExistingPath(recordedRoot) !==
+      FileSystemUtils.canonicalizeExistingPath(suppliedRoot)
+  ) {
+    return `Step ${definition.id} --work-root ${suppliedRoot} conflicts with recorded work root ${recordedRoot}.`;
+  }
+
+  const workRoot = recordedRoot ?? suppliedRoot;
+  let resolvedCommit = commit;
+  if (workRoot) {
+    const resolution = await resolveCommitSha(workRoot, commit);
+    if ('error' in resolution) return resolution.error;
+    resolvedCommit = resolution.commit;
+  }
+
+  return {
+    commit: resolvedCommit,
+    summary: input.summary?.trim() || undefined,
+    workRoot,
+    completedAt: nowIso(),
+  };
+}
+
 async function validateDesignReviewVerdict(
   definition: StepDefinition
 ): Promise<string | undefined> {
@@ -1163,7 +1327,8 @@ async function validateDesignReviewVerdict(
 
 async function completeStepResult(
   definition: StepDefinition,
-  input: FlowCompleteInput
+  input: FlowCompleteInput,
+  recordedRoot?: string
 ): Promise<FlowStepResult | string> {
   if (definition.completionKind === 'file') {
     const validationError = validateFileCompletion(definition, input);
@@ -1194,22 +1359,22 @@ async function completeStepResult(
       return `Step ${definition.id} must provide a non-empty --summary.`;
     }
 
+    // Omitting --work-root degrades to the pre-work-root behavior; a supplied
+    // one is checked here so the commit step never inherits an unusable path.
+    const workRoot = input.workRoot?.trim();
+    if (workRoot !== undefined) {
+      const workRootError = await validateWorkRoot(definition, workRoot);
+      if (workRootError) return workRootError;
+    }
+
     return {
       summary,
+      workRoot,
       completedAt: nowIso(),
     };
   }
 
-  const commit = input.commit?.trim();
-  if (!commit) {
-    return `Step ${definition.id} must provide a commit SHA with --commit.`;
-  }
-
-  return {
-    commit,
-    summary: input.summary?.trim() || undefined,
-    completedAt: nowIso(),
-  };
+  return completeCommitResult(definition, input, recordedRoot);
 }
 
 function repairAttemptsExhaustedReason(expectedOutput: string): string {
@@ -1396,7 +1561,7 @@ export async function completeFlowStep(
     return response;
   }
 
-  const result = await completeStepResult(definition, input);
+  const result = await completeStepResult(definition, input, recordedWorkRoot(loaded.state));
   if (typeof result === 'string') {
     // Only the validate step can produce this code, so expectedOutput is set.
     const isValidationFail =
@@ -1500,5 +1665,11 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
   }
   if (response.memoryWarning) {
     console.log(`Memory warning: ${response.memoryWarning}`);
+  }
+  if (response.workRoot) {
+    console.log(`Work root: ${response.workRoot}`);
+  }
+  if (response.workRootWarning) {
+    console.log(`Work root warning: ${response.workRootWarning}`);
   }
 }
