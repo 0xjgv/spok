@@ -1,0 +1,53 @@
+{
+  "$schema": "https://raw.githubusercontent.com/sverweij/dependency-cruiser/main/src/schema/configuration.schema.json",
+  "forbidden": [
+    {
+      "name": "no-circular",
+      "severity": "error",
+      "comment": "Circular dependencies make module initialization order and change impact unpredictable.",
+      "from": {},
+      "to": { "circular": true }
+    },
+    {
+      "name": "no-unresolved",
+      "severity": "error",
+      "comment": "All imports must resolve through the repository's TypeScript configuration.",
+      "from": {},
+      "to": { "couldNotResolve": true }
+    },
+    {
+      "name": "core-does-not-depend-on-delivery",
+      "severity": "error",
+      "comment": "Core modules must remain independent from CLI and command delivery layers.",
+      "from": { "path": "^src/core/" },
+      "to": { "path": "^src/(?:cli|commands)/" }
+    },
+    {
+      "name": "commands-do-not-depend-on-cli",
+      "severity": "error",
+      "comment": "Commands may use core services, but must not depend on the CLI composition root.",
+      "from": { "path": "^src/commands/" },
+      "to": { "path": "^src/cli/" }
+    },
+    {
+      "name": "utilities-do-not-depend-on-delivery",
+      "severity": "error",
+      "comment": "Shared utilities must not depend on CLI or command delivery modules.",
+      "from": { "path": "^src/utils/" },
+      "to": { "path": "^src/(?:cli|commands)/" }
+    }
+  ],
+  "options": {
+    "doNotFollow": { "path": "node_modules" },
+    "exclude": "(^|/)(?:node_modules|dist)/",
+    "tsPreCompilationDeps": true,
+    "tsConfig": { "fileName": "tsconfig.json" },
+    "enhancedResolveOptions": {
+      "exportsFields": ["exports"],
+      "conditionNames": ["import", "node", "default"]
+    },
+    "reporterOptions": {
+      "dot": { "collapsePattern": "node_modules/[^/]+" }
+    }
+  }
+}
