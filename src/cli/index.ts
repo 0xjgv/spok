@@ -363,9 +363,9 @@ program
 
 program
   .command('update [path]')
-  .description('Update project-local or globally installed Spok skills')
+  .description('Update project-local Spok skills or globally installed Spok skills and native agents')
   .option('--force', 'Force update even when tools are up to date')
-  .option('--global', 'Update globally installed Spok skills')
+  .option('--global', 'Update globally installed Spok skills and native agents')
   .action(async (targetPath?: string, options?: { force?: boolean; global?: boolean }) => {
     try {
       if (options?.global) {
@@ -394,11 +394,12 @@ program
 
 const skillsCmd = program
   .command('skills')
-  .description('Manage Spok skills')
+  .description('Manage global Spok skills and native agents')
   .helpCommand(false)
   .addHelpText('after', `
 Examples:
   spok skills install --tools claude,codex,factory
+  spok skills install --tools claude,codex --force
   spok skills install --tools all
   spok skills install --tools none
 
@@ -409,13 +410,15 @@ Help:
 
 const skillsInstallCmd = skillsCmd
   .command('install')
-  .description('Install Spok skills into global home-scoped tool directories')
+  .description('Install global Spok skills and native agents into home-scoped tool directories')
   .option('--tools <tools>', toolsOptionDescription)
-  .action(async (options?: { tools?: string }) => {
+  .option('--force', 'Adopt exact unmarked Spok agent catalog files')
+  .action(async (options?: { tools?: string; force?: boolean }) => {
     try {
       const { GlobalSkillsInstallCommand } = await import('../core/skills-install.js');
       const installCommand = new GlobalSkillsInstallCommand({
         tools: options?.tools,
+        force: options?.force,
       });
       await installCommand.execute();
     } catch (error) {

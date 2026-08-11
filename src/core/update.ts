@@ -31,7 +31,7 @@ import {
 import { isInteractive } from '../utils/interactive.js';
 import { getAvailableTools } from './available-tools.js';
 import { installVendoredSkills } from './skill-vendor.js';
-import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
+import { checkSubagentReadiness, formatSubagentWarning } from './subagent-check.js';
 
 const SPOK_WORKFLOWS = ['explore', 'propose', 'apply', 'archive'] as const;
 type SpokWorkflow = (typeof SPOK_WORKFLOWS)[number];
@@ -220,8 +220,9 @@ export class UpdateCommand {
 
     // 4. Find configured tools
     const configuredTools = getConfiguredTools(resolvedProjectPath);
+    const configuredAndNewTools = [...new Set([...configuredTools, ...newlyConfiguredTools])];
 
-    if (configuredTools.length === 0 && newlyConfiguredTools.length === 0) {
+    if (configuredAndNewTools.length === 0) {
       console.log(chalk.yellow('No configured tools found.'));
       console.log(chalk.dim('Run "spok init" to set up tools.'));
       return;
@@ -233,7 +234,8 @@ export class UpdateCommand {
     // 7. Nothing to do unless forced: report and bail out early
     if (!this.force && plan.toolsToUpdate.size === 0) {
       this.displayUpToDateMessage(plan.toolStatuses);
-      this.detectNewTools(resolvedProjectPath, configuredTools);
+      this.detectNewTools(resolvedProjectPath, configuredAndNewTools);
+      await this.warnMissingSubagents(configuredAndNewTools);
       return;
     }
 
@@ -253,8 +255,6 @@ export class UpdateCommand {
     // 12. Show onboarding message for newly configured tools from legacy upgrade
     this.displayOnboarding(newlyConfiguredTools);
 
-    const configuredAndNewTools = [...new Set([...configuredTools, ...newlyConfiguredTools])];
-
     // 13. Detect new tool directories not currently configured
     this.detectNewTools(resolvedProjectPath, configuredAndNewTools);
 
@@ -263,8 +263,8 @@ export class UpdateCommand {
       console.log(chalk.dim(`Tools: ${result.updatedTools.join(', ')}`));
     }
 
-    // 15. Warn if Claude is configured but referenced subagents are missing
-    this.warnMissingClaudeSubagents(configuredAndNewTools);
+    // 15. Warn if configured tools reference missing native subagents
+    await this.warnMissingSubagents(configuredAndNewTools);
 
     console.log();
     console.log(chalk.dim('Restart your IDE for changes to take effect.'));
@@ -367,13 +367,12 @@ export class UpdateCommand {
   }
 
   /**
-   * Warn if Claude is configured but custom subagents referenced by vendored
-   * skills aren't installed in ~/.claude/agents/.
+   * Warn if configured tools reference native subagents that aren't installed.
    */
-  private warnMissingClaudeSubagents(configuredTools: string[]): void {
-    if (!configuredTools.includes('claude')) return;
-
-    const subagentWarning = formatSubagentWarning(checkClaudeSubagents());
+  private async warnMissingSubagents(configuredTools: string[]): Promise<void> {
+    const subagentWarning = formatSubagentWarning(
+      await checkSubagentReadiness(configuredTools)
+    );
     if (subagentWarning) {
       console.log();
       console.log(chalk.yellow(subagentWarning));

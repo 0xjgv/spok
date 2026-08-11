@@ -22,7 +22,13 @@ import { FileSystemUtils } from '../utils/file-system.js';
 import { transformToHyphenCommands } from '../utils/command-references.js';
 import { isInteractive } from '../utils/interactive.js';
 import { parseToolsSelectionArg } from './tool-selection.js';
-import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
+import {
+  applyManagedAgentInstall,
+  getManagedAgentState,
+  isManagedAgentToolId,
+  prepareManagedAgentInstall,
+  type ManagedAgentInstallResult,
+} from './agent-vendor.js';
 
 const SPOK_WORKFLOWS = ['explore', 'propose', 'apply', 'archive'] as const;
 
@@ -43,6 +49,8 @@ interface GlobalToolState {
   tool: SkillTool;
   hasToolDir: boolean;
   hasSpokSkills: boolean;
+  hasManagedAgents: boolean;
+  managedAgentsNeedUpdate: boolean;
   spokSkillNames: string[];
 }
 
@@ -57,6 +65,7 @@ interface GlobalInstallResult {
   createdTools: ValidatedGlobalTool[];
   refreshedTools: ValidatedGlobalTool[];
   failedTools: Array<{ name: string; error: Error }>;
+  managedAgentInstalls: ManagedAgentInstallResult[];
 }
 
 function getSkillTools(): SkillTool[] {
@@ -75,18 +84,27 @@ function getSpokSkillNames(skillsRoot: string): string[] {
   }
 }
 
-function getGlobalToolStates(homeDir: string): Map<string, GlobalToolState> {
+async function getGlobalToolStates(homeDir: string): Promise<Map<string, GlobalToolState>> {
   const states = new Map<string, GlobalToolState>();
 
   for (const tool of getSkillTools()) {
     const toolRoot = path.join(homeDir, tool.skillsDir);
     const skillsRoot = path.join(toolRoot, 'skills');
     const spokSkillNames = getSpokSkillNames(skillsRoot);
+    const managedAgentState = isManagedAgentToolId(tool.value)
+      ? await getManagedAgentState({
+        homeDir,
+        toolId: tool.value,
+        version: SPOK_VERSION,
+      })
+      : undefined;
 
     states.set(tool.value, {
       tool,
       hasToolDir: fs.existsSync(toolRoot) && fs.statSync(toolRoot).isDirectory(),
       hasSpokSkills: spokSkillNames.length > 0,
+      hasManagedAgents: managedAgentState?.hasManagedAgents ?? false,
+      managedAgentsNeedUpdate: managedAgentState?.needsUpdate ?? false,
       spokSkillNames,
     });
   }
@@ -103,7 +121,7 @@ function globalToolNeedsUpdate(homeDir: string, state: GlobalToolState): boolean
   const hasMissingSkill = [...expectedSkillNames].some((name) => !installedSkillNames.has(name));
   const versionStatus = getToolVersionStatus(homeDir, state.tool.value, SPOK_VERSION);
 
-  return hasMissingSkill || versionStatus.needsUpdate;
+  return hasMissingSkill || versionStatus.needsUpdate || state.managedAgentsNeedUpdate;
 }
 
 async function writeGlobalToolSkills(
@@ -143,7 +161,7 @@ export class GlobalSkillsInstallCommand {
   async execute(): Promise<void> {
     await this.validateHome();
 
-    const toolStates = getGlobalToolStates(this.homeDir);
+    const toolStates = await getGlobalToolStates(this.homeDir);
     const selectedToolIds = this.mode === 'update'
       ? this.getConfiguredToolIds(toolStates)
       : await this.getSelectedTools(toolStates);
@@ -170,18 +188,17 @@ export class GlobalSkillsInstallCommand {
 
     const results = await this.installTools(toolsToWrite);
 
-    this.warnIfClaudeSubagentsMissing(toolsToWrite);
     this.displaySuccessMessage(results);
   }
 
   private getConfiguredToolIds(toolStates: Map<string, GlobalToolState>): string[] {
     return [...toolStates.entries()]
-      .filter(([, state]) => state.hasSpokSkills)
+      .filter(([, state]) => state.hasSpokSkills || state.hasManagedAgents)
       .map(([toolId]) => toolId);
   }
 
   private displayNoGlobalSkillsMessage(): void {
-    console.log(chalk.yellow('No globally installed Spok skills found.'));
+    console.log(chalk.yellow('No globally installed Spok skills or agents found.'));
     console.log(chalk.dim('Run "spok skills install --tools <tools>" to set them up.'));
   }
 
@@ -301,11 +318,12 @@ export class GlobalSkillsInstallCommand {
         );
       }
 
+      const state = toolStates.get(tool.value);
       validatedTools.push({
         value: tool.value,
         name: tool.name,
         skillsDir: tool.skillsDir,
-        wasInstalled: toolStates.get(tool.value)?.hasSpokSkills ?? false,
+        wasInstalled: Boolean(state?.hasSpokSkills || state?.hasManagedAgents),
       });
     }
 
@@ -322,13 +340,29 @@ export class GlobalSkillsInstallCommand {
         `Refreshing existing global Spok skills for: ${refreshedTools.map((tool) => tool.name).join(', ')}`
       )
     );
-    console.log(chalk.dim('Existing spok-* skill directories for selected tools will be overwritten.'));
+    console.log(chalk.dim(
+      'Existing spok-* skill directories and managed agent files will be refreshed.'
+    ));
   }
 
   private async installTools(tools: ValidatedGlobalTool[]): Promise<GlobalInstallResult> {
     const createdTools: ValidatedGlobalTool[] = [];
     const refreshedTools: ValidatedGlobalTool[] = [];
     const failedTools: Array<{ name: string; error: Error }> = [];
+    const managedToolIds = tools
+      .map((tool) => tool.value)
+      .filter(isManagedAgentToolId);
+    let managedAgentInstalls: ManagedAgentInstallResult[] = [];
+
+    if (managedToolIds.length > 0) {
+      const preparedAgentInstall = await prepareManagedAgentInstall({
+        homeDir: this.homeDir,
+        toolIds: managedToolIds,
+        version: SPOK_VERSION,
+        force: this.force,
+      });
+      managedAgentInstalls = await applyManagedAgentInstall(preparedAgentInstall);
+    }
 
     for (const tool of tools) {
       const action = this.mode === 'update' ? 'Updating' : 'Installing';
@@ -351,17 +385,7 @@ export class GlobalSkillsInstallCommand {
       }
     }
 
-    return { createdTools, refreshedTools, failedTools };
-  }
-
-  private warnIfClaudeSubagentsMissing(tools: ValidatedGlobalTool[]): void {
-    if (!tools.some((tool) => tool.value === 'claude')) return;
-
-    const warning = formatSubagentWarning(checkClaudeSubagents(this.homeDir));
-    if (warning) {
-      console.log();
-      console.log(chalk.yellow(warning));
-    }
+    return { createdTools, refreshedTools, failedTools, managedAgentInstalls };
   }
 
   private displaySuccessMessage(results: GlobalInstallResult): void {
@@ -388,6 +412,13 @@ export class GlobalSkillsInstallCommand {
       console.log(`${skillCount} skills plus vendored helpers in ${toolDirs}`);
     }
 
+    for (const agentInstall of results.managedAgentInstalls) {
+      const targetDir = agentInstall.toolId === 'claude'
+        ? '~/.claude/agents'
+        : '~/.codex/agents';
+      console.log(`${agentInstall.expectedCount} Spok agents in ${targetDir}`);
+    }
+
     if (successfulTools.length === 0 && results.failedTools.length === 0) {
       console.log(chalk.dim('No tools selected.'));
     }
@@ -400,9 +431,11 @@ export class GlobalSkillsInstallCommand {
       );
     }
 
-    if (successfulTools.length > 0) {
+    if (successfulTools.length > 0 || results.managedAgentInstalls.length > 0) {
       console.log();
-      console.log(chalk.white('Restart your IDE for skills to take effect.'));
+      console.log(chalk.white(
+        'Start a fresh tool session for new skills and agents to take effect.'
+      ));
     }
 
     console.log();

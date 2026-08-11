@@ -92,6 +92,15 @@ describe('spok-flow prompt dispatch contract', () => {
     expect(body).toContain('Do not call `spok flow complete`');
     expect(body).toContain('Do not use `--dangerously-bypass-approvals-and-sandbox`');
   });
+
+  it('uses host-neutral native delegation for the host-owned fallback agent', async () => {
+    const body = await readFlowSkill();
+
+    expect(body).toContain("the current host's native subagent mechanism");
+    expect(body).toContain('host-owned `general-purpose`');
+    expect(body).not.toContain('subagent_type');
+    expect(body).not.toContain('**Agent** tool');
+  });
 });
 
 describe('spok-implement-plan model inheritance contract', () => {
@@ -101,8 +110,37 @@ describe('spok-implement-plan model inheritance contract', () => {
       'utf-8',
     );
 
-    expect(body).toContain('Do not launch `implementer-agent` or another nested agent.');
+    expect(body).toContain('Do not launch `spok-implementer-agent` or any other nested agent.');
     expect(body).toContain('The outer flow step already selected the runner, model, and effort.');
+  });
+});
+
+describe('Spok-prefixed agent routing', () => {
+  const namedAgents = [
+    'codebase-locator',
+    'codebase-analyzer',
+    'codebase-pattern-finder',
+    'web-search-researcher',
+    'qa',
+    'implementer-agent',
+  ] as const;
+
+  it('does not retain unprefixed catalog agent references or host-specific launch syntax', async () => {
+    const entries = await fs.readdir(SKILLS_DIR, { withFileTypes: true });
+    const skillFiles = entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(SKILLS_DIR, entry.name, 'SKILL.md'));
+
+    for (const file of skillFiles) {
+      const body = await fs.readFile(file, 'utf-8');
+      for (const agent of namedAgents) {
+        const unprefixed = new RegExp(`(?<!spok-)\\b${agent}\\b`, 'u');
+        expect(body, `${file} contains unprefixed ${agent}`).not.toMatch(unprefixed);
+      }
+      expect(body, `${file} contains Claude-only subagent syntax`).not.toMatch(
+        /subagent_type|Task tool|\*\*Agent\*\* tool/u,
+      );
+    }
   });
 });
 

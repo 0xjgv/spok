@@ -29,6 +29,7 @@
     "bin",
     "schemas",
     "assets/skills",
+    "assets/agents",
     "scripts/postinstall.js",
     "!dist/**/*.test.js",
     "!dist/**/__tests__",

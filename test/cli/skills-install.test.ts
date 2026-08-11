@@ -31,7 +31,7 @@ describe('global Spok skills CLI', () => {
     await fs.rm(testDir, { recursive: true, force: true });
   });
 
-  it('installs selected global skills from the CLI', async () => {
+  it('installs selected global skills and native agents from the CLI', async () => {
     const result = await runCLI(['skills', 'install', '--tools', 'claude,codex,factory'], {
       cwd: projectDir,
       env: {
@@ -48,15 +48,74 @@ describe('global Spok skills CLI', () => {
     await expect(pathExists(path.join(homeDir, '.claude', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(homeDir, '.agents', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(homeDir, '.factory', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
+    await expect(pathExists(path.join(homeDir, '.claude', 'agents', 'spok-codebase-locator.md'))).resolves.toBe(true);
+    await expect(pathExists(path.join(homeDir, '.claude', 'agents', 'spok-implementer-agent.md'))).resolves.toBe(true);
+    await expect(pathExists(path.join(homeDir, '.codex', 'agents', 'spok-codebase-locator.toml'))).resolves.toBe(true);
+    await expect(pathExists(path.join(homeDir, '.codex', 'agents', 'spok-implementer-agent.toml'))).resolves.toBe(true);
+    await expect(pathExists(path.join(homeDir, '.factory', 'agents'))).resolves.toBe(false);
+    expect(result.stdout).toContain('16 Spok agents in ~/.claude/agents');
+    expect(result.stdout).toContain('16 Spok agents in ~/.codex/agents');
     await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
   }, 30_000);
 
-  it('updates existing global skills without creating project state', async () => {
+  it('requires force to adopt an exact unmarked Claude agent collision', async () => {
+    const collisionPath = path.join(
+      homeDir,
+      '.claude',
+      'agents',
+      'spok-codebase-locator.md'
+    );
+    const installedSkill = path.join(
+      homeDir,
+      '.claude',
+      'skills',
+      'spok-explore',
+      'SKILL.md'
+    );
+    const unmarkedContent = '# User-owned agent\n';
+    await fs.mkdir(path.dirname(collisionPath), { recursive: true });
+    await fs.writeFile(collisionPath, unmarkedContent);
+
+    const env = {
+      HOME: homeDir,
+      SPOK_TELEMETRY: '0',
+      USERPROFILE: homeDir,
+      XDG_CONFIG_HOME: path.join(testDir, 'xdg-config'),
+    };
+    const collisionResult = await runCLI(['skills', 'install', '--tools', 'claude'], {
+      cwd: projectDir,
+      env,
+      timeoutMs: 20_000,
+    });
+
+    expect(collisionResult.exitCode).not.toBe(0);
+    expect(`${collisionResult.stdout}${collisionResult.stderr}`).toContain(collisionPath);
+    expect(`${collisionResult.stdout}${collisionResult.stderr}`).toContain('--force');
+    await expect(fs.readFile(collisionPath, 'utf8')).resolves.toBe(unmarkedContent);
+    await expect(pathExists(installedSkill)).resolves.toBe(false);
+    await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
+
+    const forcedResult = await runCLI(
+      ['skills', 'install', '--tools', 'claude', '--force'],
+      {
+        cwd: projectDir,
+        env,
+        timeoutMs: 20_000,
+      }
+    );
+
+    expect(forcedResult.exitCode).toBe(0);
+    await expect(fs.readFile(collisionPath, 'utf8')).resolves.toContain('spok-managed-agent');
+    await expect(pathExists(installedSkill)).resolves.toBe(true);
+    await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
+  }, 30_000);
+
+  it('routes forced global updates without creating project state', async () => {
     const installedSkill = path.join(homeDir, '.agents', 'skills', 'spok-explore', 'SKILL.md');
     await fs.mkdir(path.dirname(installedSkill), { recursive: true });
     await fs.writeFile(installedSkill, 'old skill');
 
-    const result = await runCLI(['update', '--global'], {
+    const result = await runCLI(['update', '--global', '--force'], {
       cwd: projectDir,
       env: {
         HOME: homeDir,
@@ -74,13 +133,34 @@ describe('global Spok skills CLI', () => {
     await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
   }, 30_000);
 
-  it('documents the global update flag and rejects a project path', async () => {
+  it('documents global skills and native agent commands without changing project update routing', async () => {
+    const helpEnv = {
+      HOME: homeDir,
+      SPOK_TELEMETRY: '0',
+      USERPROFILE: homeDir,
+    };
+    const skillsHelpResult = await runCLI(['skills', '--help'], {
+      env: helpEnv,
+    });
+    expect(skillsHelpResult.exitCode).toBe(0);
+    expect(skillsHelpResult.stdout).toContain('Manage global Spok skills and native agents');
+    expect(skillsHelpResult.stdout).toContain(
+      'spok skills install --tools claude,codex --force'
+    );
+
+    const installHelpResult = await runCLI(['skills', 'install', '--help'], {
+      env: helpEnv,
+    });
+    expect(installHelpResult.exitCode).toBe(0);
+    expect(installHelpResult.stdout).toContain('--force');
+    expect(installHelpResult.stdout).toContain('Install global Spok skills and native agents');
+
     const helpResult = await runCLI(['update', '--help'], {
-      env: { SPOK_TELEMETRY: '0' },
+      env: helpEnv,
     });
     expect(helpResult.exitCode).toBe(0);
     expect(helpResult.stdout).toContain('--global');
-    expect(helpResult.stdout).toContain('Update globally installed Spok skills');
+    expect(helpResult.stdout).toContain('globally installed Spok skills and native agents');
 
     const updateResult = await runCLI(['update', projectDir, '--global'], {
       env: {

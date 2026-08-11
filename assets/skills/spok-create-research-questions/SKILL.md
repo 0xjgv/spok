@@ -11,21 +11,21 @@ These questions will be used by another agent to research the codebase.
 
 ## Available Research Tools
 
-You have access to specialized agents to help research the codebase:
+Use the current host's native subagent mechanism to delegate research to these specialized agents:
 
-- **codebase-locator**: Find all files related to the task/feature
+- **spok-codebase-locator**: Find all files related to the task/feature
   - Finds relevant source files, configs, and tests
   - Returns file paths organized by purpose
 
-- **codebase-analyzer**: Understand how the current implementation works
+- **spok-codebase-analyzer**: Understand how the current implementation works
   - Traces data flow and key functions
   - Returns detailed explanations with file:line references
 
-- **codebase-pattern-finder**: Find similar implementations to model after
+- **spok-codebase-pattern-finder**: Find similar implementations to model after
   - Identifies conventions and patterns to follow
   - Returns code examples with locations
 
-- **web-search-researcher**: Research external documentation (only if needed)
+- **spok-web-search-researcher**: Research external documentation (only if needed)
   - For SDK docs, library usage, best practices
   - Skip if the task is purely internal
 

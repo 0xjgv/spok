@@ -558,13 +558,48 @@ Feature: Tool skill artifacts
     And Spok creates global skills under ".factory/skills"
     And Spok creates the global workflow skill "spok-explore" under ".factory/skills"
     And Spok creates the global workflow skill "spok-self-learn" under ".factory/skills"
+    And Spok creates the global agent "spok-codebase-locator.md" under ".claude/agents"
+    And Spok creates the global agent "spok-implementer-agent.md" under ".claude/agents"
+    And Spok creates the global agent "spok-codebase-locator.toml" under ".codex/agents"
+    And Spok creates the global agent "spok-implementer-agent.toml" under ".codex/agents"
+    And Spok creates 16 global agents under ".claude/agents"
+    And Spok creates 16 global agents under ".codex/agents"
+    And Spok does not create global agents under ".factory/agents"
+    And setup guidance mentions "16 Spok agents in ~/.claude/agents"
+    And setup guidance mentions "16 Spok agents in ~/.codex/agents"
     And Spok does not create "spok"
 
-  Scenario: Global update refreshes existing home-scoped skills without project state
+  Scenario: Global update repairs an agent-only installation without project state
     Given a new project
     When I install global Spok skills for the tools "codex"
-    And I remove the global workflow skill "spok-flow" under ".agents/skills"
+    And I remove global Spok skills under ".agents/skills"
+    And I remove the global agent "spok-codebase-locator.toml" under ".codex/agents"
     And I run spok update globally
     Then Spok creates the global workflow skill "spok-flow" under ".agents/skills"
+    And Spok creates the global agent "spok-codebase-locator.toml" under ".codex/agents"
     And the Spok CLI output contains "Global Spok Skills Updated"
     And Spok does not create "spok"
+
+  Scenario: Installed workflows use Spok-prefixed agents with host-neutral delegation
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-create-research-questions" under ".claude/skills" mentions "spok-codebase-locator"
+    And the workflow skill "spok-create-research-questions" under ".claude/skills" mentions "spok-codebase-analyzer"
+    And the workflow skill "spok-create-research-questions" under ".claude/skills" mentions "spok-codebase-pattern-finder"
+    And the workflow skill "spok-create-research-questions" under ".claude/skills" mentions "spok-web-search-researcher"
+    And the workflow skill "spok-validate-implementation" under ".claude/skills" mentions "spok-qa"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "spok-implementer-agent"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "the current host's native subagent mechanism"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "host-owned `general-purpose`"
+
+  Scenario: Project commands warn about missing global agents without installing them
+    Given a new project
+    And an empty home directory for agent readiness
+    When I initialize Spok for the tools "claude,codex"
+    Then setup guidance mentions "Missing Spok agents for Claude Code"
+    And setup guidance mentions "Missing Spok agents for Codex"
+    And project setup does not create global agent directories
+    When I update Spok with force
+    Then setup guidance mentions "Missing Spok agents for Claude Code"
+    And setup guidance mentions "Missing Spok agents for Codex"
+    And project setup does not create global agent directories

@@ -39,7 +39,7 @@ Mirror `spok-create-research` step 2, but the goal is different — you are not 
 
 Mirror `spok-create-research` step 3:
 
-- Use the **Agent** tool to launch `codebase-locator`, `codebase-analyzer`, and `codebase-pattern-finder` agents in parallel, **foreground only**.
+- Launch `spok-codebase-locator`, `spok-codebase-analyzer`, and `spok-codebase-pattern-finder` agents in parallel and **foreground only** through the current host's native subagent mechanism.
 - Combine related questions into a single sub-agent prompt. Aim for 2–6 well-scoped sub-agents, not 1:1 question-to-agent.
 - Tell each sub-agent what you're looking for; they know how to search.
 

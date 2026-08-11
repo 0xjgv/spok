@@ -16,14 +16,19 @@ async function pathExists(targetPath: string): Promise<boolean> {
 
 describe('UpdateCommand', () => {
   let testDir: string;
+  let testHome: string;
+  let originalHome: string | undefined;
   let originalXdgConfigHome: string | undefined;
   let originalCodexHome: string | undefined;
 
   beforeEach(async () => {
     testDir = path.join(os.tmpdir(), `spok-update-${randomUUID()}`);
+    testHome = path.join(testDir, 'home');
     await fs.mkdir(path.join(testDir, 'spok'), { recursive: true });
+    originalHome = process.env.HOME;
     originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
     originalCodexHome = process.env.CODEX_HOME;
+    process.env.HOME = testHome;
     process.env.XDG_CONFIG_HOME = path.join(testDir, 'xdg-config');
     process.env.CODEX_HOME = path.join(testDir, 'codex-home');
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -31,6 +36,11 @@ describe('UpdateCommand', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
     if (originalXdgConfigHome === undefined) {
       delete process.env.XDG_CONFIG_HOME;
     } else {
@@ -79,6 +89,44 @@ describe('UpdateCommand', () => {
     await expect(pathExists(path.join(testDir, '.claude', 'skills', 'spok-explore', 'SKILL.md'))).resolves.toBe(true);
     expect(vi.mocked(console.log)).toHaveBeenCalledWith('  /spok-explore  Think through an idea');
     expect(vi.mocked(console.log)).toHaveBeenCalledWith('  /spok-propose  Start a new change');
+  });
+
+  it('warns once for missing Claude and Codex home agents without installing them', async () => {
+    await fs.mkdir(path.join(testDir, '.claude', 'skills', 'spok-propose'), { recursive: true });
+    await fs.writeFile(path.join(testDir, '.claude', 'skills', 'spok-propose', 'SKILL.md'), 'old skill');
+    await fs.mkdir(path.join(testDir, '.agents', 'skills', 'spok-propose'), { recursive: true });
+    await fs.writeFile(path.join(testDir, '.agents', 'skills', 'spok-propose', 'SKILL.md'), 'old skill');
+
+    await new UpdateCommand({ force: true }).execute(testDir);
+
+    const output = vi.mocked(console.log).mock.calls.flat().join('\n');
+    expect(output.match(/Missing Spok agents for Claude Code/gu)).toHaveLength(1);
+    expect(output.match(/Missing Spok agents for Codex/gu)).toHaveLength(1);
+    await expect(pathExists(path.join(testHome, '.claude', 'agents'))).resolves.toBe(false);
+    await expect(pathExists(path.join(testHome, '.codex', 'agents'))).resolves.toBe(false);
+  });
+
+  it('does not warn about missing agents when only another tool is configured', async () => {
+    await fs.mkdir(path.join(testDir, '.cursor', 'skills', 'spok-propose'), { recursive: true });
+    await fs.writeFile(path.join(testDir, '.cursor', 'skills', 'spok-propose', 'SKILL.md'), 'old skill');
+
+    await new UpdateCommand({ force: true }).execute(testDir);
+
+    const output = vi.mocked(console.log).mock.calls.flat().join('\n');
+    expect(output).not.toContain('Missing Spok agents for');
+  });
+
+  it('warns about missing agents when a non-force update is already current', async () => {
+    await fs.mkdir(path.join(testDir, '.claude', 'skills', 'spok-propose'), { recursive: true });
+    await fs.writeFile(path.join(testDir, '.claude', 'skills', 'spok-propose', 'SKILL.md'), 'old skill');
+    await new UpdateCommand({ force: true }).execute(testDir);
+    vi.mocked(console.log).mockClear();
+
+    await new UpdateCommand().execute(testDir);
+
+    const output = vi.mocked(console.log).mock.calls.flat().join('\n');
+    expect(output).toContain('All 1 tool(s) up to date');
+    expect(output.match(/Missing Spok agents for Claude Code/gu)).toHaveLength(1);
   });
 
   it('scans installed workflow skills and managed commands in workflow order', async () => {

@@ -74,10 +74,11 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    Detect the active harness once: a non-empty `CODEX_HOME` means `codex`;
    otherwise it is `claude`.
 
-   - When `step.runner` matches the active harness, launch a subagent with the
-     **Agent** tool, passing `subagent_type: general-purpose`,
-     `model: <step.model>`, (when present) `effort: <step.effort>`, and
-     `<step.prompt>` **verbatim** as the prompt.
+   - When `step.runner` matches the active harness, delegate in the foreground
+     through the current host's native subagent mechanism to the
+     host-owned `general-purpose` agent. Pass `model: <step.model>`, (when
+     present) `effort: <step.effort>`, and `<step.prompt>` **verbatim** as the
+     prompt.
    - When `step.runner` is `codex` from another harness, first verify `codex` is
      on `PATH`, then run `codex exec` sequentially in the foreground. Use
      `--ephemeral`, `--dangerously-bypass-hook-trust`, `--cd <project-root>`,

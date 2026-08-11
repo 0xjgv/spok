@@ -30,6 +30,9 @@ vi.mock('../../src/prompts/searchable-multi-select.js', () => ({
 }));
 
 import { GlobalSkillsInstallCommand } from '../../src/core/skills-install.js';
+import { MANAGED_AGENT_MARKER } from '../../src/core/agent-vendor.js';
+
+const TEST_AGENT_NAME = 'spok-codebase-locator';
 
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
@@ -46,17 +49,32 @@ function loggedText(): string {
     .join('\n');
 }
 
-async function updateExistingGlobalSkills(homeDir: string, projectDir: string): Promise<void> {
-  process.chdir(projectDir);
+function globalAgentPath(homeDir: string, toolId: 'claude' | 'codex'): string {
+  const extension = toolId === 'claude' ? '.md' : '.toml';
+  return path.join(homeDir, `.${toolId}`, 'agents', `${TEST_AGENT_NAME}${extension}`);
+}
+
+async function installGlobalTools(
+  homeDir: string,
+  tools: string,
+  force = false
+): Promise<void> {
   await new GlobalSkillsInstallCommand({
-    tools: 'codex',
+    tools,
+    force,
     interactive: false,
     homeDir,
   }).execute();
-  await fs.rm(path.join(homeDir, '.agents', 'skills', 'spok-flow'), {
+}
+
+async function updateExistingGlobalSkills(homeDir: string, projectDir: string): Promise<void> {
+  process.chdir(projectDir);
+  await installGlobalTools(homeDir, 'codex');
+  await fs.rm(path.join(homeDir, '.agents', 'skills'), {
     recursive: true,
     force: true,
   });
+  await fs.rm(globalAgentPath(homeDir, 'codex'));
   await fs.mkdir(path.join(homeDir, '.claude'), { recursive: true });
 
   await new GlobalSkillsInstallCommand({
@@ -66,20 +84,33 @@ async function updateExistingGlobalSkills(homeDir: string, projectDir: string): 
   }).execute();
 
   await expect(pathExists(path.join(homeDir, '.agents', 'skills', 'spok-flow', 'SKILL.md'))).resolves.toBe(true);
+  await expect(pathExists(globalAgentPath(homeDir, 'codex'))).resolves.toBe(true);
   await expect(pathExists(path.join(homeDir, '.claude', 'skills', 'spok-flow', 'SKILL.md'))).resolves.toBe(false);
   await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
   expect(loggedText()).toContain('Global Spok Skills Updated');
+  expect(loggedText()).toContain('Refreshing existing global Spok skills for: Codex');
 }
 
 async function forceGlobalSkillsUpdate(homeDir: string): Promise<void> {
+  await installGlobalTools(homeDir, 'codex');
+  const flowSkill = path.join(homeDir, '.agents', 'skills', 'spok-flow', 'SKILL.md');
+  const agentFile = globalAgentPath(homeDir, 'codex');
+  const originalSkill = await fs.readFile(flowSkill, 'utf-8');
+  const originalAgent = await fs.readFile(agentFile, 'utf-8');
+
+  vi.mocked(console.log).mockClear();
   await new GlobalSkillsInstallCommand({
-    tools: 'codex',
+    mode: 'update',
     interactive: false,
     homeDir,
   }).execute();
-  const flowSkill = path.join(homeDir, '.agents', 'skills', 'spok-flow', 'SKILL.md');
+  await expect(fs.readFile(flowSkill, 'utf-8')).resolves.toBe(originalSkill);
+  await expect(fs.readFile(agentFile, 'utf-8')).resolves.toBe(originalAgent);
+  expect(loggedText()).toContain('Global Spok skills are up to date.');
+
   await fs.writeFile(flowSkill, 'local customization');
 
+  vi.mocked(console.log).mockClear();
   await new GlobalSkillsInstallCommand({
     mode: 'update',
     interactive: false,
@@ -124,17 +155,27 @@ describe('GlobalSkillsInstallCommand', () => {
   it('installs selected global skills under home directories without creating project state', async () => {
     process.chdir(projectDir);
 
-    await new GlobalSkillsInstallCommand({
-      tools: 'claude,codex,factory',
-      interactive: false,
-      homeDir,
-    }).execute();
+    await installGlobalTools(homeDir, 'claude,codex,factory');
 
     await expect(pathExists(path.join(homeDir, '.claude', 'skills', 'spok-propose', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(homeDir, '.claude', 'skills', 'spok-flow', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(homeDir, '.agents', 'skills', 'spok-propose', 'SKILL.md'))).resolves.toBe(true);
     await expect(pathExists(path.join(homeDir, '.factory', 'skills', 'spok-propose', 'SKILL.md'))).resolves.toBe(true);
+    const claudeAgentsDir = path.join(homeDir, '.claude', 'agents');
+    const codexAgentsDir = path.join(homeDir, '.codex', 'agents');
+    await expect(fs.readdir(claudeAgentsDir)).resolves.toHaveLength(16);
+    await expect(fs.readdir(codexAgentsDir)).resolves.toHaveLength(16);
+    await expect(fs.readFile(globalAgentPath(homeDir, 'claude'), 'utf-8'))
+      .resolves.toContain(MANAGED_AGENT_MARKER);
+    await expect(fs.readFile(globalAgentPath(homeDir, 'codex'), 'utf-8'))
+      .resolves.toContain(MANAGED_AGENT_MARKER);
+    await expect(pathExists(path.join(homeDir, '.factory', 'agents'))).resolves.toBe(false);
     await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
+
+    const output = loggedText();
+    expect(output).toContain('16 Spok agents in ~/.claude/agents');
+    expect(output).toContain('16 Spok agents in ~/.codex/agents');
+    expect(output).toContain('fresh tool session');
   });
 
   it('preselects existing global Spok skills and warns before refreshing them', async () => {
@@ -167,8 +208,25 @@ describe('GlobalSkillsInstallCommand', () => {
     await expect(fs.readFile(staleSkill, 'utf-8')).resolves.toContain('Explore mode is for thinking');
   });
 
-  it('updates existing global skills and repairs a missing vendored helper', async () => {
+  it('discovers an agent-only installation and repairs its skills and agents', async () => {
     await updateExistingGlobalSkills(homeDir, projectDir);
+  });
+
+  it('repairs missing agents when installed skills are current', async () => {
+    await installGlobalTools(homeDir, 'codex');
+    const missingAgent = globalAgentPath(homeDir, 'codex');
+    await expect(pathExists(path.join(homeDir, '.claude', 'agents'))).resolves.toBe(false);
+    await fs.rm(missingAgent);
+
+    vi.mocked(console.log).mockClear();
+    await new GlobalSkillsInstallCommand({
+      mode: 'update',
+      interactive: false,
+      homeDir,
+    }).execute();
+
+    await expect(pathExists(missingAgent)).resolves.toBe(true);
+    expect(loggedText()).toContain('Global Spok Skills Updated');
   });
 
   it('skips a complete global installation unless forced', async () => {
@@ -182,5 +240,34 @@ describe('GlobalSkillsInstallCommand', () => {
         homeDir,
       }).execute()
     ).rejects.toThrow('Global skills install requires --tools in non-interactive mode');
+  });
+
+  it('rejects a cross-tool agent collision before writing any selected skills', async () => {
+    const collision = globalAgentPath(homeDir, 'codex');
+    await fs.mkdir(path.dirname(collision), { recursive: true });
+    await fs.writeFile(collision, `name = "${TEST_AGENT_NAME}"\n# user-owned\n`);
+
+    await expect(installGlobalTools(homeDir, 'claude,codex,factory')).rejects.toThrow(
+      /Managed agent destination collision.*--force/su
+    );
+
+    await expect(fs.readFile(collision, 'utf-8'))
+      .resolves.toBe(`name = "${TEST_AGENT_NAME}"\n# user-owned\n`);
+    await expect(pathExists(path.join(homeDir, '.claude', 'skills'))).resolves.toBe(false);
+    await expect(pathExists(path.join(homeDir, '.agents', 'skills'))).resolves.toBe(false);
+    await expect(pathExists(path.join(homeDir, '.factory', 'skills'))).resolves.toBe(false);
+    await expect(pathExists(path.join(homeDir, '.claude', 'agents'))).resolves.toBe(false);
+  });
+
+  it('passes force through to adopt an exact-name unmarked agent', async () => {
+    const collision = globalAgentPath(homeDir, 'codex');
+    await fs.mkdir(path.dirname(collision), { recursive: true });
+    await fs.writeFile(collision, `name = "${TEST_AGENT_NAME}"\n# user-owned\n`);
+
+    await installGlobalTools(homeDir, 'codex', true);
+
+    await expect(fs.readFile(collision, 'utf-8')).resolves.toContain(MANAGED_AGENT_MARKER);
+    await expect(pathExists(path.join(homeDir, '.agents', 'skills', 'spok-flow', 'SKILL.md')))
+      .resolves.toBe(true);
   });
 });

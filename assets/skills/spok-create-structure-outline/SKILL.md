@@ -34,15 +34,15 @@ Verify these types before writing. Stop and report a missing or mismatched type;
    - Read all files in the task directory.
    - Read relevant files mentioned in the task files.
 
-3. **Spawn sub-agents for follow-up research**:
+3. **Use the current host's native subagent mechanism for follow-up research**:
 
    **For deeper investigation:**
-   - **codebase-locator**: Find additional files if needed
-   - **codebase-analyzer**: Deep-dive on specific implementations
-   - **codebase-pattern-finder**: Find more examples of patterns
-   - **web-search-researcher**: Research external best practices
+   - **spok-codebase-locator**: Find additional files if needed
+   - **spok-codebase-analyzer**: Deep-dive on specific implementations
+   - **spok-codebase-pattern-finder**: Find more examples of patterns
+   - **spok-web-search-researcher**: Research external best practices
 
-   Do not run agents in the background - FOREGROUND AGENTS ONLY.
+   Run all subagents in the foreground only.
 
 4. **Create a phased implementation plan**:
    - Break the work into logical phases
@@ -82,7 +82,7 @@ Verify these types before writing. Stop and report a missing or mismatched type;
 
 3. **If the user gives any input along the way**:
    - DO NOT just accept the correction
-   - Spawn new research tasks to verify the correct information
+   - Use the current host's native subagent mechanism to run new research tasks in the foreground and verify the correct information
    - Read the specific files/directories they mention
    - Only proceed once you've verified the facts yourself
    - interpret ALL user feedback as instructions to update the document, not to begin implementation

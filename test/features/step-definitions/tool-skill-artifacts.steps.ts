@@ -14,6 +14,8 @@ interface SkillArtifactWorld {
   projectDir?: string;
   codexHome?: string;
   originalCodexHome?: string;
+  originalHome?: string;
+  originalUserProfile?: string;
   originalFlowProfile?: string;
   originalXdgConfigHome?: string;
   setupGuidance?: string;
@@ -23,6 +25,7 @@ interface SkillArtifactWorld {
   unreachableFlowCommit?: string;
   cliResult?: RunCLIResult;
   retiredCommandArtifacts?: string[];
+  emptyAgentHome?: string;
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -67,12 +70,22 @@ Given('a new project', async function (this: SkillArtifactWorld) {
   this.projectDir = path.join(os.tmpdir(), `spok-acceptance-${randomUUID()}`);
   this.codexHome = path.join(this.projectDir, 'codex-home');
   this.originalCodexHome = process.env.CODEX_HOME;
+  this.originalHome = process.env.HOME;
+  this.originalUserProfile = process.env.USERPROFILE;
   this.originalFlowProfile = process.env.SPOK_FLOW_PROFILE;
   this.originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
   process.env.CODEX_HOME = this.codexHome;
   delete process.env.SPOK_FLOW_PROFILE;
   process.env.XDG_CONFIG_HOME = path.join(this.projectDir, 'xdg-config');
   await fs.mkdir(this.projectDir, { recursive: true });
+});
+
+Given('an empty home directory for agent readiness', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  this.emptyAgentHome = path.join(this.projectDir, 'empty-home');
+  process.env.HOME = this.emptyAgentHome;
+  process.env.USERPROFILE = this.emptyAgentHome;
+  await fs.mkdir(this.emptyAgentHome, { recursive: true });
 });
 
 Given('the project is a Git repository', function (this: SkillArtifactWorld) {
@@ -623,6 +636,25 @@ When(
   }
 );
 
+When(
+  'I remove global Spok skills under {string}',
+  async function (this: SkillArtifactWorld, relativeDir: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    await fs.rm(path.join(this.projectDir, relativeDir), {
+      recursive: true,
+      force: true,
+    });
+  }
+);
+
+When(
+  'I remove the global agent {string} under {string}',
+  async function (this: SkillArtifactWorld, agentName: string, relativeDir: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    await fs.rm(path.join(this.projectDir, relativeDir, agentName), { force: true });
+  }
+);
+
 When('I run spok update globally', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   this.cliResult = await runCLI(['update', '--global'], {
@@ -675,6 +707,47 @@ Then('Spok creates the global workflow skill {string} under {string}', async fun
     await pathExists(path.join(this.projectDir, relativeDir, skillName, 'SKILL.md')),
     true
   );
+});
+
+Then('Spok creates the global agent {string} under {string}', async function (
+  this: SkillArtifactWorld,
+  agentName: string,
+  relativeDir: string
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.equal(
+    await pathExists(path.join(this.projectDir, relativeDir, agentName)),
+    true
+  );
+});
+
+Then('Spok creates {int} global agents under {string}', async function (
+  this: SkillArtifactWorld,
+  expectedCount: number,
+  relativeDir: string
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  const entries = await fs.readdir(path.join(this.projectDir, relativeDir), {
+    withFileTypes: true,
+  });
+  const agentCount = entries.filter(
+    (entry) => entry.isFile() && entry.name.startsWith('spok-')
+  ).length;
+  assert.equal(agentCount, expectedCount);
+});
+
+Then('Spok does not create global agents under {string}', async function (
+  this: SkillArtifactWorld,
+  relativeDir: string
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.equal(await pathExists(path.join(this.projectDir, relativeDir)), false);
+});
+
+Then('project setup does not create global agent directories', async function (this: SkillArtifactWorld) {
+  assert.ok(this.emptyAgentHome, 'empty agent home must be set by readiness setup');
+  assert.equal(await pathExists(path.join(this.emptyAgentHome, '.claude', 'agents')), false);
+  assert.equal(await pathExists(path.join(this.emptyAgentHome, '.codex', 'agents')), false);
 });
 
 Then('Spok does not create {string}', async function (this: SkillArtifactWorld, relativePath: string) {
@@ -827,6 +900,16 @@ After(async function (this: SkillArtifactWorld) {
     delete process.env.SPOK_FLOW_PROFILE;
   } else {
     process.env.SPOK_FLOW_PROFILE = this.originalFlowProfile;
+  }
+  if (this.originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = this.originalHome;
+  }
+  if (this.originalUserProfile === undefined) {
+    delete process.env.USERPROFILE;
+  } else {
+    process.env.USERPROFILE = this.originalUserProfile;
   }
   if (this.originalXdgConfigHome === undefined) {
     delete process.env.XDG_CONFIG_HOME;

@@ -36,16 +36,16 @@ You are now in the Design Discussion phase. Based on the research findings and t
    - If the inventory is empty, state why the design is already determined by verified evidence.
 
 6. **Research gaps before presenting a decision**:
-   - Create multiple Task agents to research different aspects concurrently
-   - Do not run agents in the background — FOREGROUND AGENTS ONLY.
-   - Use the right agent for each type of research:
+   - Use the current host's native subagent mechanism to research distinct aspects concurrently.
+   - Run every delegation in the foreground and wait for all results before continuing.
+   - Use the right Spok subagent for each type of research:
 
    **For deeper investigation:**
-   - **codebase-locator** - To find more specific files (e.g., "find all files that handle [specific component]")
-   - **codebase-analyzer** - To understand implementation details (e.g., "analyze how [system] works")
-   - **codebase-pattern-finder** - To find similar features we can model after
+   - **spok-codebase-locator** - To find more specific files (e.g., "find all files that handle [specific component]")
+   - **spok-codebase-analyzer** - To understand implementation details (e.g., "analyze how [system] works")
+   - **spok-codebase-pattern-finder** - To find similar features we can model after
 
-   Each agent knows how to:
+   These subagents can:
    - Find the right files and code patterns
    - Identify conventions and patterns to follow
    - Look for integration points and dependencies

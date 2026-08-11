@@ -4,6 +4,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
+import { getManagedAgentNames } from '../../src/core/agent-vendor.js';
 import { InitCommand } from '../../src/core/init.js';
 import { resolveGitCheckout } from '../../src/core/worktree-link.js';
 import { searchableMultiSelect } from '../../src/prompts/searchable-multi-select.js';
@@ -57,15 +58,38 @@ async function expectExploreSkillContent(testDir: string): Promise<void> {
   expect(exploreSkill).toContain('Do not auto-capture');
 }
 
+async function writeHomeAgentFiles(homeDir: string): Promise<void> {
+  const agentNames = await getManagedAgentNames();
+  const tools = [
+    { directory: '.claude', extension: '.md' },
+    { directory: '.codex', extension: '.toml' },
+  ] as const;
+
+  for (const tool of tools) {
+    const agentDir = path.join(homeDir, tool.directory, 'agents');
+    await fs.mkdir(agentDir, { recursive: true });
+    await Promise.all(agentNames.map((name) =>
+      fs.writeFile(path.join(agentDir, `${name}${tool.extension}`), 'present\n')
+    ));
+  }
+}
+
+function consoleOutput(): string {
+  return vi.mocked(console.log).mock.calls.flat().join('\n');
+}
+
 let testDir: string;
+let originalHome: string | undefined;
 let originalXdgConfigHome: string | undefined;
 let originalCodexHome: string | undefined;
 
 beforeEach(async () => {
   testDir = path.join(os.tmpdir(), `spok-init-${randomUUID()}`);
   await fs.mkdir(testDir, { recursive: true });
+  originalHome = process.env.HOME;
   originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
   originalCodexHome = process.env.CODEX_HOME;
+  process.env.HOME = path.join(testDir, 'home');
   process.env.XDG_CONFIG_HOME = path.join(testDir, 'xdg-config');
   process.env.CODEX_HOME = path.join(testDir, 'codex-home');
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -73,6 +97,11 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = originalHome;
+  }
   if (originalXdgConfigHome === undefined) {
     delete process.env.XDG_CONFIG_HOME;
   } else {
@@ -109,6 +138,55 @@ describe('InitCommand skill setup', () => {
     await expect(pathExists(path.join(testDir, '.claude', 'commands'))).resolves.toBe(false);
     await expect(pathExists(path.join(testDir, '.codex'))).resolves.toBe(false);
     await expect(pathExists(codexPromptDir)).resolves.toBe(false);
+  });
+});
+
+describe('InitCommand subagent readiness warning', () => {
+  it('warns for missing Claude and Codex agents when both tools are selected', async () => {
+    await new InitCommand({
+      tools: 'claude,codex',
+      force: true,
+      interactive: false,
+    }).execute(testDir);
+
+    expect(consoleOutput()).toContain('Missing Spok agents for Claude Code');
+    expect(consoleOutput()).toContain('Missing Spok agents for Codex');
+  });
+
+  it('does not warn for tools without managed agents', async () => {
+    await new InitCommand({
+      tools: 'cursor',
+      force: true,
+      interactive: false,
+    }).execute(testDir);
+
+    expect(consoleOutput()).not.toContain('Missing Spok agents for');
+  });
+
+  it('suppresses warnings when selected tool agents are complete', async () => {
+    await writeHomeAgentFiles(process.env.HOME!);
+
+    await new InitCommand({
+      tools: 'claude,codex',
+      force: true,
+      interactive: false,
+    }).execute(testDir);
+
+    expect(consoleOutput()).not.toContain('Missing Spok agents for');
+  });
+
+  it('does not create home-level agent directories while checking readiness', async () => {
+    const claudeAgentDir = path.join(process.env.HOME!, '.claude', 'agents');
+    const codexAgentDir = path.join(process.env.HOME!, '.codex', 'agents');
+
+    await new InitCommand({
+      tools: 'claude,codex',
+      force: true,
+      interactive: false,
+    }).execute(testDir);
+
+    await expect(pathExists(claudeAgentDir)).resolves.toBe(false);
+    await expect(pathExists(codexAgentDir)).resolves.toBe(false);
   });
 });
 

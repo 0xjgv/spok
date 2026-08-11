@@ -5,14 +5,14 @@ description: phased implementation of a structured plan you must use this skill 
 
 # Phased Implementation Orchestrator
 
-You are responsible for orchestrating the phased implementation of technical plans. The skill argument is the absolute path to the task directory containing `plan.md`. You will work through each phase systematically using a specialized implementer agent.
+You are responsible for orchestrating the phased implementation of technical plans. The skill argument is the absolute path to the task directory containing `plan.md`. You will work through each phase systematically using the specialized `spok-implementer-agent`.
 
 ## Workflow
 
 For each phase in the implementation plan:
 
-### 1. Launch Implementer Agent
-Use the Task tool with `subagent_type=implementer-agent` to implement the current phase. Provide clear instructions about which phase to implement.
+### 1. Delegate to `spok-implementer-agent`
+Delegate the current phase in the foreground to `spok-implementer-agent` through the current host's native subagent mechanism. Provide clear instructions about which phase to implement and wait for the result.
 
 Example:
 ```
@@ -20,16 +20,16 @@ Implement Phase [N] of the plan at <task-dir>/plan.md
 Focus only on Phase [N] and stop after completing automated verification.
 ```
 
-IMPORTANT - keep your prompt short, do not duplicate details that are already in the plan, because the implementer agent will read the plan.
+IMPORTANT - keep your prompt short, do not duplicate details that are already in the plan, because `spok-implementer-agent` will read the plan.
 
 ### 2. Review Output
-Carefully review the implementer agent's output:
+Carefully review `spok-implementer-agent`'s output:
 - Check what was accomplished
 - Note any issues or mismatches reported
 - Identify manual verification steps requested
 
 ### 3. Perform Automated Checks
-Run any automated verification that the implementer agent may have missed or that you can perform:
+Run any automated verification that `spok-implementer-agent` may have missed or that you can perform:
 - Build commands
 - Test suites
 - Linting/formatting checks
@@ -42,7 +42,7 @@ Provide a clear summary of the phase completion:
 ```
 ## Phase [N] Implementation Summary
 
-**Completed by implementer agent:**
+**Completed by `spok-implementer-agent`:**
 - [List of completed tasks]
 
 **Automated verification results:**
@@ -75,7 +75,7 @@ If the task directory contains `workflow-state.json`, this skill is running insi
 
 In that mode, these rules override every conflicting instruction anywhere in this skill:
 - Implement each phase directly in this agent and run its automated checks.
-- Do not launch `implementer-agent` or another nested agent. The outer flow step already selected the runner, model, and effort.
+- Do not launch `spok-implementer-agent` or any other nested agent. The outer flow step already selected the runner, model, and effort.
 - Do not create commits. The final commit is owned by the `commit` step in `spok-flow`.
 - Do not ask for human approval between phases unless a required manual validation step blocks further automated work.
 - Continue through every phase sequentially after its automated checks pass.
@@ -85,11 +85,11 @@ In that mode, these rules override every conflicting instruction anywhere in thi
 If resuming work on a partially completed plan:
 - First check the plan file for existing checkmarks (- [x])
 - In inner spok-flow mode, resume directly from the first unchecked item.
-- Outside inner spok-flow mode, instruct the implementer agent to resume from the first unchecked item.
+- Outside inner spok-flow mode, instruct `spok-implementer-agent` to resume from the first unchecked item.
 - Trust that completed work is done unless something seems off
 
 ### Handling Issues
-If implementation reports a mismatch or gets stuck:
+If `spok-implementer-agent` reports a mismatch or gets stuck:
 - Present the issue clearly to the human
 - Wait for guidance before proceeding
 - Consider if the plan needs updating based on codebase evolution
@@ -97,7 +97,7 @@ If implementation reports a mismatch or gets stuck:
 ### Multiple Phases
 If instructed to implement multiple phases consecutively:
 - In inner spok-flow mode, implement each phase directly in this agent.
-- Outside inner spok-flow mode, launch separate implementer agents for each phase.
+- Outside inner spok-flow mode, delegate each phase to a separate `spok-implementer-agent` in the foreground.
 - Perform verification between phases
 - Report summary after all requested phases complete
 - Only pause for human verification after the final phase
@@ -109,12 +109,12 @@ If instructed to implement multiple phases consecutively:
 Standalone-mode TODO list; inner spok-flow mode does not use this list:
 
 - [ ] get plan path
-- [ ] launch implementer subagent
+- [ ] delegate the phase to `spok-implementer-agent` in the foreground
 - [ ] review its work
 - [ ] ask the human to perform manual verification
 - [ ] iterate with the human until the results are satisfactory
 - [ ] commit the changes
-- [ ] launch implementer subagent for next phase
+- [ ] delegate the next phase to a new `spok-implementer-agent` in the foreground
 
 ## After Final Phase Completion
 
@@ -139,4 +139,4 @@ When invoked:
 3. Begin with Phase 1 (or first unchecked phase if resuming)
 4. Follow the workflow above
 
-Outside inner spok-flow mode, orchestrate and verify while the implementer agent does the implementation. In inner spok-flow mode, implement and verify directly.
+Outside inner spok-flow mode, orchestrate and verify while `spok-implementer-agent` does the implementation. In inner spok-flow mode, implement and verify directly.

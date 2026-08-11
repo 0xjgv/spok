@@ -49,14 +49,16 @@ Then wait for the user's input.
    - Verify that code, tests, and commands support the claim
    - Only proceed once you've verified the facts yourself
 
-5. **Spawn sub-agents for follow-up investigation** (if needed):
+5. **Delegate follow-up investigation** (if needed):
+
+   Use the current host's native subagent mechanism and keep delegated work in the foreground.
 
    **For deeper investigation:**
-   - **codebase-locator**: Find additional files if needed
-   - **codebase-analyzer**: Deep-dive on specific implementation paths
-   - **codebase-pattern-finder**: Find existing repository patterns to compare against
+   - **spok-codebase-locator**: Find additional files if needed
+   - **spok-codebase-analyzer**: Deep-dive on specific implementation paths
+   - **spok-codebase-pattern-finder**: Find existing repository patterns to compare against
 
-   Do not run agents in the background - FOREGROUND AGENTS ONLY.
+   Do not leave delegated work running in the background. Wait for each subagent's result before relying on it.
 
 6. **Run validation checks**:
    - Execute the automated verification commands promised by the plan when they are available in the current environment
@@ -65,7 +67,7 @@ Then wait for the user's input.
    - Treat a required automated check that cannot run or does not pass as a validation failure unless the plan explicitly marked it as manual-only
 
 7. **Get an independent subagent go/no-go review**: (in parallel if other validation work remains)
-   - Use a foreground subagent, preferably **qa** for validation/readiness reviews or **codebase-analyzer** for implementation-path reviews
+   - Use the current host's native subagent mechanism to run a foreground review, preferably **spok-qa** for validation/readiness reviews or **spok-codebase-analyzer** for implementation-path reviews
    - Give the subagent a bounded prompt with:
      - the plan path
      - any ExecPlan path

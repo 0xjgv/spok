@@ -98,9 +98,53 @@ See [Supported Tools](supported-tools.md) for each tool's exact skills path.
 
 ---
 
+### `spok skills install`
+
+Install Spok skills into the selected tools' home-scoped directories. Selecting Claude or Codex also installs Spok's managed native agent catalog for that tool; selecting any other tool installs skills only.
+
+```
+spok skills install --tools <tools> [--force]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--tools <list>` | Select `all`, `none`, or a comma-separated list of tool IDs |
+| `--force` | Adopt and replace unmarked regular files whose paths exactly match current managed-agent catalog entries |
+
+**Examples:**
+
+```bash
+# Install global skills and native agents for Claude and Codex
+spok skills install --tools claude,codex
+
+# Install global skills for every supported tool; Claude and Codex also receive agents
+spok skills install --tools all
+
+# Adopt an exact unmarked catalog-file collision
+spok skills install --tools codex --force
+```
+
+The Claude and Codex destinations are intentionally different:
+
+| Selected tool | Global skills | Managed native agents |
+|---------------|---------------|-----------------------|
+| Claude | `~/.claude/skills` | `~/.claude/agents/*.md` |
+| Codex | `~/.agents/skills` | `~/.codex/agents/*.toml` |
+| Any other tool | Tool-specific path listed in [Supported Tools](supported-tools.md) | None |
+
+Agent installation is limited to the selected Claude and Codex catalogs. It does not create agents for other tools, change Claude or Codex configuration, or modify unrelated agent files.
+
+If an exact current catalog destination already contains an unmarked file, installation aborts without changing the selected agent destinations. `--force` adopts and replaces only that exact catalog file; it does not adopt similarly named, retired, or unrelated unmarked files. A destination that is not a regular file cannot be replaced with `--force`.
+
+Start a fresh Claude Code or Codex session after installing or updating agents so the tool discovers the new catalog.
+
+---
+
 ### `spok update`
 
-Re-install the four user-facing skills and refresh the vendored helper skill closure. By default, this updates project-local skills. Use `--global` to update existing home-scoped installations instead. Run this after upgrading the `spok` package or whenever you want to re-sync skills with the installed CLI version.
+Refresh Spok-managed artifacts after upgrading the `spok` package or whenever you want to re-sync them with the installed CLI version. By default, this updates project-local skills only. Use `--global` to update existing home-scoped skills and managed native agents instead.
 
 ```
 spok update [path] [options]
@@ -116,8 +160,8 @@ spok update [path] [options]
 
 | Option | Description |
 |--------|-------------|
-| `--force` | Force update even when files are up to date |
-| `--global` | Update globally installed Spok skills instead of project-local skills |
+| `--force` | Force update even when files are up to date; with `--global`, also adopt exact unmarked managed-agent catalog collisions |
+| `--global` | Update globally installed Spok skills and managed native agents instead of project-local skills |
 
 **Examples:**
 
@@ -129,16 +173,18 @@ spok update
 # Force a clean rewrite
 spok update --force
 
-# Refresh every existing global Spok installation
+# Refresh existing global Spok skills and managed agents
 spok update --global
 
-# Force a clean rewrite of every existing global installation
+# Force a clean rewrite of existing global managed artifacts
 spok update --global --force
 ```
 
-`spok update --global` works from any directory and does not require a `spok/` project. It refreshes only tools that already contain global `spok-*` skills; use `spok skills install --tools <tools>` to add a new global tool installation.
+`spok update --global` works from any directory and does not require a `spok/` project. It discovers configured tools from global `spok-*` skills and discovers Claude or Codex from Spok-managed agents alone. This agent-only discovery repairs the tool's missing global skills as well as its agent catalog.
 
-Both update modes overwrite managed skill files. Project-local updates never touch `spok/specs/`, `spok/changes/`, or your project config (`spok/config.toml`, with `config.yaml`/`config.yml` still accepted for existing projects).
+For discovered Claude and Codex installations, global update writes missing or outdated managed agents and removes retired managed agents. It preserves unrelated agent files; without `--force`, it aborts rather than overwrite an unmarked exact catalog target. It does not add a tool with neither global Spok skills nor managed agents; use `spok skills install --tools <tools>` for a new global installation.
+
+Both update modes overwrite managed skill files. Project-local update never installs or modifies agents under your home directory. When a selected or configured Claude or Codex catalog is missing files, it only warns and points to `spok skills install`; it does not repair that catalog. Project-local updates never touch `spok/specs/`, `spok/changes/`, or your project config (`spok/config.toml`, with `config.yaml`/`config.yml` still accepted for existing projects).
 
 ---
 

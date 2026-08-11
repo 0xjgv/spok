@@ -38,7 +38,7 @@ import {
 } from './shared/index.js';
 import { getAvailableTools } from './available-tools.js';
 import { installVendoredSkills } from './skill-vendor.js';
-import { checkClaudeSubagents, formatSubagentWarning } from './subagent-check.js';
+import { checkSubagentReadiness, formatSubagentWarning } from './subagent-check.js';
 import { parseToolsSelectionArg } from './tool-selection.js';
 import { ensureWorktreeLink, type WorktreeLinkResult } from './worktree-link.js';
 
@@ -134,9 +134,8 @@ export class InitCommand {
     // Create config.toml if needed
     const configStatus = await this.createConfig(spokPath, extendMode);
 
-    // Warn if Claude is configured but custom subagents referenced by vendored
-    // skills aren't installed in ~/.claude/agents/.
-    this.warnIfClaudeSubagentsMissing(validatedTools);
+    // Warn if supported tools are configured but their Spok agents are missing.
+    await this.warnIfSubagentsMissing(validatedTools);
 
     // Display success message
     this.displaySuccessMessage(projectPath, validatedTools, results, configStatus, worktreeLinkResult);
@@ -154,12 +153,11 @@ export class InitCommand {
     }
   }
 
-  private warnIfClaudeSubagentsMissing(
+  private async warnIfSubagentsMissing(
     tools: Array<{ value: string }>
-  ): void {
-    if (!tools.some((tool) => tool.value === 'claude')) return;
-    const result = checkClaudeSubagents();
-    const warning = formatSubagentWarning(result);
+  ): Promise<void> {
+    const results = await checkSubagentReadiness(tools.map((tool) => tool.value));
+    const warning = formatSubagentWarning(results);
     if (warning) {
       console.log();
       console.log(chalk.yellow(warning));

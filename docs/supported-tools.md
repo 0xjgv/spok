@@ -75,13 +75,28 @@ Install or refresh selected tools under your home directory with `spok skills in
 spok skills install --tools claude,codex
 ```
 
-After the initial installation, update every tool that already contains global Spok skills from any directory:
+Claude Code and Codex global installs include the same 16 Spok-prefixed native agents in addition to the skills:
+
+| Selected tool | Global skills | Global native agents |
+|---------------|---------------|----------------------|
+| Claude Code (`claude`) | `~/.claude/skills/spok-*/SKILL.md` | `~/.claude/agents/spok-*.md` |
+| Codex (`codex`) | `~/.agents/skills/spok-*/SKILL.md` | `~/.codex/agents/spok-*.toml` |
+
+Agents are installed only for Claude Code and Codex when those tools are selected. Other selected tools receive skills only. The install summary reports the agent count for each selected native-agent tool.
+
+After the initial installation, update every detected global Spok installation from any directory:
 
 ```bash
 spok update --global
 ```
 
-Global updates do not add tools and do not require a project `spok/` directory. Use `spok update --global --force` to rewrite every existing global installation even when its version and skill set are current.
+Global updates do not add tools and do not require a project `spok/` directory. They discover installations from Spok skills or Spok-managed agents, including agent-only installations. An update restores missing agents, refreshes outdated agents, and removes retired agents only when they carry Spok's managed marker. It preserves unprefixed files, unmarked files outside the current catalog, and other unrelated files.
+
+Both global commands preflight exact agent catalog filenames before writing. Without `--force`, an exact-name collision with an unmarked user file aborts before any writes and reports the path and recovery command. `spok skills install --force` adopts and replaces only exact current catalog names. `spok update --global --force` refreshes every discovered skills installation and every exact managed or current catalog agent file, even when already current; unrelated files remain untouched.
+
+Native-agent roots are fixed at `~/.claude/agents` and `~/.codex/agents`; alternate roots such as `CODEX_HOME` are not used. Neither command edits `~/.claude/settings.json` or `~/.codex/config.toml`.
+
+Project-local `spok init` and `spok update` only warn when the selected Claude Code or Codex agents are missing or outdated. They never write home-scoped agents. Start a fresh Claude Code or Codex session after a global install or update so the new agents are loaded.
 
 ## Installed Skills
 
