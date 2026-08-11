@@ -11,5 +11,5 @@ Post-installation script that prints a one-line getting-started hint after
 ## pack-version-check.mjs
 
 Packs the project with `bun pm pack`, installs the tarball into a throwaway
-project, and asserts that the installed CLI's `--version` matches
+project, and asserts that the installed CLI's `version` output matches
 `package.json`. Used as a release-time guard.

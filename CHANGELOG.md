@@ -31,3 +31,15 @@ This changelog starts with the current Spok release line. Earlier inherited rele
 
 - **Canonical workspace paths** — Workspace planning remains stable across symlinks, Windows short paths, and equivalent path aliases.
 - **Stable welcome screen** — Interactive terminals render one non-wrapping welcome frame when animation would exceed the available width.
+
+## 1.4.0
+
+### New Features
+
+- Install the five Spok-prefixed native agents used by Spok workflows alongside global skills for selected Claude Code and Codex hosts.
+- Reconcile missing, outdated, and retired Spok-managed agents during global updates, with collision-safe `--force` adoption for exact catalog filenames.
+
+### Improvements
+
+- Route Spok workflows through the prefixed agent catalog using host-neutral foreground delegation.
+- Warn during project init and update when selected Claude or Codex agents are missing without writing home-level files.

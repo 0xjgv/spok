@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Guard: Ensure the packed tarball's CLI `--version` matches package.json.
+// Guard: Ensure the packed tarball's CLI `version` output matches package.json.
 //
 // Uses `bun pm pack` to create the tarball and `bun add` to install it
 // into a throwaway project, then runs the installed CLI to verify
@@ -56,7 +56,7 @@ function main() {
     run('bun', ['add', tgzPath], { cwd: work });
 
     const binRel = path.join('node_modules', pkgName, 'bin', 'spok.js');
-    const actual = run('bun', [binRel, '--version'], { cwd: work }).trim();
+    const actual = run('bun', [binRel, 'version'], { cwd: work }).trim();
 
     if (actual !== expected) {
       throw new Error(
