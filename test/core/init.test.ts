@@ -4,6 +4,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
+import { confirm } from '@inquirer/prompts';
 import { getManagedAgentNames } from '../../src/core/agent-vendor.js';
 import { InitCommand } from '../../src/core/init.js';
 import { resolveGitCheckout } from '../../src/core/worktree-link.js';
@@ -11,6 +12,10 @@ import { searchableMultiSelect } from '../../src/prompts/searchable-multi-select
 
 vi.mock('../../src/prompts/searchable-multi-select.js', () => ({
   searchableMultiSelect: vi.fn(async () => ['claude']),
+}));
+
+vi.mock('@inquirer/prompts', () => ({
+  confirm: vi.fn(async () => false),
 }));
 
 vi.mock('../../src/ui/welcome-screen.js', () => ({
@@ -92,6 +97,10 @@ beforeEach(async () => {
   process.env.HOME = path.join(testDir, 'home');
   process.env.XDG_CONFIG_HOME = path.join(testDir, 'xdg-config');
   process.env.CODEX_HOME = path.join(testDir, 'codex-home');
+  vi.mocked(searchableMultiSelect).mockReset();
+  vi.mocked(searchableMultiSelect).mockResolvedValue(['claude']);
+  vi.mocked(confirm).mockReset();
+  vi.mocked(confirm).mockResolvedValue(false);
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });
 
@@ -142,6 +151,40 @@ describe('InitCommand skill setup', () => {
 });
 
 describe('InitCommand subagent readiness warning', () => {
+  it('creates missing agents for selected harnesses when the user accepts', async () => {
+    vi.mocked(searchableMultiSelect).mockResolvedValueOnce(['claude', 'codex']);
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+
+    await new InitCommand({ force: true, interactive: true }).execute(testDir);
+
+    expect(confirm).toHaveBeenCalledWith({
+      message: 'Create missing Spok agents for Claude Code and Codex?',
+      default: true,
+    });
+    const agentNames = await getManagedAgentNames();
+    for (const name of agentNames) {
+      await expect(pathExists(path.join(process.env.HOME!, '.claude', 'agents', `${name}.md`)))
+        .resolves.toBe(true);
+      await expect(pathExists(path.join(process.env.HOME!, '.codex', 'agents', `${name}.toml`)))
+        .resolves.toBe(true);
+    }
+    expect(consoleOutput()).not.toContain('Run: spok skills install');
+  });
+
+  it('keeps the install guidance when the user declines agent creation', async () => {
+    vi.mocked(searchableMultiSelect).mockResolvedValueOnce(['claude']);
+
+    await new InitCommand({ force: true, interactive: true }).execute(testDir);
+
+    expect(confirm).toHaveBeenCalledWith({
+      message: 'Create missing Spok agents for Claude Code?',
+      default: true,
+    });
+    expect(consoleOutput()).toContain('Run: spok skills install --tools claude');
+    await expect(pathExists(path.join(process.env.HOME!, '.claude', 'agents')))
+      .resolves.toBe(false);
+  });
+
   it('warns for missing Claude and Codex agents when both tools are selected', async () => {
     await new InitCommand({
       tools: 'claude,codex',

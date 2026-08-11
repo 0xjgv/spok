@@ -593,6 +593,14 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "the current host's native subagent mechanism"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "host-owned `general-purpose`"
 
+  Scenario: Interactive init creates missing agents for selected harnesses
+    Given a new project
+    And an empty home directory for agent readiness
+    When I initialize Spok interactively for the tools "claude,codex" and accept agent creation
+    Then setup guidance mentions "Create missing Spok agents for Claude Code and Codex?"
+    And Spok creates 5 home agents under ".claude/agents"
+    And Spok creates 5 home agents under ".codex/agents"
+
   Scenario: Project commands warn about missing global agents without installing them
     Given a new project
     And an empty home directory for agent readiness

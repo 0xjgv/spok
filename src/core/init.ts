@@ -38,6 +38,10 @@ import {
 } from './shared/index.js';
 import { getAvailableTools } from './available-tools.js';
 import { installVendoredSkills } from './skill-vendor.js';
+import {
+  applyManagedAgentInstall,
+  prepareManagedAgentInstall,
+} from './agent-vendor.js';
 import { checkSubagentReadiness, formatSubagentWarning } from './subagent-check.js';
 import { parseToolsSelectionArg } from './tool-selection.js';
 import { ensureWorktreeLink, type WorktreeLinkResult } from './worktree-link.js';
@@ -75,6 +79,7 @@ type InitCommandOptions = {
   tools?: string;
   force?: boolean;
   interactive?: boolean;
+  homeDir?: string;
 };
 
 // -----------------------------------------------------------------------------
@@ -85,11 +90,13 @@ export class InitCommand {
   private readonly toolsArg?: string;
   private readonly force: boolean;
   private readonly interactiveOption?: boolean;
+  private readonly homeDir?: string;
 
   constructor(options: InitCommandOptions = {}) {
     this.toolsArg = options.tools;
     this.force = options.force ?? false;
     this.interactiveOption = options.interactive;
+    this.homeDir = options.homeDir;
   }
 
   async execute(targetPath: string): Promise<void> {
@@ -134,8 +141,8 @@ export class InitCommand {
     // Create config.toml if needed
     const configStatus = await this.createConfig(spokPath, extendMode);
 
-    // Warn if supported tools are configured but their Spok agents are missing.
-    await this.warnIfSubagentsMissing(validatedTools);
+    // Offer to create missing native agents, then retain install guidance if declined.
+    await this.handleMissingSubagents(validatedTools);
 
     // Display success message
     this.displaySuccessMessage(projectPath, validatedTools, results, configStatus, worktreeLinkResult);
@@ -153,10 +160,40 @@ export class InitCommand {
     }
   }
 
-  private async warnIfSubagentsMissing(
+  private async handleMissingSubagents(
     tools: Array<{ value: string }>
   ): Promise<void> {
-    const results = await checkSubagentReadiness(tools.map((tool) => tool.value));
+    const results = await checkSubagentReadiness(
+      tools.map((tool) => tool.value),
+      { homeDir: this.homeDir }
+    );
+    const incomplete = results.filter((result) => result.missing.length > 0);
+    if (incomplete.length === 0) return;
+
+    const canPrompt = this.interactiveOption !== false
+      && isInteractive({ interactive: this.interactiveOption });
+    if (canPrompt) {
+      const harnesses = incomplete.map((result) => result.displayName).join(' and ');
+      const { confirm } = await import('@inquirer/prompts');
+      const shouldInstall = await confirm({
+        message: `Create missing Spok agents for ${harnesses}?`,
+        default: true,
+      });
+
+      if (shouldInstall) {
+        const prepared = await prepareManagedAgentInstall({
+          homeDir: this.homeDir,
+          toolIds: incomplete.map((result) => result.toolId),
+          version: SPOK_VERSION,
+        });
+        await applyManagedAgentInstall(prepared);
+        console.log();
+        console.log(chalk.green(`Created Spok agents for ${harnesses}.`));
+        console.log(chalk.dim('Start fresh tool sessions for new agents to take effect.'));
+        return;
+      }
+    }
+
     const warning = formatSubagentWarning(results);
     if (warning) {
       console.log();

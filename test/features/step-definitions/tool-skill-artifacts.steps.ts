@@ -5,6 +5,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { PassThrough, Writable } from 'node:stream';
 import { InitCommand } from '../../../src/core/init.js';
 import { UpdateCommand } from '../../../src/core/update.js';
 import { GlobalSkillsInstallCommand } from '../../../src/core/skills-install.js';
@@ -413,9 +414,69 @@ Given('retired Spok command artifacts exist', async function (this: SkillArtifac
 When('I initialize Spok for the tools {string}', async function (this: SkillArtifactWorld, tools: string) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   this.setupGuidance = await captureConsoleLog(async () => {
-    await new InitCommand({ tools, force: true, interactive: false }).execute(this.projectDir!);
+    await new InitCommand({
+      tools,
+      force: true,
+      interactive: false,
+      homeDir: this.emptyAgentHome,
+    }).execute(this.projectDir!);
   });
 });
+
+When(
+  'I initialize Spok interactively for the tools {string} and accept agent creation',
+  async function (this: SkillArtifactWorld, tools: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    assert.ok(this.emptyAgentHome, 'empty agent home must be set by readiness setup');
+
+    const input = new PassThrough();
+    Object.assign(input, { isTTY: true, setRawMode: () => input });
+    let terminalOutput = '';
+    const output = new Writable({
+      write(chunk, _encoding, callback) {
+        terminalOutput += String(chunk);
+        callback();
+      },
+    });
+    Object.assign(output, { isTTY: false, columns: 80 });
+
+    const originalStdin = Object.getOwnPropertyDescriptor(process, 'stdin');
+    const originalStdout = Object.getOwnPropertyDescriptor(process, 'stdout');
+    const originalCI = process.env.CI;
+    const originalInteractive = process.env.OPEN_SPEC_INTERACTIVE;
+    let enterTimer: ReturnType<typeof setTimeout> | undefined;
+    let consoleOutput = '';
+
+    try {
+      delete process.env.CI;
+      delete process.env.OPEN_SPEC_INTERACTIVE;
+      Object.defineProperties(process, {
+        stdin: { configurable: true, value: input },
+        stdout: { configurable: true, value: output },
+      });
+      enterTimer = setTimeout(() => input.write('\r'), 50);
+      consoleOutput = await captureConsoleLog(async () => {
+        await new InitCommand({
+          tools,
+          force: true,
+          interactive: true,
+          homeDir: this.emptyAgentHome,
+        }).execute(this.projectDir!);
+      });
+    } finally {
+      if (enterTimer) clearTimeout(enterTimer);
+      input.destroy();
+      if (originalStdin) Object.defineProperty(process, 'stdin', originalStdin);
+      if (originalStdout) Object.defineProperty(process, 'stdout', originalStdout);
+      if (originalCI === undefined) delete process.env.CI;
+      else process.env.CI = originalCI;
+      if (originalInteractive === undefined) delete process.env.OPEN_SPEC_INTERACTIVE;
+      else process.env.OPEN_SPEC_INTERACTIVE = originalInteractive;
+    }
+
+    this.setupGuidance = `${consoleOutput}\n${terminalOutput}`;
+  }
+);
 
 When(
   'I initialize Spok for the tools {string} in {string}',
@@ -609,6 +670,22 @@ When(
 
 When('I update Spok with force', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+
+  if (this.emptyAgentHome) {
+    const result = await runCLI(['update', '--force'], {
+      cwd: this.projectDir,
+      env: {
+        HOME: this.emptyAgentHome,
+        SPOK_TELEMETRY: '0',
+        USERPROFILE: this.emptyAgentHome,
+      },
+      timeoutMs: 10_000,
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    this.setupGuidance = `${result.stdout}\n${result.stderr}`;
+    return;
+  }
+
   this.setupGuidance = await captureConsoleLog(async () => {
     await new UpdateCommand({ force: true }).execute(this.projectDir!);
   });
@@ -728,6 +805,21 @@ Then('Spok creates {int} global agents under {string}', async function (
 ) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   const entries = await fs.readdir(path.join(this.projectDir, relativeDir), {
+    withFileTypes: true,
+  });
+  const agentCount = entries.filter(
+    (entry) => entry.isFile() && entry.name.startsWith('spok-')
+  ).length;
+  assert.equal(agentCount, expectedCount);
+});
+
+Then('Spok creates {int} home agents under {string}', async function (
+  this: SkillArtifactWorld,
+  expectedCount: number,
+  relativeDir: string
+) {
+  assert.ok(this.emptyAgentHome, 'empty agent home must be set by readiness setup');
+  const entries = await fs.readdir(path.join(this.emptyAgentHome, relativeDir), {
     withFileTypes: true,
   });
   const agentCount = entries.filter(
