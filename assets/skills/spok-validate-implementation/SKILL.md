@@ -66,26 +66,26 @@ Then wait for the user's input.
    - Record command results, failures, skipped checks, and environment blockers
    - Treat a required automated check that cannot run or does not pass as a validation failure unless the plan explicitly marked it as manual-only
 
-7. **Get an independent subagent go/no-go review**: (in parallel if other validation work remains)
-   - Use the current host's native subagent mechanism to run a foreground review, preferably **spok-qa** for validation/readiness reviews or **spok-codebase-analyzer** for implementation-path reviews
+7. **Get an independent implementation-path review**: (in parallel if other validation work remains)
+   - Use the current host's native subagent mechanism to run **spok-codebase-analyzer** in the foreground
    - Give the subagent a bounded prompt with:
      - the plan path
      - any ExecPlan path
      - the relevant task directory
      - a concise summary of the current diff or implementation state
      - the automated checks you ran and their results
-     - the exact question: should this implementation receive a GO or NO-GO against the plan, and what blocking findings remain
+     - the exact question: which implementation paths satisfy or diverge from the plan, and what evidence gaps remain
    - Ask the subagent to return:
-     - `GO` or `NO-GO`
-     - blocking findings
+     - implementation-path findings with file and line evidence
+     - plan mismatches
      - missing or weak evidence
      - confidence level and key assumptions
-   - If the subagent cannot run or returns an ungrounded answer, record that as missing independent review evidence and continue local validation conservatively
+   - If the subagent cannot run or returns an ungrounded answer, record that as missing independent analysis evidence and continue local validation conservatively
 
 8. **Compare implementation against the plan**:
    - Check each implemented phase or success criterion against the actual code and test evidence
-   - Synthesize your own findings with the subagent's go/no-go review
-   - Treat the subagent as an independent review input, not as the source of truth
+   - Synthesize your own findings with the subagent's implementation-path analysis
+   - Treat the subagent as an independent evidence source, not as the source of truth
    - Record mismatches between the written plan and the current implementation state
    - If an ExecPlan is present, compare its `Progress`, acceptance language, and required outcomes against observed reality without editing the ExecPlan
    - Use a binary verdict:

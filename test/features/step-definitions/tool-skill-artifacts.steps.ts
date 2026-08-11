@@ -810,6 +810,19 @@ Then(
 );
 
 Then(
+  'the workflow skill {string} under {string} does not mention {string}',
+  async function (this: SkillArtifactWorld, skillName: string, relativeDir: string, unexpectedText: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    const skillPath = path.join(this.projectDir, relativeDir, skillName, 'SKILL.md');
+    const skill = await fs.readFile(skillPath, 'utf-8');
+    assert.doesNotMatch(
+      skill,
+      new RegExp(unexpectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    );
+  }
+);
+
+Then(
   'the workflow skill resource {string} under {string} in {string} contains {string}',
   async function (
     this: SkillArtifactWorld,

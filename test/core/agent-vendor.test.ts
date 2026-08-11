@@ -16,21 +16,10 @@ import {
 
 const VERSION = '9.8.7-test';
 const DEFAULT_AGENT_NAMES = [
-  'spok-ai-engineer',
-  'spok-architect',
   'spok-codebase-analyzer',
   'spok-codebase-locator',
   'spok-codebase-pattern-finder',
-  'spok-codebase-simplifier',
-  'spok-designer',
-  'spok-engineer',
-  'spok-implementation-reviewer',
   'spok-implementer-agent',
-  'spok-outline-implementer-agent',
-  'spok-product',
-  'spok-qa',
-  'spok-reverse-engineer',
-  'spok-security-engineer',
   'spok-web-search-researcher',
 ] as const;
 
@@ -90,7 +79,7 @@ afterEach(() => {
 });
 
 describe('managed agent catalog', () => {
-  it('loads the 16-name default Claude and Codex catalog', async () => {
+  it('loads the five-name default Claude and Codex catalog', async () => {
     expect(await getManagedAgentNames()).toEqual(DEFAULT_AGENT_NAMES);
   });
 

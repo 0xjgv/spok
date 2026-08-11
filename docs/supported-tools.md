@@ -75,7 +75,7 @@ Install or refresh selected tools under your home directory with `spok skills in
 spok skills install --tools claude,codex
 ```
 
-Claude Code and Codex global installs include the same 16 Spok-prefixed native agents in addition to the skills:
+Claude Code and Codex global installs include the same five Spok-prefixed native agents used by Spok workflows in addition to the skills:
 
 | Selected tool | Global skills | Global native agents |
 |---------------|---------------|----------------------|

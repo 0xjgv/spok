@@ -163,8 +163,8 @@ describe('GlobalSkillsInstallCommand', () => {
     await expect(pathExists(path.join(homeDir, '.factory', 'skills', 'spok-propose', 'SKILL.md'))).resolves.toBe(true);
     const claudeAgentsDir = path.join(homeDir, '.claude', 'agents');
     const codexAgentsDir = path.join(homeDir, '.codex', 'agents');
-    await expect(fs.readdir(claudeAgentsDir)).resolves.toHaveLength(16);
-    await expect(fs.readdir(codexAgentsDir)).resolves.toHaveLength(16);
+    await expect(fs.readdir(claudeAgentsDir)).resolves.toHaveLength(5);
+    await expect(fs.readdir(codexAgentsDir)).resolves.toHaveLength(5);
     await expect(fs.readFile(globalAgentPath(homeDir, 'claude'), 'utf-8'))
       .resolves.toContain(MANAGED_AGENT_MARKER);
     await expect(fs.readFile(globalAgentPath(homeDir, 'codex'), 'utf-8'))
@@ -173,8 +173,8 @@ describe('GlobalSkillsInstallCommand', () => {
     await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
 
     const output = loggedText();
-    expect(output).toContain('16 Spok agents in ~/.claude/agents');
-    expect(output).toContain('16 Spok agents in ~/.codex/agents');
+    expect(output).toContain('5 Spok agents in ~/.claude/agents');
+    expect(output).toContain('5 Spok agents in ~/.codex/agents');
     expect(output).toContain('fresh tool session');
   });
 

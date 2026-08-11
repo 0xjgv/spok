@@ -10,21 +10,10 @@ import {
 } from '../../src/core/subagent-check.js';
 
 const DEFAULT_AGENT_NAMES = [
-  'spok-ai-engineer',
-  'spok-architect',
   'spok-codebase-analyzer',
   'spok-codebase-locator',
   'spok-codebase-pattern-finder',
-  'spok-codebase-simplifier',
-  'spok-designer',
-  'spok-engineer',
-  'spok-implementation-reviewer',
   'spok-implementer-agent',
-  'spok-outline-implementer-agent',
-  'spok-product',
-  'spok-qa',
-  'spok-reverse-engineer',
-  'spok-security-engineer',
   'spok-web-search-researcher',
 ] as const;
 
@@ -79,7 +68,7 @@ describe('subagent-check', () => {
         displayName: 'Claude Code',
         targetDir: agentDir(homeDir, 'claude'),
         targetDirExists: false,
-        expectedCount: 16,
+        expectedCount: 5,
         missing: DEFAULT_AGENT_NAMES.map((name) => `${name}.md`),
       },
       {
@@ -87,7 +76,7 @@ describe('subagent-check', () => {
         displayName: 'Codex',
         targetDir: agentDir(homeDir, 'codex'),
         targetDirExists: false,
-        expectedCount: 16,
+        expectedCount: 5,
         missing: DEFAULT_AGENT_NAMES.map((name) => `${name}.toml`),
       },
     ]);
@@ -105,7 +94,7 @@ describe('subagent-check', () => {
 
   it('reports only absent Claude and Codex files for partial installations', async () => {
     writeAgentFiles(homeDir, 'claude', [DEFAULT_AGENT_NAMES[0]]);
-    writeAgentFiles(homeDir, 'codex', [DEFAULT_AGENT_NAMES[15]]);
+    writeAgentFiles(homeDir, 'codex', [DEFAULT_AGENT_NAMES[DEFAULT_AGENT_NAMES.length - 1]]);
 
     const [claude, codex] = await checkSubagentReadiness(['claude', 'codex'], {
       homeDir,
@@ -144,7 +133,7 @@ describe('subagent-check', () => {
     const [result] = await checkSubagentReadiness(['codex'], { homeDir });
 
     expect(result?.targetDir).toBe(agentDir(homeDir, 'codex'));
-    expect(result?.missing).toHaveLength(16);
+    expect(result?.missing).toHaveLength(5);
   });
 
   it('does not create the home or agent directories while probing', async () => {
@@ -167,7 +156,7 @@ describe('subagent-check', () => {
         displayName: 'Claude Code',
         targetDir: '/home/test/.claude/agents',
         targetDirExists: true,
-        expectedCount: 16,
+        expectedCount: 5,
         missing: ['spok-implementer-agent.md'],
       },
       {
@@ -175,20 +164,20 @@ describe('subagent-check', () => {
         displayName: 'Codex',
         targetDir: '/home/test/.codex/agents',
         targetDirExists: false,
-        expectedCount: 16,
-        missing: ['spok-qa.toml'],
+        expectedCount: 5,
+        missing: ['spok-web-search-researcher.toml'],
       },
     ];
 
     expect(formatSubagentWarning(results)).toBe([
       'Missing Spok agents for Claude Code',
-      '  Missing 1 of 16: spok-implementer-agent.md',
+      '  Missing 1 of 5: spok-implementer-agent.md',
       '  Expected in: /home/test/.claude/agents',
       '  Run: spok skills install --tools claude',
       '  Then start a fresh Claude Code session.',
       '',
       'Missing Spok agents for Codex',
-      '  Missing 1 of 16: spok-qa.toml',
+      '  Missing 1 of 5: spok-web-search-researcher.toml',
       '  Expected in: /home/test/.codex/agents',
       '  Run: spok skills install --tools codex',
       '  Then start a fresh Codex session.',
@@ -201,7 +190,7 @@ describe('subagent-check', () => {
       displayName: 'Claude Code',
       targetDir: '/home/test/.claude/agents',
       targetDirExists: true,
-      expectedCount: 16,
+      expectedCount: 5,
       missing: [],
     };
 

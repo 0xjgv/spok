@@ -53,8 +53,8 @@ describe('global Spok skills CLI', () => {
     await expect(pathExists(path.join(homeDir, '.codex', 'agents', 'spok-codebase-locator.toml'))).resolves.toBe(true);
     await expect(pathExists(path.join(homeDir, '.codex', 'agents', 'spok-implementer-agent.toml'))).resolves.toBe(true);
     await expect(pathExists(path.join(homeDir, '.factory', 'agents'))).resolves.toBe(false);
-    expect(result.stdout).toContain('16 Spok agents in ~/.claude/agents');
-    expect(result.stdout).toContain('16 Spok agents in ~/.codex/agents');
+    expect(result.stdout).toContain('5 Spok agents in ~/.claude/agents');
+    expect(result.stdout).toContain('5 Spok agents in ~/.codex/agents');
     await expect(pathExists(path.join(projectDir, 'spok'))).resolves.toBe(false);
   }, 30_000);
 

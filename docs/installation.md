@@ -28,7 +28,7 @@ Install Spok skills for the supported tools you use:
 spok skills install --tools claude,codex
 ```
 
-Spok writes skills only to the selected supported tools. When Claude Code or Codex is selected, it also installs the same 16 `spok-*` native agents in that tool's canonical home path: skills under `~/.claude/skills` and `~/.agents/skills`, and agents under `~/.claude/agents` and `~/.codex/agents`.
+Spok writes skills only to the selected supported tools. When Claude Code or Codex is selected, it also installs the same five `spok-*` native agents used by Spok workflows in that tool's canonical home path: skills under `~/.claude/skills` and `~/.agents/skills`, and agents under `~/.claude/agents` and `~/.codex/agents`.
 
 Start a fresh Claude Code or Codex session after a global install or update so it discovers the installed agents. See [Supported Tools](supported-tools.md) for collision, `--force`, and reconciliation details.
 

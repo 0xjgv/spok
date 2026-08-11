@@ -4,7 +4,7 @@
 
 ### New Features
 
-- Install the 16 Spok-prefixed native agents alongside global skills for selected Claude Code and Codex hosts.
+- Install the five Spok-prefixed native agents used by Spok workflows alongside global skills for selected Claude Code and Codex hosts.
 - Reconcile missing, outdated, and retired Spok-managed agents during global updates, with collision-safe `--force` adoption for exact catalog filenames.
 
 ### Improvements

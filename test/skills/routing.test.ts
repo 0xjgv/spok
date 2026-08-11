@@ -121,7 +121,6 @@ describe('Spok-prefixed agent routing', () => {
     'codebase-analyzer',
     'codebase-pattern-finder',
     'web-search-researcher',
-    'qa',
     'implementer-agent',
   ] as const;
 

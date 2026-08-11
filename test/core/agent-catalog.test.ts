@@ -7,28 +7,16 @@ import { extractFrontmatter } from '../helpers/frontmatter';
 
 const AGENT_ASSETS = path.resolve('assets/agents');
 const EXPECTED_AGENTS = [
-  'spok-ai-engineer',
-  'spok-architect',
   'spok-codebase-analyzer',
   'spok-codebase-locator',
   'spok-codebase-pattern-finder',
-  'spok-codebase-simplifier',
-  'spok-designer',
-  'spok-engineer',
-  'spok-implementation-reviewer',
   'spok-implementer-agent',
-  'spok-outline-implementer-agent',
-  'spok-product',
-  'spok-qa',
-  'spok-reverse-engineer',
-  'spok-security-engineer',
   'spok-web-search-researcher',
 ] as const;
 const WRITABLE_AGENTS = new Set<string>([
-  'spok-codebase-simplifier',
   'spok-implementer-agent',
-  'spok-outline-implementer-agent',
 ]);
+const EXPECTED_AGENT_SET = new Set<string>(EXPECTED_AGENTS);
 const LEGACY_ASSUMPTIONS = [
   /riptide/iu,
   /humanlayer/iu,
@@ -64,6 +52,13 @@ async function agentNames(directory: string, extension: string): Promise<string[
 function expectHostNeutral(content: string, filename: string): void {
   for (const pattern of LEGACY_ASSUMPTIONS) {
     expect(content, filename).not.toMatch(pattern);
+  }
+}
+
+function expectNoDanglingAgentReferences(content: string, filename: string): void {
+  const references = content.match(/\bspok-[a-z0-9-]+\b/gu) ?? [];
+  for (const reference of references) {
+    expect(EXPECTED_AGENT_SET.has(reference), `${filename} references ${reference}`).toBe(true);
   }
 }
 
@@ -109,6 +104,7 @@ describe('Spok agent catalog', () => {
         .not.toBe('');
       expect(claudeContent, claudeFile).toMatch(/(?:do not|never) (?:delegate|spawn)/iu);
       expectHostNeutral(claudeContent, claudeFile);
+      expectNoDanglingAgentReferences(claudeContent, claudeFile);
 
       const codexFile = path.join(AGENT_ASSETS, 'codex', `${name}.toml`);
       const codexContent = await readFile(codexFile, 'utf8');
@@ -124,6 +120,7 @@ describe('Spok agent catalog', () => {
       expect(codex.developer_instructions, codexFile)
         .toMatch(/(?:do not|never) (?:delegate|spawn)/iu);
       expectHostNeutral(codexContent, codexFile);
+      expectNoDanglingAgentReferences(codexContent, codexFile);
     }
   });
 });
