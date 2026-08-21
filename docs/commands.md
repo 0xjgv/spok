@@ -262,7 +262,7 @@ Different AI tools surface slash commands slightly differently. The intent is th
 | `spok-review-design` | `spok-flow` | Reconciles the design discussion with the outline and records a PASS/FAIL verdict before planning |
 | `spok-create-plan` | `spok-flow` | Converts the outline into a detailed plan |
 | `spok-implement-plan` | `spok-flow` | Phased implementation of the plan |
-| `spok-simplify` | `spok-flow` | Simplifies the chunk implementation before validation |
+| `spok-simplify` | `spok-flow` | Behavior-preserving simplification of the chunk diff — removes duplication, unnecessary abstraction, and dead code, then re-runs the plan's checks |
 | `spok-validate-implementation` | `spok-flow` | Validates implementation against the plan |
 | `spok-repair` | `spok-flow` | Fixes the blocking findings from a failing validation so the flow can re-validate (at most two repair attempts) |
 | `spok-ci-commit` | `spok-flow` | Commits the chunk with a conventional message |

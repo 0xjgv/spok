@@ -86,6 +86,52 @@ describe('artifact grounding rules in skill assets', () => {
     });
   });
 
+  describe('spok-simplify', () => {
+    it('bounds edits to files the chunk already changed', async () => {
+      const body = await readSkill('spok-simplify');
+
+      expect(body).toContain('Edit only files the chunk already changed');
+      expect(body).toContain('Every edit must trace to a');
+    });
+
+    it('defers duplication that needs a broader refactor instead of widening scope', async () => {
+      const body = await readSkill('spok-simplify');
+
+      expect(body).toContain('leave the duplication in place and record it under');
+      expect(body).toContain('`Remaining concerns`');
+    });
+
+    it('requires searching for an existing repository abstraction before keeping a new one', async () => {
+      const body = await readSkill('spok-simplify');
+
+      expect(body).toContain('Before keeping or introducing any abstraction');
+      expect(body).toContain('search the repository for an existing one');
+    });
+
+    it('reverts a simplification that breaks a check instead of fixing forward', async () => {
+      const body = await readSkill('spok-simplify');
+
+      expect(body).toContain('revert that simplification');
+      expect(body).toContain('fix forward into new behavior');
+    });
+
+    it('treats a no-op as a valid outcome and forbids churn', async () => {
+      const body = await readSkill('spok-simplify');
+
+      expect(body).toContain('A no-op is a valid outcome');
+      expect(body).toContain('never churn code to have something to report');
+    });
+
+    it('requires named commands for behavior-preservation claims', async () => {
+      const body = await readSkill('spok-simplify');
+
+      expect(body).toContain(
+        'Do not claim a check passed without naming the exact command that ran',
+      );
+      expect(body).toContain('never from a toolchain guess');
+    });
+  });
+
 });
 
 describe('spok-ci-commit grounding rules', () => {
