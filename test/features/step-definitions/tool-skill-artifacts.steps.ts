@@ -278,9 +278,7 @@ Given('self-learn is enabled in project config', async function (this: SkillArti
   );
 });
 
-Given('the staged flow task is completed through validation', async function (this: SkillArtifactWorld) {
-  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
-  const taskDir = this.flowTaskDir;
+async function stageFlowThrough(taskDir: string, lastStep: 'simplify' | 'validate'): Promise<void> {
   const completedAt = '2026-01-01T00:00:00.000Z';
   const fileSteps = [
     ['validate-problem', 'problem-validation.md', '# Problem Validation\n\n## Flow Decision\n\nproceed\n'],
@@ -297,7 +295,8 @@ Given('the staged flow task is completed through validation', async function (th
     ['validate', 'validation.md', '---\nverdict: PASS\n---\n\n# Validation\n'],
   ] as const;
 
-  for (const [, filename, content] of fileSteps) {
+  const writtenFileSteps = lastStep === 'validate' ? fileSteps : fileSteps.slice(0, 7);
+  for (const [, filename, content] of writtenFileSteps) {
     await fs.writeFile(path.join(taskDir, filename), content, 'utf-8');
   }
 
@@ -329,7 +328,7 @@ Given('the staged flow task is completed through validation', async function (th
             status: 'completed',
             result: { summary: 'Simplified the implementation.', completedAt },
           },
-          completedFileStep(fileSteps[7]),
+          ...(lastStep === 'validate' ? [completedFileStep(fileSteps[7])] : []),
         ],
         createdAt: completedAt,
         updatedAt: completedAt,
@@ -339,6 +338,16 @@ Given('the staged flow task is completed through validation', async function (th
     )}\n`,
     'utf-8'
   );
+}
+
+Given('the staged flow task is completed through simplify', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  await stageFlowThrough(this.flowTaskDir, 'simplify');
+});
+
+Given('the staged flow task is completed through validation', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  await stageFlowThrough(this.flowTaskDir, 'validate');
 });
 
 Given('the staged flow task has the separate work root recorded', async function (

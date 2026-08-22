@@ -385,6 +385,16 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "Model: fable"
     And the Spok CLI output contains "Effort: xhigh"
 
+  Scenario: Flow next routes validate to a model other than the implementer's
+    Given a new project
+    And the Claude harness is active
+    And a staged flow task
+    And the staged flow task is completed through simplify
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Next step: validate"
+    And the Spok CLI output contains "Model: fable"
+    And the Spok CLI output contains "Effort: high"
+
   Scenario: Flow reviews the design before exposing planning
     Given a new project
     And a staged flow task

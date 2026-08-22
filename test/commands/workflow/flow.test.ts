@@ -48,7 +48,7 @@ const EXPECTED_STEP_ROUTING = [
   { id: 'plan', model: 'fable', effort: 'xhigh' },
   { id: 'implement', model: 'opus', effort: 'medium' },
   { id: 'simplify', model: 'opus', effort: undefined },
-  { id: 'validate', model: 'opus', effort: 'medium' },
+  { id: 'validate', model: 'fable', effort: 'high' },
   { id: 'commit', model: 'haiku', effort: 'low' },
 ];
 
@@ -1026,6 +1026,8 @@ describe('deterministic workflow completion blockers', () => {
       state: 'ready',
       step: 'repair',
       completedStep: 'validate',
+      runner: 'claude',
+      model: 'fable',
     });
     expect(events.at(-1)?.code).toBeUndefined();
   });

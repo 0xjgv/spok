@@ -46,6 +46,8 @@ silently change a design decision.
    - required design behavior with no implementation phase
    - phase decomposition that cannot deliver the design
    - claims that conflict with repository evidence
+   - a `### Scale` section that is missing, marked not applicable while the design
+     touches persistent data, or claims 10×N without naming the mechanism
 6. Resolve evidence-backed inconsistencies inside this stage:
    - Update `<task-dir>/design-discussion.md` first whenever evidence corrects or
      clarifies a design decision.

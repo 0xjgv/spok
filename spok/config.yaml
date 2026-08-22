@@ -25,6 +25,9 @@ context: |
   Other agents may be working in this repository concurrently. Stage only the
   paths you modified.
 
+  Every feature that touches data names N (current volume) and states how it
+  stays fast at 10×N. "Fine" without a mechanism is not an answer.
+
 flow:
   self_learn: true
 # Per-artifact rules (optional)

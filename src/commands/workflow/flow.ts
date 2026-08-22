@@ -71,7 +71,8 @@ const CLAUDE_ROUTING_BY_ID = {
   plan: { runner: 'claude', model: 'fable', effort: 'xhigh' },
   implement: { runner: 'claude', model: 'opus', effort: 'medium' },
   simplify: { runner: 'claude', model: 'opus' },
-  validate: { runner: 'claude', model: 'opus', effort: 'medium' },
+  // Judge must not be the implementer's model; Fable is the strongest in-family alternative.
+  validate: { runner: 'claude', model: 'fable', effort: 'high' },
   [REPAIR_STEP_ID]: { runner: 'claude', model: 'opus', effort: 'high' },
   commit: { runner: 'claude', model: 'haiku', effort: 'low' },
   [SELF_LEARN_STEP_ID]: { runner: 'claude', model: 'sonnet', effort: 'xhigh' },
@@ -324,6 +325,10 @@ interface FlowEvent {
   state: FlowRunState;
   step?: string;
   completedStep?: string;
+  /** Routing of the completed step; lets the log answer "which model judged, on which attempt". */
+  runner?: FlowRunner;
+  model?: FlowModel;
+  attempt?: number;
   code?: string;
   reason?: string;
 }
@@ -448,6 +453,11 @@ const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
     'absolute path of the repository working tree you edited (the git worktree root that ' +
     'holds the changed files, which may differ from the task directory). Report the path ' +
     '`git -C <directory containing an edited file> rev-parse --show-toplevel` prints, not a guess.',
+  validate:
+    'You are the adversary, not the author. Presume the implementation is wrong and try to ' +
+    'break it. Judge from the diff, the plan, the ticket, and the design discussion (including ' +
+    'its Scale section); do NOT read step summaries in workflow-state.json or trust the ' +
+    'implementer\'s claims.',
   [SELF_LEARN_STEP_ID]: 'This gate is advisory. Do not fail, amend, or rewrite the commit.',
 };
 
@@ -877,7 +887,13 @@ async function recordFlowResponse(
 
   const step = response.step?.id ?? response.nextStep?.id;
   if (step) event.step = step;
-  if (response.completedStep?.id) event.completedStep = response.completedStep.id;
+  const completed = response.completedStep;
+  if (completed?.id) {
+    event.completedStep = completed.id;
+    event.runner = completed.runner;
+    event.model = completed.model;
+    if (completed.attempt !== undefined) event.attempt = completed.attempt;
+  }
   if (response.reason) {
     event.code = flowBlockCode(response.reason);
     event.reason = response.reason;

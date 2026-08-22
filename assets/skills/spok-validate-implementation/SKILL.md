@@ -7,6 +7,8 @@ description: validate an implementation against a task plan and current code. us
 
 You are validating implemented work against an existing implementation plan and the current codebase state.
 
+You are the adversary, not the author. Presume the implementation is wrong and try to break it; `PASS` means you tried and failed. Judge from code, diff, tests, and the task documents. Do not read step summaries in `workflow-state.json` and do not treat the implementer's claims as evidence.
+
 ## Input
 
 - `planPath`: Path to the plan document (e.g. `<task-dir>/plan.md`)
@@ -42,6 +44,7 @@ Then wait for the user's input.
    - Read the source files and test files referenced by the plan
    - Read any files changed by the implementation that appear relevant to planned behavior
    - Identify the automated and manual success criteria promised by the plan
+   - From those criteria and the design's `### Scale` section, list the attacks that apply: empty or minimal input, boundary values, 10×N volume, ordering or concurrency, error and partial-failure paths. Skip a category only with a one-line reason (a docs-only change has no volume attack); never pad with attacks the change cannot exercise
 
 4. **If the user gives any input**:
    - DO NOT just accept the claim blindly
@@ -65,6 +68,7 @@ Then wait for the user's input.
    - If the plan omits a command but names a concrete expected test or check, run the closest exact command that proves the behavior
    - Record command results, failures, skipped checks, and environment blockers
    - Treat a required automated check that cannot run or does not pass as a validation failure unless the plan explicitly marked it as manual-only
+   - Run every applicable attack from step 3 as a real command or test and record command, input, and observed result under `## Attacks Tried`; an attack that was reasoned about but not run is `not run`, and a successful break is a blocking finding
 
 7. **Get an independent implementation-path review**: (in parallel if other validation work remains)
    - Use the current host's native subagent mechanism to run **spok-codebase-analyzer** in the foreground
@@ -117,6 +121,8 @@ Then wait for the user's input.
 - Do not mutate source files, task plans, or ExecPlans as part of validation; only the validation document should be written
 - Be transparent about which subagent reviewed the implementation and validate its output before relying on it
 - Prefer concrete evidence: file paths, line references, command results, failing tests, and observed gaps
+- Record who judged: set the template's `validator:` frontmatter to the runner and model you are running as (for example `claude/fable`) so the event log can be reconciled
+- Scale: when `design-discussion.md` names data under `### Scale`, run the check that proves the 10×N claim (EXPLAIN, timing against a 10×N fixture, peak memory) and record it under `## Scale Evidence`; an `unproven` verdict there is a blocking finding
 
 ## Document Precedence
 

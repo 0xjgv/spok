@@ -6,6 +6,7 @@ branch: [current branch name]
 sha: [result of git rev-parse HEAD]
 plan: [<task-dir>/plan.md]
 exec_plan: [path if provided, otherwise "none"]
+validator: [runner/model this validation ran as, e.g. claude/fable]
 verdict: PASS|FAIL
 ---
 
@@ -32,6 +33,19 @@ verdict: PASS|FAIL
 
 - `[command]` - `[pass/fail/skipped]` - [brief note]
 - `[command]` - `[pass/fail/skipped]` - [brief note]
+
+## Attacks Tried
+
+- [attack category] - `[command or test run]` - [input used] - `[held | broke | not run | n/a: reason]`
+- [attack category] - `[command or test run]` - [input used] - `[held | broke | not run | n/a: reason]`
+
+[One row per category from the skill's attack list. `broke` is a blocking finding. `not run` on an applicable category keeps the verdict at FAIL.]
+
+## Scale Evidence
+
+- Claim from design: [the "Stays fast at 10×N because" line from design-discussion.md, or "design says not applicable"]
+- Evidence: [EXPLAIN output / timing at 10×N / peak memory, with the exact command run]
+- Verdict: `proven` | `unproven` | `not applicable`
 
 ## Plan Coverage
 

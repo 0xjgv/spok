@@ -33,6 +33,15 @@ sha: [result of git rev-parse HEAD]
 - ..
 - ..
 
+### Scale
+
+- Data touched: [table/collection/file, current N, expected growth]
+- Access pattern: [lookup by X, scan, join, batch size]
+- Stays fast at 10×N because: [index / pagination / streaming / bounded query]
+- Not applicable because: [no persistent data or volume-bounded input]
+
+[Fill exactly one of the last two lines. Name N; never write "fine" without the mechanism.]
+
 ### Patterns to follow
 
 #### [title First pattern from research]
