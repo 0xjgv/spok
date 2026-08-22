@@ -18,12 +18,15 @@ import {
   flowCompleteCommand,
   flowNextCommand,
   flowStatusCommand,
+  isFlowProfile,
+  runCommand,
   DEFAULT_SCHEMA,
   type StatusOptions,
   type InstructionsOptions,
   type NewChangeOptions,
   type FlowCommandOptions,
   type FlowCompleteCommandOptions,
+  type RunCommandOptions,
 } from '../commands/workflow/index.js';
 import { maybeShowTelemetryNotice, trackCommand, trackTelemetryEvent, shutdown } from '../telemetry/index.js';
 import { collectCliSignals } from './signals.js';
@@ -97,6 +100,9 @@ const COMMAND_VISIBILITY: Record<string, CommandVisibility> = {
   instructions: 'skill',
   new: 'skill',
   'new change': 'skill',
+  // Documented under User-Facing Commands in docs/cli.md; humans and external
+  // orchestrators invoke it directly, not only skills.
+  run: 'user',
   flow: 'internal',
   'flow status': 'internal',
   'flow next': 'internal',
@@ -587,6 +593,31 @@ flowCmd
       await flowCompleteCommand(taskDir, options);
     } catch (error) {
       console.log();
+      ora().fail(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('run <task-dir>')
+  .description('Drive the deterministic flow to completion by dispatching each step to its harness')
+  .option('--profile <profile>', 'Flow profile: claude, codex, or hybrid')
+  .option('--json', 'Output as JSON')
+  .action(async (taskDir: string, options: RunCommandOptions) => {
+    // An unrecognized profile is a usage error, caught before the state machine
+    // could report it as a blocker and exit 2.
+    if (options.profile && !isFlowProfile(options.profile)) {
+      if (!options.json) console.log();
+      ora().fail(
+        `Error: Invalid --profile value: ${options.profile}. Expected claude, codex, or hybrid.`
+      );
+      process.exit(1);
+    }
+
+    try {
+      process.exitCode = await runCommand(taskDir, options);
+    } catch (error) {
+      if (!options.json) console.log();
       ora().fail(`Error: ${(error as Error).message}`);
       process.exit(1);
     }

@@ -10,8 +10,11 @@ export type { StatusOptions } from './status.js';
 export { instructionsCommand, applyInstructionsCommand } from './instructions.js';
 export type { InstructionsOptions } from './instructions.js';
 
-export { flowCompleteCommand, flowNextCommand, flowStatusCommand } from './flow.js';
+export { flowCompleteCommand, flowNextCommand, flowStatusCommand, isFlowProfile } from './flow.js';
 export type { FlowCommandOptions, FlowCompleteCommandOptions } from './flow.js';
+
+export { runCommand } from './run.js';
+export type { RunCommandOptions } from './run.js';
 
 export { newChangeCommand } from './new-change.js';
 export type { NewChangeOptions } from './new-change.js';

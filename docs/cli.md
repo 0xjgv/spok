@@ -12,7 +12,7 @@ For slash commands, see [Commands](commands.md). For workflow patterns, see [Wor
 
 | Surface | Verbs | Purpose |
 |---------|-------|---------|
-| **User-facing** | `version`, `init`, `doctor`, `update`, `skills install`, `archive`, `list` | Inspect, setup, diagnose, refresh, finalize, browse |
+| **User-facing** | `version`, `init`, `doctor`, `update`, `skills install`, `archive`, `list`, `run` | Inspect, setup, diagnose, refresh, finalize, browse, drive |
 | **Agent discovery** | `capabilities` | Machine-readable CLI manifest for agents and scripts |
 | **Internal plumbing** | `new`, `status`, `instructions` | Called by skills; safe to inspect, not meant for daily human use |
 
@@ -274,6 +274,43 @@ spok archive update-ci-config --skip-specs
 
 ---
 
+### `spok run`
+
+Drive the deterministic flow of a staged task to a terminal outcome, dispatching each step to its routed harness (`claude` or `codex`) as a foreground subprocess. Progress is reported as human-readable lines, or as a machine-readable JSONL event stream with `--json` for orchestrators and CI.
+
+```
+spok run <task-dir> [options]
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `task-dir` | Yes | Flow task directory (e.g. `spok/changes/<name>/.flow/<chunk>`) |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--profile <profile>` | Flow profile: `claude`, `codex`, or `hybrid` |
+| `--json` | Emit JSONL supervision events on stdout |
+
+**Examples:**
+
+```bash
+# Drive a flow to completion with human-readable progress
+spok run spok/changes/add-dark-mode/.flow/chunk-one
+
+# Supervise from an orchestrator via JSONL events
+spok run spok/changes/add-dark-mode/.flow/chunk-one --json
+```
+
+**JSONL protocol (`--json`):**
+
+With `--json`, stdout is pure protocol — one JSON object per line, each carrying `schemaVersion: 1` — while harness output stays on stderr. Events: `run_started` (taskDir, profile), `step_started` (step, runner, model, effort?, attempt?), `step_completed` (step), `warning` (message — a relayed memory or work-root warning, emitted at most once per distinct message per run), `blocked` (code, reason, and `humanDecisions` when a design-review FAIL records a `## Human Decisions Required` section), `step_failed` (step, reason), and terminal `complete` (commit? from the recorded commit step).
+
+---
+
 ## Agent Discovery
 
 ### `spok capabilities`
@@ -524,6 +561,17 @@ spok instructions design --change add-dark-mode --json
 |------|---------|
 | `0` | Success |
 | `1` | Error (validation failure, missing files, etc.) |
+
+`spok run` reports the flow's terminal outcome through its exit code:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Flow complete |
+| `1` | Usage error (e.g. invalid `--profile` value) |
+| `2` | Blocked (the state machine reported a blocker) |
+| `3` | Execution failure (no dispatchable prompt, missing runner, harness failure, or completion-contract violation) |
+| `130` | Interrupted (SIGINT) |
+| `143` | Terminated (SIGTERM) |
 
 ---
 

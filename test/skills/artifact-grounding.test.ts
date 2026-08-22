@@ -76,13 +76,12 @@ describe('artifact grounding rules in skill assets', () => {
   });
 
   describe('spok-flow', () => {
-    it('forbids relaying unattributed verification claims into the summary', async () => {
+    it('relays the CLI-reported outcome without inventing or softening it', async () => {
       const body = await readSkill('spok-flow');
 
-      expect(body).toContain(
-        'Do not relay a verification claim that cannot be attributed to a command that ran',
-      );
-      expect(body).toContain('drop the claim from the summary');
+      expect(body).toContain("report the event's `reason` verbatim");
+      expect(body).toContain('`## Human Decisions Required` content verbatim');
+      expect(body).toContain('never invent or soften an outcome');
     });
   });
 
