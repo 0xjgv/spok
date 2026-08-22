@@ -56,6 +56,13 @@ interface ComplexityOffender {
   length: number;
 }
 
+// Git exports these into hook processes; from a linked worktree they redirect
+// every nested `git` the tests spawn into this repo, so its hooks run there too.
+const GIT_HOOK_ENV_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_PREFIX', 'GIT_COMMON_DIR'];
+const CHILD_ENV = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !GIT_HOOK_ENV_VARS.includes(key)),
+);
+
 async function run(
   description: string,
   cmd: string[],
@@ -63,7 +70,7 @@ async function run(
 ): Promise<RunResult> {
   if (VERBOSE) console.log(`${DIM}  → ${cmd.join(' ')}${RESET}`);
 
-  const proc = Bun.spawn(cmd, { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+  const proc = Bun.spawn(cmd, { cwd: ROOT, env: CHILD_ENV, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
