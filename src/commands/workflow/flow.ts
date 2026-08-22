@@ -2,7 +2,9 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
+import { AI_TOOLS } from '../../core/config.js';
 import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
+import { ensureVendoredSkill } from '../../core/skill-vendor.js';
 import { FileSystemUtils } from '../../utils/file-system.js';
 
 const execFileAsync = promisify(execFile);
@@ -320,10 +322,12 @@ const SELF_LEARN_STEP_DEFINITION_SPEC = {
 interface FlowEvent {
   schemaVersion: 1;
   timestamp: string;
-  event: 'flow_status' | 'flow_next' | 'flow_complete';
+  event: 'flow_status' | 'flow_next' | 'flow_complete' | 'capability_materialized';
   state: FlowRunState;
   step?: string;
   completedStep?: string;
+  skill?: string;
+  runner?: FlowRunner;
   code?: string;
   reason?: string;
 }
@@ -828,6 +832,7 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Unknown flow profile:')) return 'unknown_flow_profile';
   if (reason.startsWith('Flow profile mismatch:')) return 'flow_profile_mismatch';
   if (reason.startsWith('Missing completed artifact for step ')) return 'missing_completed_artifact';
+  if (reason.startsWith('Capability unavailable for step ')) return 'capability_unavailable';
   if (reason.startsWith('Expected step ')) return 'wrong_step';
   if (reason.startsWith('Unknown workflow step:')) return 'unknown_step';
   if (reason.startsWith('Expected output path ')) return 'wrong_output_path';
@@ -850,6 +855,50 @@ function flowBlockCode(reason: string): string {
   if (reason.includes('is not a commit object in')) return 'commit_not_found';
   if (reason.includes('is not reachable from HEAD in')) return 'commit_not_reachable';
   return 'blocked';
+}
+
+function toolSkillsDir(toolId: FlowRunner): string {
+  const skillsDir = AI_TOOLS.find((tool) => tool.value === toolId)?.skillsDir;
+  if (!skillsDir) throw new Error(`No skills directory configured for tool: ${toolId}`);
+  return skillsDir;
+}
+
+const SKILLS_DIR_BY_RUNNER: Record<FlowRunner, string> = {
+  claude: toolSkillsDir('claude'),
+  codex: toolSkillsDir('codex'),
+};
+
+/**
+ * Lazy, step-local capability resolution: only the step `flow next` is about
+ * to hand out gets its skill ensured, for that step's runner only. Missing
+ * skills are materialized from the Spok distribution; the returned string is
+ * a blocking reason when that fails. Outside a Spok project there is nowhere
+ * to materialize into, so resolution is skipped and discovery falls back to
+ * whatever the harness already has installed.
+ */
+async function ensureStepCapability(taskDir: string, step: FlowStep): Promise<string | undefined> {
+  const projectRoot = findProjectRootForTaskDir(taskDir);
+  if (!projectRoot) return;
+
+  const result = await ensureVendoredSkill(projectRoot, SKILLS_DIR_BY_RUNNER[step.runner], step.skill);
+  if (result.status === 'unavailable') {
+    return (
+      `Capability unavailable for step ${step.id}: ${result.reason}. ` +
+      `Run spok init (or spok skills install --tools ${step.runner}) and retry.`
+    );
+  }
+
+  if (result.status === 'materialized') {
+    await appendFlowEvent(taskDir, {
+      schemaVersion: 1,
+      timestamp: nowIso(),
+      event: 'capability_materialized',
+      state: 'ready',
+      step: step.id,
+      skill: step.skill,
+      runner: step.runner,
+    });
+  }
 }
 
 async function appendFlowEvent(taskDir: string, event: FlowEvent): Promise<void> {
@@ -1503,6 +1552,16 @@ export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
     const response = blockedResponse(loaded.state, exhausted);
     await recordFlowResponse(response, 'flow_next');
     return response;
+  }
+
+  const currentStep = getCurrentStep(loaded.state);
+  if (currentStep) {
+    const capabilityBlock = await ensureStepCapability(loaded.state.taskDir, currentStep);
+    if (capabilityBlock) {
+      const response = blockedResponse(loaded.state, capabilityBlock);
+      await recordFlowResponse(response, 'flow_next');
+      return response;
+    }
   }
 
   await writeState(loaded.state);

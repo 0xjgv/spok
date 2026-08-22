@@ -1789,3 +1789,99 @@ describe('commit SHA verification', () => {
     expect(result.reason).toContain('conflicts with recorded work root');
   });
 });
+
+describe('lazy step capability resolution', () => {
+  const flow = useFlowHarness();
+
+  async function markProjectRoot(): Promise<void> {
+    await fs.writeFile(
+      path.join(flow.projectRoot, 'spok', 'config.yaml'),
+      'schema: spec-driven\n',
+      'utf-8'
+    );
+  }
+
+  it('materializes the active step skill for its runner inside a Spok project', async () => {
+    await markProjectRoot();
+
+    const response = await getFlowNext(flow.taskDir);
+
+    expect(response.state).toBe('ready');
+    expect(response.step?.skill).toBe('spok-validate-problem');
+    const marker = path.join(
+      flow.projectRoot,
+      '.claude/skills/spok-validate-problem/SKILL.md'
+    );
+    await expect(fs.access(marker)).resolves.toBeUndefined();
+
+    const events = await readFlowEvents(flow.taskDir);
+    const materialized = events.filter((event) => event.event === 'capability_materialized');
+    expect(materialized).toEqual([
+      expect.objectContaining({
+        step: 'validate-problem',
+        skill: 'spok-validate-problem',
+        runner: 'claude',
+      }),
+    ]);
+
+    // Present on disk now: a second next must not materialize (or log) again.
+    await getFlowNext(flow.taskDir);
+    const eventsAfter = await readFlowEvents(flow.taskDir);
+    expect(
+      eventsAfter.filter((event) => event.event === 'capability_materialized')
+    ).toHaveLength(1);
+  });
+
+  it('materializes codex-runner skills into the codex skills dir on hybrid runs', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'hybrid';
+    await markProjectRoot();
+
+    const response = await getFlowNext(flow.taskDir);
+
+    expect(response.state).toBe('ready');
+    expect(response.step?.runner).toBe('codex');
+    const marker = path.join(
+      flow.projectRoot,
+      '.agents/skills/spok-validate-problem/SKILL.md'
+    );
+    await expect(fs.access(marker)).resolves.toBeUndefined();
+    await expect(
+      fs.access(path.join(flow.projectRoot, '.claude/skills/spok-validate-problem'))
+    ).rejects.toThrow();
+  });
+
+  it('skips capability resolution outside a Spok project', async () => {
+    const response = await getFlowNext(flow.taskDir);
+
+    expect(response.state).toBe('ready');
+    await expect(
+      fs.access(path.join(flow.projectRoot, '.claude'))
+    ).rejects.toThrow();
+  });
+
+  it('blocks without consuming the step when the capability cannot be materialized, then resumes', async () => {
+    await markProjectRoot();
+    // A file where the skills dir must go makes materialization fail deterministically.
+    const obstruction = path.join(flow.projectRoot, '.claude');
+    await fs.writeFile(obstruction, 'not a directory', 'utf-8');
+
+    const blocked = await getFlowNext(flow.taskDir);
+
+    expect(blocked.state).toBe('blocked');
+    expect(blocked.reason).toContain('Capability unavailable for step validate-problem');
+    await expect(
+      fs.access(path.join(flow.taskDir, WORKFLOW_STATE_FILE))
+    ).rejects.toThrow();
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      event: 'flow_next',
+      state: 'blocked',
+      code: 'capability_unavailable',
+    });
+
+    await fs.rm(obstruction);
+    const resumed = await getFlowNext(flow.taskDir);
+    expect(resumed.state).toBe('ready');
+    expect(resumed.step?.id).toBe('validate-problem');
+  });
+});

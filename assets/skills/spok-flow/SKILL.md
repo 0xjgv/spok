@@ -71,6 +71,11 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 
 4. Dispatch the step through `step.runner`.
 
+   `spok flow next` has already ensured `step.skill` is installed for
+   `step.runner`, materializing it from the Spok distribution when missing —
+   never preflight or install skills yourself; a missing capability surfaces
+   as a `capability_unavailable` block instead of a ready step.
+
    Detect the active harness once: a non-empty `CODEX_HOME` means `codex`;
    otherwise it is `claude`.
 

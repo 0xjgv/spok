@@ -168,22 +168,20 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "--dangerously-bypass-hook-trust"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "claude -p"
 
-  Scenario: Hybrid apply preflights both harness skill closures
+  Scenario: Apply preflights only the active harness entry skill
     Given a new project
     When I initialize Spok for the tools "claude"
-    Then the workflow skill "spok-apply" under ".claude/skills" mentions "Before staging a hybrid run"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.claude/skills/spok-flow/SKILL.md"
+    Then the workflow skill "spok-apply" under ".claude/skills" mentions "~/.claude/skills/spok-flow/SKILL.md"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.agents/skills/spok-flow/SKILL.md"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.claude/skills/spok-review-design/SKILL.md"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.agents/skills/spok-review-design/SKILL.md"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "spok skills install --tools claude,codex"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "Do not preflight any other skill or the other harness"
+    And the workflow skill "spok-apply" under ".claude/skills" does not mention "spok skills install --tools claude,codex"
+    And the workflow skill "spok-apply" under ".claude/skills" does not mention "spok-review-design/SKILL.md"
 
-  Scenario: Default apply preflights the current tool's skill closure
+  Scenario: Apply defers step capability resolution to the flow engine
     Given a new project
     When I initialize Spok for the tools "claude"
-    Then the workflow skill "spok-apply" under ".claude/skills" mentions "Default execution"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "check only that harness's markers."
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "check both harnesses' markers."
+    Then the workflow skill "spok-apply" under ".claude/skills" mentions "spok flow next"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "capability_unavailable"
 
   Scenario: Inner flow implementation overrides standalone orchestration
     Given a new project

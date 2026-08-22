@@ -11,6 +11,7 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -48,6 +49,77 @@ export function getVendoredSkillNames(sourceDir: string = ASSETS_SKILLS_DIR): st
   } catch {
     return [];
   }
+}
+
+export type EnsureSkillStatus = 'present' | 'materialized' | 'unavailable';
+
+export interface EnsureSkillResult {
+  status: EnsureSkillStatus;
+  /** SKILL.md path that satisfied the check; absent when unavailable. */
+  skillPath?: string;
+  reason?: string;
+}
+
+export interface EnsureSkillOptions {
+  sourceDir?: string;
+  homeDir?: string;
+}
+
+function skillMarkerPath(root: string, toolSkillsDir: string, skillName: string): string {
+  return path.join(root, toolSkillsDir, 'skills', skillName, 'SKILL.md');
+}
+
+/**
+ * Ensure one vendored skill is discoverable for a tool, materializing it from
+ * the Spok distribution into the project when missing.
+ *
+ * Checked in order: project-local copy, then the distribution (copied into the
+ * project so the run is pinned to it), then a global `~/<toolSkillsDir>` install.
+ * The copy lands via temp-dir-then-rename so a concurrent run in the same
+ * project never observes a half-written skill.
+ */
+export async function ensureVendoredSkill(
+  projectRoot: string,
+  toolSkillsDir: string,
+  skillName: string,
+  options: EnsureSkillOptions = {}
+): Promise<EnsureSkillResult> {
+  const sourceDir = options.sourceDir ?? ASSETS_SKILLS_DIR;
+  const projectMarker = skillMarkerPath(projectRoot, toolSkillsDir, skillName);
+  if (fs.existsSync(projectMarker)) {
+    return { status: 'present', skillPath: projectMarker };
+  }
+
+  const srcSkill = path.join(sourceDir, skillName);
+  if (fs.existsSync(path.join(srcSkill, 'SKILL.md'))) {
+    const destSkill = path.dirname(projectMarker);
+    const tempSkill = `${destSkill}.tmp-${process.pid}`;
+    try {
+      await copyDir(srcSkill, tempSkill);
+      await fs.promises.rename(tempSkill, destSkill);
+    } catch (error) {
+      await fs.promises.rm(tempSkill, { recursive: true, force: true }).catch(() => {});
+      // A concurrent run may have won the rename; only that makes the miss benign.
+      if (!fs.existsSync(projectMarker)) {
+        return {
+          status: 'unavailable',
+          reason: `could not materialize ${skillName}: ${(error as Error).message}`,
+        };
+      }
+    }
+    return { status: 'materialized', skillPath: projectMarker };
+  }
+
+  const homeDir = options.homeDir ?? os.homedir();
+  const globalMarker = skillMarkerPath(homeDir, toolSkillsDir, skillName);
+  if (fs.existsSync(globalMarker)) {
+    return { status: 'present', skillPath: globalMarker };
+  }
+
+  return {
+    status: 'unavailable',
+    reason: `skill ${skillName} is not installed for ${toolSkillsDir} and the Spok distribution has no vendored copy (${srcSkill})`,
+  };
 }
 
 /**

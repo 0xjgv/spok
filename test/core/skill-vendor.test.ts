@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import {
+  ensureVendoredSkill,
   installVendoredSkills,
   getVendoredSkillNames,
 } from '../../src/core/skill-vendor.js';
@@ -184,6 +185,89 @@ describe('skill-vendor', () => {
       expect(
         fs.existsSync(path.join(projectRoot, '.claude/skills/spok-flow/SKILL.md'))
       ).toBe(false);
+    });
+  });
+
+  describe('ensureVendoredSkill', () => {
+    let projectRoot: string;
+    let homeDir: string;
+
+    beforeEach(() => {
+      projectRoot = path.join(tempDir, 'project');
+      homeDir = path.join(tempDir, 'home');
+      fs.mkdirSync(projectRoot, { recursive: true });
+      fs.mkdirSync(homeDir, { recursive: true });
+    });
+
+    it('returns present without touching an existing project-local skill', async () => {
+      const marker = path.join(projectRoot, '.claude/skills/spok-flow/SKILL.md');
+      fs.mkdirSync(path.dirname(marker), { recursive: true });
+      fs.writeFileSync(marker, '# pinned local copy\n');
+
+      const result = await ensureVendoredSkill(projectRoot, '.claude', 'spok-flow', {
+        sourceDir,
+        homeDir,
+      });
+
+      expect(result.status).toBe('present');
+      expect(result.skillPath).toBe(marker);
+      expect(fs.readFileSync(marker, 'utf-8')).toBe('# pinned local copy\n');
+    });
+
+    it('materializes a missing skill from the distribution into the project', async () => {
+      const result = await ensureVendoredSkill(projectRoot, '.agents', 'spok-helper', {
+        sourceDir,
+        homeDir,
+      });
+
+      expect(result.status).toBe('materialized');
+      const skillDir = path.join(projectRoot, '.agents/skills/spok-helper');
+      expect(fs.existsSync(path.join(skillDir, 'SKILL.md'))).toBe(true);
+      expect(
+        fs.existsSync(path.join(skillDir, 'references/design_evidence_template.html'))
+      ).toBe(true);
+
+      const again = await ensureVendoredSkill(projectRoot, '.agents', 'spok-helper', {
+        sourceDir,
+        homeDir,
+      });
+      expect(again.status).toBe('present');
+    });
+
+    it('falls back to a global install when the distribution lacks the skill', async () => {
+      const globalMarker = path.join(homeDir, '.claude/skills/spok-mystery/SKILL.md');
+      fs.mkdirSync(path.dirname(globalMarker), { recursive: true });
+      fs.writeFileSync(globalMarker, '# global\n');
+
+      const result = await ensureVendoredSkill(projectRoot, '.claude', 'spok-mystery', {
+        sourceDir,
+        homeDir,
+      });
+
+      expect(result.status).toBe('present');
+      expect(result.skillPath).toBe(globalMarker);
+    });
+
+    it('reports unavailable when no source can provide the skill', async () => {
+      const result = await ensureVendoredSkill(projectRoot, '.claude', 'spok-mystery', {
+        sourceDir,
+        homeDir,
+      });
+
+      expect(result.status).toBe('unavailable');
+      expect(result.reason).toContain('spok-mystery');
+    });
+
+    it('reports unavailable when materialization cannot write into the project', async () => {
+      fs.writeFileSync(path.join(projectRoot, '.claude'), 'not a directory');
+
+      const result = await ensureVendoredSkill(projectRoot, '.claude', 'spok-flow', {
+        sourceDir,
+        homeDir,
+      });
+
+      expect(result.status).toBe('unavailable');
+      expect(result.reason).toContain('spok-flow');
     });
   });
 });

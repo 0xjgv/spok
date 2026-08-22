@@ -50,26 +50,22 @@ MUST prompt the user.
    - \`planningHome.changesDir\` and \`changeRoot\` — use these instead of guessing paths.
    - \`actionContext.mode\` — if it is \`workspace-planning\` and \`allowedEditRoots\` is empty, explain that workspace apply is not supported here, treat linked repos as read-only context, and STOP before staging.
 
-   Before staging, verify every harness that will execute the flow steps can
-   discover the Spok helper closure:
+   Before staging, verify only that the **active** harness can discover the
+   \`spok-flow\` entry skill:
    - Resolve the project root with \`git rev-parse --show-toplevel\`.
-   - Each harness's installation markers:
-     - Claude: \`<project-root>/.claude/skills/spok-flow/SKILL.md\` or
-       \`~/.claude/skills/spok-flow/SKILL.md\`, and
-       \`<project-root>/.claude/skills/spok-review-design/SKILL.md\` or
-       \`~/.claude/skills/spok-review-design/SKILL.md\`.
-     - Codex: \`<project-root>/.agents/skills/spok-flow/SKILL.md\` or
-       \`~/.agents/skills/spok-flow/SKILL.md\`, and
-       \`<project-root>/.agents/skills/spok-review-design/SKILL.md\` or
-       \`~/.agents/skills/spok-review-design/SKILL.md\`.
-   - Default execution (\`no arguments\` / \`<change>\`) uses the current tool for
-     every step — check only that harness's markers.
-   - Before staging a hybrid run (\`hybrid\` / \`hybrid <change>\`), both harnesses
-     execute steps — check both harnesses' markers.
-   - If the harness(es) that will execute the flow are missing any marker,
-     tell the user to run \`spok skills install --tools claude,codex\` (or just
-     \`--tools claude\` / \`--tools codex\` for a single-harness default run) and
-     STOP before staging.
+   - Claude: \`<project-root>/.claude/skills/spok-flow/SKILL.md\` or
+     \`~/.claude/skills/spok-flow/SKILL.md\`.
+   - Codex: \`<project-root>/.agents/skills/spok-flow/SKILL.md\` or
+     \`~/.agents/skills/spok-flow/SKILL.md\`.
+   - If the active harness's marker is missing, tell the user to run
+     \`spok init\` (or \`spok skills install --tools <tool>\`) and STOP before
+     staging.
+
+   Do not preflight any other skill or the other harness — this holds for
+   hybrid runs (\`hybrid\` / \`hybrid <change>\`) too. \`spok flow next\` ensures
+   each step's skill for that step's runner before dispatch, materializing it
+   from the Spok distribution when missing, and blocks with
+   \`capability_unavailable\` when it cannot.
 
 3. **Parse the chunked tasks.md**
 
