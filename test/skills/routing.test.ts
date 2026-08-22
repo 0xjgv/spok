@@ -60,46 +60,43 @@ describe('spok fork-skill artifact routing', () => {
   }
 });
 
-describe('spok-flow prompt dispatch contract', () => {
+describe('spok-flow wrapper contract', () => {
   async function readFlowSkill(): Promise<string> {
     return fs.readFile(path.join(SKILLS_DIR, 'spok-flow', 'SKILL.md'), 'utf-8');
   }
 
-  it('dispatches the CLI-composed prompt verbatim', async () => {
+  it('delegates the whole loop to spok run in the foreground', async () => {
     const body = await readFlowSkill();
 
-    expect(body).toContain('`<step.prompt>` **verbatim**');
-    expect(body).toContain('spok/MEMORY.md');
-    expect(body).toContain('memoryWarning');
+    expect(body).toContain('spok run');
+    expect(body).toContain('--json');
+    expect(body).toContain('--profile hybrid');
+    expect(body).toContain('ticket.md');
   });
 
-  it('leaves step-specific clauses to the CLI', async () => {
+  it('relays the CLI-reported outcome verbatim', async () => {
     const body = await readFlowSkill();
 
-    expect(body).not.toContain('must not create commits');
-    expect(body).not.toContain('Invoke `spok-self-learn`');
+    expect(body).toContain("report the event's `reason` verbatim");
+    expect(body).toContain('never invent or soften an outcome');
   });
 
-  it('dispatches hybrid steps through their declared runner', async () => {
+  it('surfaces warning events once and continues', async () => {
     const body = await readFlowSkill();
 
-    expect(body).toContain('SPOK_FLOW_PROFILE=hybrid');
-    expect(body).toContain('`step.runner`');
-    expect(body).toContain('codex exec');
-    expect(body).toContain('--dangerously-bypass-hook-trust');
-    expect(body).toMatch(/run enabled hooks without an\s+interactive trust prompt/);
-    expect(body).toContain('claude -p');
-    expect(body).toContain('Do not call `spok flow complete`');
-    expect(body).toContain('Do not use `--dangerously-bypass-approvals-and-sandbox`');
+    expect(body).toContain('surface its `message` to the user once and continue');
   });
 
-  it('uses host-neutral native delegation for the host-owned fallback agent', async () => {
+  it('contains no per-step dispatch or execution-semantics prose', async () => {
     const body = await readFlowSkill();
 
-    expect(body).toContain("the current host's native subagent mechanism");
-    expect(body).toContain('host-owned `general-purpose`');
-    expect(body).not.toContain('subagent_type');
-    expect(body).not.toContain('**Agent** tool');
+    expect(body).not.toContain('claude -p');
+    expect(body).not.toContain('codex exec');
+    expect(body).not.toContain('spok flow next');
+    expect(body).not.toContain('spok flow complete');
+    expect(body).not.toContain('SPOK_FLOW_PROFILE');
+    expect(body).not.toContain('subagent');
+    expect(body).not.toContain('general-purpose');
   });
 });
 

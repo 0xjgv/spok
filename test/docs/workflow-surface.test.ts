@@ -25,6 +25,17 @@ describe('workflow surface docs', () => {
     expect(commands).toContain('self-discovery escape hatch');
   });
 
+  it('documents spok run with its JSONL protocol and exit codes', async () => {
+    const cli = await readDoc('docs/cli.md');
+
+    expect(cli).toContain('### `spok run`');
+    expect(cli).toContain('spok run <task-dir> [options]');
+    expect(cli).toContain('| `--json` | Emit JSONL supervision events on stdout |');
+    expect(cli).toContain('`schemaVersion: 1`');
+    expect(cli).toContain('| `2` | Blocked (the state machine reported a blocker) |');
+    expect(cli).toContain('| `130` | Interrupted (SIGINT) |');
+  });
+
   it('documents MEMORY.md as presence-based, capped, and human-promoted', async () => {
     const workflows = await readDoc('docs/workflows.md');
     const commands = await readDoc('docs/commands.md');

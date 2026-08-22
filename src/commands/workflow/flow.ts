@@ -30,7 +30,9 @@ const VALIDATE_STEP_ID = 'validate';
 const REPAIR_STEP_ID = 'repair';
 const SELF_LEARN_STEP_ID = 'self-learn';
 const FLOW_EVENT_DIR = '.spok';
-const FLOW_PROFILE_ENV = 'SPOK_FLOW_PROFILE';
+export const FLOW_PROFILE_ENV = 'SPOK_FLOW_PROFILE';
+/** Summaries are recorded permanently in workflow-state.json; every intake caps them. */
+export const SUMMARY_MAX_LENGTH = 4000;
 
 /** Bounded: a FAIL splices at most this many [repair, validate] pairs per flow. */
 const MAX_REPAIR_ATTEMPTS = 2;
@@ -108,7 +110,7 @@ function detectTool(): FlowRunner {
   return process.env.CODEX_HOME?.trim() ? 'codex' : 'claude';
 }
 
-function isFlowProfile(value: unknown): value is FlowProfile {
+export function isFlowProfile(value: unknown): value is FlowProfile {
   return value === 'claude' || value === 'codex' || value === 'hybrid';
 }
 
@@ -138,6 +140,8 @@ export interface FlowStep {
   effort?: FlowEffort;
   argument: string;
   expectedOutput?: string;
+  /** How the step records completion; drives how a driver reads the harness reply. */
+  completionKind: FlowCompletionKind;
   status: FlowStepStatus;
   result?: FlowStepResult;
   /** 1-based repair-cycle attempt for spliced repair/validate steps; absent on the base graph. */
@@ -448,6 +452,10 @@ const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
     'absolute path of the repository working tree you edited (the git worktree root that ' +
     'holds the changed files, which may differ from the task directory). Report the path ' +
     '`git -C <directory containing an edited file> rev-parse --show-toplevel` prints, not a guess.',
+  commit:
+    'End your reply with a final line reading `Commit: <sha>`, naming the SHA of the ' +
+    'commit you created. Report the SHA `git rev-parse HEAD` prints after committing, ' +
+    'not a guess.',
   [SELF_LEARN_STEP_ID]: 'This gate is advisory. Do not fail, amend, or rewrite the commit.',
 };
 
@@ -605,6 +613,7 @@ function stepFromDefinition(
     effort: definition.effort,
     argument: definition.argument,
     expectedOutput: definition.expectedOutput,
+    completionKind: definition.completionKind,
     status,
     result,
     attempt: definition.attempt,
@@ -820,7 +829,13 @@ async function pathIsDirectory(targetPath: string): Promise<boolean> {
   }
 }
 
-function flowBlockCode(reason: string): string {
+/** The two block codes whose blocked events carry design-review human decisions. */
+export const DESIGN_REVIEW_BLOCK_CODES = [
+  'design_review_verdict_fail',
+  'design_review_verdict_unreadable',
+] as const;
+
+export function flowBlockCode(reason: string): string {
   if (reason.startsWith('Task directory does not exist:')) return 'missing_task_dir';
   if (reason.startsWith('Missing required ticket file:')) return 'missing_ticket';
   if (reason.startsWith('Invalid workflow state JSON:')) return 'invalid_state_json';
@@ -835,10 +850,10 @@ function flowBlockCode(reason: string): string {
   if (reason.includes('must set Flow Decision to proceed')) return 'flow_decision_not_proceed';
   if (reason.includes('repair attempts')) return 'repair_attempts_exhausted';
   if (reason.startsWith(`Step ${DESIGN_REVIEW_STEP_ID} recorded a FAIL verdict`)) {
-    return 'design_review_verdict_fail';
+    return DESIGN_REVIEW_BLOCK_CODES[0];
   }
   if (reason.startsWith(`Step ${DESIGN_REVIEW_STEP_ID} has no readable verdict`)) {
-    return 'design_review_verdict_unreadable';
+    return DESIGN_REVIEW_BLOCK_CODES[1];
   }
   if (reason.includes('recorded a FAIL verdict')) return 'validation_verdict_fail';
   if (reason.includes('has no readable verdict')) return 'validation_verdict_unreadable';
@@ -886,9 +901,13 @@ async function recordFlowResponse(
   await appendFlowEvent(response.taskDir, event);
 }
 
+/** Write-then-rename: an interrupt mid-write must never leave truncated JSON behind. */
 async function writeState(state: WorkflowState): Promise<void> {
   state.updatedAt = nowIso();
-  await fs.writeFile(getStatePath(state.taskDir), `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+  const statePath = getStatePath(state.taskDir);
+  const tempPath = `${statePath}.tmp`;
+  await fs.writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+  await fs.rename(tempPath, statePath);
 }
 
 async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
@@ -1118,7 +1137,8 @@ function validateFileCompletion(
   }
 }
 
-function extractMarkdownSection(content: string, heading: string): string {
+/** Body of the `## <heading>` section, verbatim to the next `##` or EOF; '' when absent. */
+export function extractMarkdownSection(content: string, heading: string): string {
   const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = content.match(
     new RegExp(`(?:^|\\n)##\\s+${escapedHeading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|$)`, 'i')
@@ -1141,7 +1161,7 @@ function flowDecisionAllowsProceed(content: string): boolean {
 }
 
 /** Undefined when the artifact cannot be read: the callers treat that as a failed gate. */
-async function readArtifact(targetPath: string): Promise<string | undefined> {
+export async function readArtifact(targetPath: string): Promise<string | undefined> {
   try {
     return await fs.readFile(targetPath, 'utf-8');
   } catch {
@@ -1222,7 +1242,7 @@ async function validateValidationVerdict(definition: StepDefinition): Promise<st
 }
 
 /** Stdout of a git invocation, or undefined when git is missing or exits nonzero. */
-async function runGit(workRoot: string, args: string[]): Promise<string | undefined> {
+export async function runGit(workRoot: string, args: string[]): Promise<string | undefined> {
   try {
     const { stdout } = await execFileAsync('git', ['-C', workRoot, ...args]);
     return stdout;
@@ -1304,7 +1324,7 @@ async function completeCommitResult(
 
   return {
     commit: resolvedCommit,
-    summary: input.summary?.trim() || undefined,
+    summary: input.summary?.trim().slice(0, SUMMARY_MAX_LENGTH) || undefined,
     workRoot,
     completedAt: nowIso(),
   };
@@ -1354,7 +1374,7 @@ async function completeStepResult(
   }
 
   if (definition.completionKind === 'summary') {
-    const summary = input.summary?.trim();
+    const summary = input.summary?.trim().slice(0, SUMMARY_MAX_LENGTH);
     if (!summary) {
       return `Step ${definition.id} must provide a non-empty --summary.`;
     }

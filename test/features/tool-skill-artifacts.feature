@@ -126,24 +126,21 @@ Feature: Tool skill artifacts
     Then the Spok CLI exits with code 1
     And the Spok CLI output contains "schema is required"
 
-  Scenario: Apply delegates inner flow sequencing to deterministic flow commands
+  Scenario: Apply delegates inner flow sequencing to the spok run command
     Given a new project
     When I initialize Spok for the tools "claude"
-    Then the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow complete"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "host-owned `general-purpose`"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "model: <step.model>"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "effort: <step.effort>"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next --json is the source of truth"
+    Then the workflow skill "spok-flow" under ".claude/skills" mentions "spok run"
+    And the workflow skill "spok-flow" under ".claude/skills" does not mention "spok flow next"
+    And the workflow skill "spok-flow" under ".claude/skills" does not mention "spok flow complete"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.toml. To enable it, add:"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
 
   Scenario: Flow relays design-review human decisions on FAIL and unreadable verdicts
     Given a new project
     When I initialize Spok for the tools "claude"
-    Then the workflow skill "spok-flow" under ".claude/skills" mentions "Step design-review recorded a FAIL verdict"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "Step design-review has no readable verdict"
+    Then the workflow skill "spok-flow" under ".claude/skills" mentions "humanDecisions"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "## Human Decisions Required"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "content verbatim"
 
   Scenario: Design review makes the discussion the final design authority
     Given a new project
@@ -163,10 +160,7 @@ Feature: Tool skill artifacts
     When I initialize Spok for the tools "claude,codex"
     Then the workflow skill "spok-apply" under ".claude/skills" mentions "/spok-apply hybrid"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "hybrid <change>"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "SPOK_FLOW_PROFILE=hybrid"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "codex exec"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "--dangerously-bypass-hook-trust"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "claude -p"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "--profile hybrid"
 
   Scenario: Hybrid apply preflights both harness skill closures
     Given a new project
@@ -590,8 +584,6 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-validate-implementation" under ".claude/skills" mentions "spok-codebase-analyzer"
     And the workflow skill "spok-validate-implementation" under ".claude/skills" does not mention "spok-qa"
     And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "spok-implementer-agent"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "the current host's native subagent mechanism"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "host-owned `general-purpose`"
 
   Scenario: Interactive init creates missing agents for selected harnesses
     Given a new project
