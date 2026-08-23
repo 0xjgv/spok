@@ -59,7 +59,8 @@ type RejectionCode =
   | 'probe_timeout'
   | 'probe_unparseable'
   | 'model_unavailable'
-  | 'effort_unsupported';
+  | 'effort_unsupported'
+  | 'work_root_not_isolated';
 
 interface RouteRejection extends AutoCandidate {
   code: RejectionCode;

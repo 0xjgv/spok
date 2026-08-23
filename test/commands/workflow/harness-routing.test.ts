@@ -358,6 +358,37 @@ describe('selectAutoRoute rejection completeness', () => {
   });
 });
 
+describe('selectAutoRoute isolation rejection persistence', () => {
+  it('preserves a work_root_not_isolated report as the exact ordered rejection', () => {
+    const reports: CapabilityReport[] = [
+      {
+        runner: 'codex',
+        available: false,
+        code: 'not_authenticated',
+        reason: 'codex login status reported: Not logged in',
+      },
+      {
+        runner: 'omp',
+        available: false,
+        code: 'work_root_not_isolated',
+        reason: '/tmp/work is not a provably linked Git worktree; omp --auto-approve requires one.',
+      },
+      { runner: 'claude', available: true },
+    ];
+
+    const { route } = selectAutoRoute('implement', reports);
+
+    expect(route).toMatchObject({ runner: 'claude', model: 'opus', effort: 'medium' });
+    expect(route.route.rejected[1]).toEqual({
+      runner: 'omp',
+      model: 'openai-codex/gpt-5.6-sol',
+      effort: 'xhigh',
+      code: 'work_root_not_isolated',
+      reason: '/tmp/work is not a provably linked Git worktree; omp --auto-approve requires one.',
+    });
+  });
+});
+
 const CLAUDE_OUT: CapabilityReport = {
   runner: 'claude',
   available: false,

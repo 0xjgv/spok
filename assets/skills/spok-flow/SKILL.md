@@ -57,7 +57,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 3. Read the returned `step` object:
    - `id` is the workflow step id.
    - `skill` is the exact skill to invoke.
-   - `runner` is the exact tool that must execute the step: `claude` or `codex`.
+   - `runner` is the exact tool that must execute the step: `claude`, `codex`, `omp`, or `current`.
    - `model` is the exact model to pass to that runner.
    - `effort` is present when the step carries a reasoning-effort hint; relay it to the selected runner when present.
    - `argument` is the exact argument to pass to that skill.
@@ -69,37 +69,65 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 
    If the response carries `memoryWarning` or `workRootWarning`, surface it to the user once and continue.
 
-4. Dispatch the step through `step.runner`.
+4. Dispatch the step through `step.runner`. The only valid runner values are
+   `claude`, `codex`, `omp`, or `current`. If `step.runner` is anything else,
+   report the malformed route and halt before dispatch. Do not detect or infer
+   host identity from the environment; an explicit runner always executes
+   through its named CLI.
 
-   Detect the active harness once: a non-empty `CODEX_HOME` means `codex`;
-   otherwise it is `claude`.
+   Validate required fields first: `claude`, `codex`, and `omp` require a
+   non-empty `step.model`, and `omp` additionally requires a non-empty
+   `step.effort`. If a required field is missing, report the malformed route
+   and halt before dispatch. A `current` route carries no model or effort;
+   ignore hand-authored `model` or `effort` values on it rather than inventing
+   flags.
 
-   - When `step.runner` matches the active harness, delegate in the foreground
+   - When `step.runner` is `current`, delegate in the foreground
      through the current host's native subagent mechanism to the
-     host-owned `general-purpose` agent. Pass `model: <step.model>`, (when
-     present) `effort: <step.effort>`, and `<step.prompt>` **verbatim** as the
-     prompt.
-   - When `step.runner` is `codex` from another harness, first verify `codex` is
-     on `PATH`, then run `codex exec` sequentially in the foreground. Use
-     `--ephemeral`, `--dangerously-bypass-hook-trust`, `--cd <project-root>`,
+     host-owned `general-purpose` agent. Pass `<step.prompt>` **verbatim** as the prompt.
+     Pass no model and no effort.
+   - When `step.runner` is `claude`, first verify `claude` is on `PATH`, then
+     run `claude -p` sequentially in the foreground. Use
+     `--no-session-persistence`, `--model <step.model>`,
+     `--permission-mode auto`, text output, and, when `step.effort` is present,
+     `--effort <step.effort>`. Pass `<step.prompt>` **verbatim** on stdin; do
+     not interpolate it into a shell command.
+   - When `step.runner` is `codex`, first verify `codex` is on `PATH`, then run
+     `codex exec` sequentially in the foreground. Use `--ephemeral`,
+     `--dangerously-bypass-hook-trust`, `--cd <project-root>`,
      `--model <step.model>`, `--sandbox workspace-write`, and, when
      `step.effort` is present, `-c model_reasoning_effort="<step.effort>"`.
      Pass `<step.prompt>` **verbatim** on stdin with `-`; do not interpolate it
      into a shell command.
-   - When `step.runner` is `claude` from another harness, first verify `claude`
-     is on `PATH`, then run `claude -p` sequentially in the foreground. Use
-     `--no-session-persistence`, `--model <step.model>`,
-     `--permission-mode auto`, text output, and, when `step.effort` is present,
-     `--effort <step.effort>`. Pass `<step.prompt>` **verbatim** on stdin; do not
+   - When `step.runner` is `omp`, first verify `omp` is on `PATH`. Then prove
+     `<project-root>` is a linked Git worktree again, even though routing
+     already checked at selection time: run
+     `git -C "<project-root>" rev-parse --path-format=absolute --git-dir --git-common-dir`
+     and require both printed absolute paths to resolve and differ. If the
+     command fails or the two paths are equal, report the missing isolation and
+     halt before sending the prompt. When the proof holds, run sequentially in
+     the foreground:
+
+     ```bash
+     omp -p --no-session --cwd <project-root> --model <step.model> --thinking <step.effort> --auto-approve
+     ```
+
+     Pass `<step.prompt>` **verbatim** on stdin through the process API; do not
      interpolate it into a shell command.
 
    Resolve `<project-root>` with `git -C "<task-dir>" rev-parse --show-toplevel`.
+   Run both Git commands with `GIT_DIR`, `GIT_COMMON_DIR`, and `GIT_WORK_TREE`
+   removed from the child environment through the process API.
    Use `--dangerously-bypass-hook-trust` to run enabled hooks without an
    interactive trust prompt; it does not enable disabled hooks or relax the
    sandbox. Do not use `--dangerously-bypass-approvals-and-sandbox`. If the
-   executable is missing, authentication fails, or the child exits nonzero,
-   report the error and halt. Do not call `spok flow complete`; leaving the
-   current step ready makes the run safely resumable after the tool is fixed.
+   executable is missing, authentication fails, the isolation re-check fails,
+   or the child exits nonzero, report the error and halt.
+   Do not call `spok flow complete`; leaving the current step ready makes the
+   run safely resumable after the tool is fixed.
+   A failed dispatch never changes the harness, model, or effort,
+   never sends the prompt through another runner, and never completes the ready
+   step; the persisted ready route remains unchanged.
 
    Run every path **sequentially in the foreground** because each step depends
    on the previous step's validated artifact or recorded result. Do not invoke

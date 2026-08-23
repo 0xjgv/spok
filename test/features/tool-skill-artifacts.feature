@@ -132,8 +132,6 @@ Feature: Tool skill artifacts
     Then the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow complete"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "host-owned `general-purpose`"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "model: <step.model>"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "effort: <step.effort>"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next --json is the source of truth"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.toml. To enable it, add:"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
@@ -587,6 +585,38 @@ Feature: Tool skill artifacts
     Then the JSON flow step "implement" occurrence 0 has runner "codex" and model "gpt-5.6-sol"
     And the JSON flow step "validate" occurrence 0 has runner "claude" and model "opus"
     And the JSON flow step "repair" occurrence 0 has no runner
+
+  Scenario: Auto flow rejects OMP outside a linked worktree and falls forward
+    Given a new project
+    And the project is a Git repository
+    And harness capability stubs report Codex logged out with OMP and Claude available
+    And the auto flow profile is active
+    And a staged flow task
+    When I run spok flow next as JSON for the staged task
+    Then the Spok CLI output contains "\"runner\": \"claude\""
+    And the Spok CLI output contains "\"work_root_not_isolated\""
+    And the JSON flow step "validate-problem" occurrence 0 has runner "claude" and model "opus"
+
+  Scenario: Auto flow selects OMP from a linked Git worktree
+    Given a new project
+    And harness capability stubs report Codex logged out with OMP and Claude available
+    And the auto flow profile is active
+    And a staged flow task in a linked worktree
+    When I run spok flow next as JSON for the staged task
+    Then the Spok CLI output contains "\"runner\": \"omp\""
+    And the Spok CLI output contains "\"model\": \"openai-codex/gpt-5.6-sol\""
+
+  Scenario: Flow skill dispatches current and OMP without host inference or silent retry
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-flow" under ".claude/skills" mentions "`claude`, `codex`, `omp`, or `current`"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "Pass no model and no effort"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "omp -p --no-session --cwd <project-root> --model <step.model> --thinking <step.effort> --auto-approve"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "rev-parse --path-format=absolute --git-dir --git-common-dir"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "`GIT_DIR`, `GIT_COMMON_DIR`, and `GIT_WORK_TREE`"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "halt before sending the prompt"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "A failed dispatch never changes the harness, model, or effort"
+    And the workflow skill "spok-flow" under ".claude/skills" does not mention "CODEX_HOME"
 
   Scenario: Global skills install writes to home-scoped tool directories
     Given a new project

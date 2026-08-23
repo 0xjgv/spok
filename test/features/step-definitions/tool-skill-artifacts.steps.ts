@@ -19,6 +19,7 @@ interface SkillArtifactWorld {
   originalUserProfile?: string;
   originalFlowProfile?: string;
   originalXdgConfigHome?: string;
+  originalPath?: string;
   setupGuidance?: string;
   flowTaskDir?: string;
   flowWorkRoot?: string;
@@ -94,6 +95,38 @@ Given('the project is a Git repository', function (this: SkillArtifactWorld) {
   execFileSync('git', ['init', '--quiet', this.projectDir]);
 });
 
+Given(
+  'harness capability stubs report Codex logged out with OMP and Claude available',
+  async function (this: SkillArtifactWorld) {
+    if (process.platform === 'win32') return 'skipped';
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    const stubDir = path.join(this.projectDir, 'stub-bin');
+    await fs.mkdir(stubDir, { recursive: true });
+    const ompModels = JSON.stringify({
+      models: [
+        {
+          selector: 'openai-codex/gpt-5.6-sol',
+          thinking: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
+        {
+          selector: 'openai-codex/gpt-5.6-terra',
+          thinking: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
+      ],
+    });
+    const stubs: Record<string, string> = {
+      omp: `#!/bin/sh\nprintf '%s' '${ompModels}'\n`,
+      codex: "#!/bin/sh\nprintf 'Not logged in\\n'\n",
+      claude: '#!/bin/sh\nprintf \'%s\' \'{"loggedIn": true}\'\n',
+    };
+    for (const [name, content] of Object.entries(stubs)) {
+      await fs.writeFile(path.join(stubDir, name), content, { mode: 0o755 });
+    }
+    this.originalPath = process.env.PATH;
+    process.env.PATH = `${stubDir}${path.delimiter}${process.env.PATH ?? ''}`;
+  }
+);
+
 Given('a separate flow work repository', async function (this: SkillArtifactWorld) {
   this.flowWorkRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'spok-flow-work-'));
   const git = (args: string[]) =>
@@ -132,6 +165,25 @@ Given('the platform permits backslashes in directory names', function () {
 Given('a staged flow task', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   this.flowTaskDir = path.join(this.projectDir, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
+  await fs.mkdir(this.flowTaskDir, { recursive: true });
+  await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
+});
+
+Given('a staged flow task in a linked worktree', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  const primary = path.join(this.projectDir, 'primary');
+  await fs.mkdir(primary, { recursive: true });
+  execFileSync('git', ['init', '-b', 'main', primary]);
+  const git = (args: string[]) =>
+    execFileSync('git', ['-C', primary, ...args], { encoding: 'utf-8' }).trim();
+  git(['config', 'user.email', 'flow@example.com']);
+  git(['config', 'user.name', 'Flow Test']);
+  await fs.writeFile(path.join(primary, 'seed.txt'), 'seed\n', 'utf-8');
+  git(['add', 'seed.txt']);
+  git(['commit', '--no-gpg-sign', '-m', 'seed']);
+  const worktree = path.join(this.projectDir, 'worktree');
+  git(['worktree', 'add', worktree]);
+  this.flowTaskDir = path.join(worktree, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
   await fs.mkdir(this.flowTaskDir, { recursive: true });
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
 });
@@ -1158,6 +1210,9 @@ After(async function (this: SkillArtifactWorld) {
     delete process.env.CODEX_HOME;
   } else {
     process.env.CODEX_HOME = this.originalCodexHome;
+  }
+  if (this.originalPath !== undefined) {
+    process.env.PATH = this.originalPath;
   }
   if (this.originalFlowProfile === undefined) {
     delete process.env.SPOK_FLOW_PROFILE;

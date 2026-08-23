@@ -4,6 +4,10 @@ import * as path from 'node:path';
 
 const SKILLS_DIR = path.resolve(__dirname, '../../assets/skills');
 
+async function readFlowSkill(): Promise<string> {
+  return fs.readFile(path.join(SKILLS_DIR, 'spok-flow', 'SKILL.md'), 'utf-8');
+}
+
 const FORK_ARTIFACTS: Record<string, string> = {
   'spok-validate-problem': 'problem-validation.md',
   'spok-create-research-questions': 'research-questions.md',
@@ -61,10 +65,6 @@ describe('spok fork-skill artifact routing', () => {
 });
 
 describe('spok-flow prompt dispatch contract', () => {
-  async function readFlowSkill(): Promise<string> {
-    return fs.readFile(path.join(SKILLS_DIR, 'spok-flow', 'SKILL.md'), 'utf-8');
-  }
-
   it('dispatches the CLI-composed prompt verbatim', async () => {
     const body = await readFlowSkill();
 
@@ -100,6 +100,61 @@ describe('spok-flow prompt dispatch contract', () => {
     expect(body).toContain('host-owned `general-purpose`');
     expect(body).not.toContain('subagent_type');
     expect(body).not.toContain('**Agent** tool');
+  });
+});
+
+describe('spok-flow current and OMP dispatch contract', () => {
+  it('enumerates the four-runner vocabulary and halts on anything else', async () => {
+    const body = await readFlowSkill();
+    expect(body).toContain('`claude`, `codex`, `omp`, or `current`');
+    expect(body).toContain('report the malformed route');
+    expect(body).toContain('halt before dispatch');
+  });
+
+  it('removes active-host inference entirely', async () => {
+    const body = await readFlowSkill();
+    expect(body).not.toContain('CODEX_HOME');
+    expect(body).not.toContain('active harness');
+  });
+
+  it('dispatches current natively with no model or effort', async () => {
+    const body = await readFlowSkill();
+    expect(body).toContain('When `step.runner` is `current`');
+    expect(body).toContain('Pass no model and no effort');
+    expect(body).toContain('ignore hand-authored `model` or `effort` values');
+  });
+
+  it('requires model for explicit runners and effort for OMP', async () => {
+    const body = await readFlowSkill();
+    expect(body).toMatch(/require a\s+non-empty `step\.model`/);
+    expect(body).toMatch(/`omp` additionally requires a non-empty\s+`step\.effort`/);
+  });
+
+  it('re-proves linked-worktree isolation before the OMP prompt', async () => {
+    const body = await readFlowSkill();
+    expect(body).toContain('rev-parse --path-format=absolute --git-dir --git-common-dir');
+    expect(body).toContain('halt before sending the prompt');
+  });
+
+  it('ignores inherited Git repository variables during the OMP isolation proof', async () => {
+    const body = await readFlowSkill();
+    expect(body).toMatch(
+      /When `step\.runner` is `omp`[\s\S]*?`GIT_DIR`, `GIT_COMMON_DIR`, and\s+`GIT_WORK_TREE`\s+removed from the child environment/
+    );
+  });
+
+  it('dispatches OMP with the exact command and the prompt on stdin', async () => {
+    const body = await readFlowSkill();
+    expect(body).toContain(
+      'omp -p --no-session --cwd <project-root> --model <step.model> --thinking <step.effort> --auto-approve',
+    );
+    expect(body).toMatch(/When `step\.runner` is `omp`[\s\S]*?\*\*verbatim\*\* on stdin/);
+  });
+
+  it('never reroutes after a failed dispatch', async () => {
+    const body = await readFlowSkill();
+    expect(body).toContain('A failed dispatch never changes the harness, model, or effort');
+    expect(body).toContain('the persisted ready route remains unchanged');
   });
 });
 

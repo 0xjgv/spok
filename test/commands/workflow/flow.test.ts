@@ -165,7 +165,7 @@ async function writeMemory(projectRoot: string, text: string): Promise<void> {
   await fs.writeFile(path.join(configDir, 'MEMORY.md'), text, 'utf-8');
 }
 
-function useFlowHarness(): FlowHarness {
+function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness {
   let tempDir: string;
   let taskDir: string;
   let originalCodexHome: string | undefined;
@@ -178,7 +178,21 @@ function useFlowHarness(): FlowHarness {
     delete process.env.SPOK_FLOW_PROFILE;
     vi.mocked(probeHarnesses).mockReset().mockResolvedValue(ALL_HARNESSES_AVAILABLE);
     tempDir = path.join(os.tmpdir(), `spok-flow-${randomUUID()}`);
-    taskDir = path.join(tempDir, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
+    let routingRoot = tempDir;
+    if (options.linkedWorktree) {
+      const primary = path.join(tempDir, 'primary');
+      await fs.mkdir(primary, { recursive: true });
+      execFileSync('git', ['init', '-b', 'main', primary]);
+      const git = (args: string[]) => execFileSync('git', ['-C', primary, ...args]);
+      git(['config', 'user.email', 'flow@example.com']);
+      git(['config', 'user.name', 'Flow Test']);
+      await fs.writeFile(path.join(primary, 'seed.txt'), 'seed\n', 'utf-8');
+      git(['add', 'seed.txt']);
+      git(['commit', '--no-gpg-sign', '-m', 'seed']);
+      routingRoot = path.join(tempDir, 'worktree');
+      git(['worktree', 'add', routingRoot]);
+    }
+    taskDir = path.join(routingRoot, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
     await fs.mkdir(taskDir, { recursive: true });
     await fs.writeFile(path.join(taskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
   });
@@ -581,6 +595,10 @@ describe('auto flow profile', () => {
     ]);
     expect(stored.steps[1]).not.toHaveProperty('runner');
   });
+});
+
+describe('auto flow OMP eligibility', () => {
+  const flow = useFlowHarness({ linkedWorktree: true });
 
   it('falls back to OMP and records the Codex rejection', async () => {
     process.env.SPOK_FLOW_PROFILE = 'auto';
@@ -605,6 +623,198 @@ describe('auto flow profile', () => {
         ],
       },
     });
+  });
+
+  it('returns the persisted route on later next and status calls without probing again', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    vi.mocked(probeHarnesses).mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
+    const first = await getFlowNext(flow.taskDir);
+    const firstState = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
+
+    const second = await getFlowNext(flow.taskDir);
+    const status = await getFlowStatus(flow.taskDir);
+    const secondState = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+
+    expect(routing(second.step)).toEqual(routing(first.step));
+    expect(routing(status.nextStep)).toEqual(routing(first.step));
+    expect(second.step?.runner).toBe('omp');
+    expect(probeHarnesses).toHaveBeenCalledTimes(1);
+    expect(secondState).toEqual({ ...firstState, updatedAt: secondState.updatedAt });
+    expect(secondState.updatedAt >= firstState.updatedAt).toBe(true);
+  });
+});
+
+describe('auto flow OMP inherited environment', () => {
+  const flow = useFlowHarness();
+
+  it('ignores inherited Git repository variables when checking a primary checkout', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    execFileSync('git', ['init', '-b', 'main', flow.projectRoot]);
+    execFileSync('git', ['-C', flow.projectRoot, 'config', 'user.email', 'flow@example.com']);
+    execFileSync('git', ['-C', flow.projectRoot, 'config', 'user.name', 'Flow Test']);
+    execFileSync('git', [
+      '-C',
+      flow.projectRoot,
+      'commit',
+      '--allow-empty',
+      '--no-gpg-sign',
+      '-m',
+      'seed',
+    ]);
+    const spoofWorktree = path.join(os.tmpdir(), `spok-flow-spoof-${randomUUID()}`);
+    execFileSync('git', ['-C', flow.projectRoot, 'worktree', 'add', '--detach', spoofWorktree]);
+    const [gitDir, commonDir] = execFileSync(
+      'git',
+      [
+        '-C',
+        spoofWorktree,
+        'rev-parse',
+        '--path-format=absolute',
+        '--git-dir',
+        '--git-common-dir',
+      ],
+      { encoding: 'utf-8' }
+    )
+      .trim()
+      .split('\n');
+    vi.stubEnv('GIT_DIR', gitDir!);
+    vi.stubEnv('GIT_COMMON_DIR', commonDir!);
+    vi.stubEnv('GIT_WORK_TREE', spoofWorktree);
+    vi.mocked(probeHarnesses).mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
+
+    try {
+      const spoofedPaths = execFileSync(
+        'git',
+        [
+          '-C',
+          flow.projectRoot,
+          'rev-parse',
+          '--path-format=absolute',
+          '--git-dir',
+          '--git-common-dir',
+        ],
+        { encoding: 'utf-8' }
+      )
+        .trim()
+        .split('\n');
+      expect(spoofedPaths[0]).not.toBe(spoofedPaths[1]);
+
+      const result = await getFlowNext(flow.taskDir);
+
+      expect(result.step).toMatchObject({
+        id: 'validate-problem',
+        runner: 'claude',
+        model: 'opus',
+      });
+      expect(result.step?.route?.rejected[1]).toMatchObject({
+        runner: 'omp',
+        code: 'work_root_not_isolated',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      await fs.rm(spoofWorktree, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('auto flow OMP isolation', () => {
+  const flow = useFlowHarness();
+
+  it('rejects authenticated OMP in a primary checkout and selects the next candidate', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    execFileSync('git', ['init', '-b', 'main', flow.projectRoot]);
+    vi.mocked(probeHarnesses).mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step).toMatchObject({
+      id: 'validate-problem',
+      runner: 'claude',
+      model: 'opus',
+    });
+    expect(result.step?.route?.rejected[1]).toMatchObject({
+      runner: 'omp',
+      code: 'work_root_not_isolated',
+      reason: expect.stringContaining('is not a provably linked Git worktree'),
+    });
+  });
+
+  it('rejects OMP when git metadata cannot be resolved but keeps later candidates', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    // tempDir is intentionally not a git repository.
+    vi.mocked(probeHarnesses).mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step).toMatchObject({ runner: 'claude', model: 'opus' });
+    expect(
+      result.step?.route?.rejected.map((rejection) => `${rejection.runner}:${rejection.code}`)
+    ).toEqual(['codex:not_authenticated', 'omp:work_root_not_isolated']);
+  });
+
+  it('does not re-evaluate a persisted OMP route in a primary checkout', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    execFileSync('git', ['init', '-b', 'main', flow.projectRoot]);
+    await fs.writeFile(
+      path.join(flow.taskDir, WORKFLOW_STATE_FILE),
+      `${JSON.stringify(
+        {
+          version: 2,
+          profile: 'auto',
+          taskDir: flow.taskDir,
+          status: 'ready',
+          steps: [
+            {
+              id: 'validate-problem',
+              skill: 'spok-validate-problem',
+              argument: path.join(flow.taskDir, 'ticket.md'),
+              expectedOutput: path.join(flow.taskDir, 'problem-validation.md'),
+              status: 'ready',
+              runner: 'omp',
+              model: 'openai-codex/gpt-5.6-sol',
+              effort: 'xhigh',
+              route: { policy: 'auto-v1', modelControl: 'selectable', rejected: [] },
+            },
+          ],
+          repairAttempts: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+        null,
+        2
+      )}\n`,
+      'utf-8'
+    );
+    vi.mocked(probeHarnesses).mockClear();
+
+    const result = await getFlowNext(flow.taskDir);
+
+    // The route is immutable: the CLI neither reroutes nor blocks it; the skill halts at dispatch.
+    expect(result.step).toMatchObject({
+      runner: 'omp',
+      model: 'openai-codex/gpt-5.6-sol',
+    });
+    expect(probeHarnesses).not.toHaveBeenCalled();
+  });
+
+  it('never probes or degrades explicit-profile routing in a primary checkout', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'hybrid';
+    execFileSync('git', ['init', '-b', 'main', flow.projectRoot]);
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step).toMatchObject({
+      id: 'validate-problem',
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+    expect(result.step?.route).toBeUndefined();
+    expect(probeHarnesses).not.toHaveBeenCalled();
   });
 });
 
@@ -719,33 +929,10 @@ describe('auto flow route persistence', () => {
     });
     expect(probeHarnesses).toHaveBeenCalledTimes(2);
   });
-
-  it('returns the persisted route on later next and status calls without probing again', async () => {
-    process.env.SPOK_FLOW_PROFILE = 'auto';
-    vi.mocked(probeHarnesses).mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
-    const first = await getFlowNext(flow.taskDir);
-    const firstState = JSON.parse(
-      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
-    );
-    vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
-
-    const second = await getFlowNext(flow.taskDir);
-    const status = await getFlowStatus(flow.taskDir);
-    const secondState = JSON.parse(
-      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
-    );
-
-    expect(routing(second.step)).toEqual(routing(first.step));
-    expect(routing(status.nextStep)).toEqual(routing(first.step));
-    expect(second.step?.runner).toBe('omp');
-    expect(probeHarnesses).toHaveBeenCalledTimes(1);
-    expect(secondState).toEqual({ ...firstState, updatedAt: secondState.updatedAt });
-    expect(secondState.updatedAt >= firstState.updatedAt).toBe(true);
-  });
 });
 
 describe('auto flow completed route persistence', () => {
-  const flow = useFlowHarness();
+  const flow = useFlowHarness({ linkedWorktree: true });
 
   it('keeps every completed auto route by occurrence through completion, splicing, and reload', async () => {
     process.env.SPOK_FLOW_PROFILE = 'auto';
@@ -862,7 +1049,7 @@ describe('auto flow route compatibility', () => {
 });
 
 describe('auto flow judge anti-affinity', () => {
-  const flow = useFlowHarness();
+  const flow = useFlowHarness({ linkedWorktree: true });
 
   it('reviews a Fable design on Codex Sol and records the producer family', async () => {
     process.env.SPOK_FLOW_PROFILE = 'auto';
@@ -2034,7 +2221,7 @@ describe('flow command output', () => {
 });
 
 describe('auto flow command output', () => {
-  const flow = useFlowHarness();
+  const flow = useFlowHarness({ linkedWorktree: true });
   let logs: string[];
 
   beforeEach(() => {

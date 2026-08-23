@@ -14,6 +14,7 @@ import {
   type AutoModel,
   type AutoRouteRecord,
   type AutoRunner,
+  type CapabilityReport,
 } from './harness-routing.js';
 
 const execFileAsync = promisify(execFile);
@@ -1166,8 +1167,52 @@ async function resolveReadyStepRoute(state: WorkflowState): Promise<void> {
   const stepId = ready.id as RoutedStepId;
   const runners = AUTO_CANDIDATES_BY_STEP[stepId].map((candidate) => candidate.runner);
   const reports = await probeHarnesses(runners);
-  const { route } = selectAutoRoute(stepId, reports, state.steps.slice(0, index));
+  const { route } = selectAutoRoute(
+    stepId,
+    await withOmpIsolation(reports, state.taskDir),
+    state.steps.slice(0, index)
+  );
   state.steps[index] = withPersistedRoute(ready, route);
+}
+
+/** OMP is eligible only from a linked worktree: without proof the available report
+ * degrades to work_root_not_isolated and ordered selection falls to the next candidate.
+ * Runs at most one git probe, and only when OMP is otherwise available. */
+async function withOmpIsolation(
+  reports: CapabilityReport[],
+  taskDir: string
+): Promise<CapabilityReport[]> {
+  const omp = reports.find((report) => report.runner === 'omp');
+  if (!omp?.available) return reports;
+  const root = findProjectRootForTaskDir(taskDir) ?? taskDir;
+  if (await isLinkedWorktree(root)) return reports;
+  const rejection: CapabilityReport = {
+    runner: 'omp',
+    available: false,
+    code: 'work_root_not_isolated',
+    reason: `${root} is not a provably linked Git worktree; omp --auto-approve requires one.`,
+  };
+  return reports.map((report) => (report.runner === 'omp' ? rejection : report));
+}
+
+/** Proof of isolation: absolute git-dir and git-common-dir both resolve and differ.
+ * A failed lookup (non-repo, broken metadata) is not proof and fails closed. */
+async function isLinkedWorktree(dir: string): Promise<boolean> {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_COMMON_DIR;
+  delete env.GIT_WORK_TREE;
+  const stdout = await runGit(
+    dir,
+    ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'],
+    env
+  );
+  if (stdout === undefined) return false;
+  const [gitDir, commonDir] = stdout
+    .trim()
+    .split('\n')
+    .map((line) => path.normalize(line.trim()));
+  return Boolean(gitDir) && Boolean(commonDir) && gitDir !== commonDir;
 }
 
 function normalizeOutputPath(output: string): string {
@@ -1297,9 +1342,13 @@ async function validateValidationVerdict(definition: StepDefinition): Promise<st
 }
 
 /** Stdout of a git invocation, or undefined when git is missing or exits nonzero. */
-async function runGit(workRoot: string, args: string[]): Promise<string | undefined> {
+async function runGit(
+  workRoot: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env
+): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync('git', ['-C', workRoot, ...args]);
+    const { stdout } = await execFileAsync('git', ['-C', workRoot, ...args], { env });
     return stdout;
   } catch {
     return;
