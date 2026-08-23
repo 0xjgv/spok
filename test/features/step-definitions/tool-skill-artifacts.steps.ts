@@ -340,6 +340,85 @@ async function stageFlowThrough(taskDir: string, lastStep: 'simplify' | 'validat
   );
 }
 
+type StagedRoute = { runner: string; model?: string; effort?: string };
+
+const SELECTABLE_ROUTE = { policy: 'auto-v1', modelControl: 'selectable', rejected: [] };
+
+/** Policy-consistent routes for an all-available machine, one per completed step. */
+const STAGED_AUTO_ROUTES: Record<string, StagedRoute> = {
+  'validate-problem': { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+  'research-questions': { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
+  research: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
+  'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  'design-review': { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+  plan: { runner: 'claude', model: 'fable', effort: 'xhigh' },
+  implement: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+  simplify: { runner: 'claude', model: 'opus' },
+  validate: { runner: 'claude', model: 'opus', effort: 'medium' },
+};
+
+const DEGRADED_CURRENT_ROUTE = {
+  policy: 'auto-v1',
+  modelControl: 'fixed-unknown',
+  rejected: [
+    {
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'xhigh',
+      code: 'executable_missing',
+      reason: 'codex is not installed or not on PATH.',
+    },
+    {
+      runner: 'omp',
+      model: 'openai-codex/gpt-5.6-sol',
+      effort: 'xhigh',
+      code: 'executable_missing',
+      reason: 'omp is not installed or not on PATH.',
+    },
+    {
+      runner: 'claude',
+      model: 'opus',
+      effort: 'medium',
+      code: 'not_authenticated',
+      reason: 'claude auth status --json reports loggedIn is not true.',
+    },
+  ],
+  degraded: {
+    code: 'model_identity_unavailable',
+    reason:
+      'No explicit auto candidate is eligible; running on the current harness whose model identity is unavailable.',
+  },
+};
+
+/** Writes an auto-profile state file. `profile` is explicit so inferLegacyProfile cannot mislabel it. */
+async function writeAutoFlowState(taskDir: string, steps: unknown[]): Promise<void> {
+  const stamp = '2026-01-01T00:00:00.000Z';
+  await fs.writeFile(
+    path.join(taskDir, 'workflow-state.json'),
+    `${JSON.stringify(
+      { version: 2, profile: 'auto', taskDir, status: 'ready', steps, createdAt: stamp, updatedAt: stamp },
+      null,
+      2
+    )}\n`,
+    'utf-8'
+  );
+}
+
+function jsonFlowStep(
+  world: SkillArtifactWorld,
+  id: string,
+  occurrence: number
+): { id: string; runner?: string; model?: string } {
+  assert.ok(world.cliResult, 'cliResult must be set by a CLI run step');
+  const response = JSON.parse(world.cliResult.stdout) as {
+    steps: Array<{ id: string; runner?: string; model?: string }>;
+  };
+  const step = response.steps.filter((candidate) => candidate.id === id)[occurrence];
+  assert.ok(step, `flow step ${id} occurrence ${occurrence} must exist in the JSON response`);
+  return step;
+}
+
 Given('the staged flow task is completed through simplify', async function (this: SkillArtifactWorld) {
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
   await stageFlowThrough(this.flowTaskDir, 'simplify');
@@ -372,6 +451,39 @@ Given('a repair cycle is pending', async function (this: SkillArtifactWorld) {
   state.repairAttempts = 1;
   await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
 });
+
+Given('the staged auto flow task is ready on a degraded current route', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  await writeAutoFlowState(this.flowTaskDir, [
+    { id: 'validate-problem', status: 'ready', runner: 'current', route: DEGRADED_CURRENT_ROUTE },
+  ]);
+});
+
+Given(
+  'the staged auto flow task is completed through validation on persisted routes',
+  async function (this: SkillArtifactWorld) {
+    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+    await stageFlowThrough(this.flowTaskDir, 'validate');
+    // The pending repair cycle (Given a repair cycle is pending) needs a FAIL verdict on validate#0.
+    await fs.writeFile(
+      path.join(this.flowTaskDir, 'validation.md'),
+      '---\nverdict: FAIL\n---\n\n# Validation\n',
+      'utf-8'
+    );
+    const statePath = path.join(this.flowTaskDir, 'workflow-state.json');
+    const state = JSON.parse(await fs.readFile(statePath, 'utf-8')) as {
+      steps: Array<Record<string, unknown> & { id: string }>;
+    };
+    const steps = state.steps.map((step) => ({
+      ...step,
+      ...STAGED_AUTO_ROUTES[step.id],
+      route: SELECTABLE_ROUTE,
+    }));
+    await writeAutoFlowState(this.flowTaskDir, steps);
+  }
+);
 
 Given('the Claude harness is active', function (this: SkillArtifactWorld) {
   delete process.env.CODEX_HOME; // cleared so the spawned CLI detects claude
@@ -523,6 +635,15 @@ When('I run spok flow status for the staged task', async function (this: SkillAr
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
   this.cliResult = await runCLI(['flow', 'status', this.flowTaskDir], { cwd: this.projectDir });
+  assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
+});
+
+When('I run spok flow status as JSON for the staged task', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  this.cliResult = await runCLI(['flow', 'status', this.flowTaskDir, '--json'], {
+    cwd: this.projectDir,
+  });
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
 });
 
@@ -1014,6 +1135,23 @@ Then('the Spok CLI output does not contain {string}', function (this: SkillArtif
     new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   );
 });
+
+Then(
+  'the JSON flow step {string} occurrence {int} has runner {string} and model {string}',
+  function (this: SkillArtifactWorld, id: string, occurrence: number, runner: string, model: string) {
+    const step = jsonFlowStep(this, id, occurrence);
+    assert.equal(step.runner, runner, `${id}#${occurrence} runner`);
+    assert.equal(step.model, model, `${id}#${occurrence} model`);
+  }
+);
+
+Then(
+  'the JSON flow step {string} occurrence {int} has no runner',
+  function (this: SkillArtifactWorld, id: string, occurrence: number) {
+    const step = jsonFlowStep(this, id, occurrence);
+    assert.equal(step.runner, undefined, `${id}#${occurrence} must be unrouted`);
+  }
+);
 
 After(async function (this: SkillArtifactWorld) {
   if (this.originalCodexHome === undefined) {

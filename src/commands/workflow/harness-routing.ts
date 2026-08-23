@@ -6,7 +6,7 @@ const execFileAsync = promisify(execFile);
 /** Per-probe ceiling; observed wall times are well under one second. */
 export const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
 
-export type AutoRunner = 'claude' | 'codex' | 'omp';
+export type AutoRunner = 'claude' | 'codex' | 'omp' | 'current';
 export type AutoModel =
   | 'haiku'
   | 'sonnet'
@@ -17,11 +17,38 @@ export type AutoModel =
   | 'openai-codex/gpt-5.6-sol'
   | 'openai-codex/gpt-5.6-terra';
 export type AutoEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ModelFamily = 'fable' | 'opus' | 'sonnet' | 'haiku' | 'sol' | 'terra';
+export type ModelControl = 'selectable' | 'fixed-known' | 'fixed-unknown';
+export type DegradedCode =
+  | 'model_identity_unavailable'
+  | 'same_family_as_producer'
+  | 'producer_family_unknown';
 export const AUTO_POLICY_VERSION = 'auto-v1';
+
+/** Families are base model names: Codex Sol and OMP Sol are the same family. */
+export const FAMILY_BY_MODEL: Record<AutoModel, ModelFamily> = {
+  haiku: 'haiku',
+  sonnet: 'sonnet',
+  opus: 'opus',
+  fable: 'fable',
+  'gpt-5.6-terra': 'terra',
+  'gpt-5.6-sol': 'sol',
+  'openai-codex/gpt-5.6-sol': 'sol',
+  'openai-codex/gpt-5.6-terra': 'terra',
+};
+
+/** How much model control a runner gives. `fixed-known` is reserved for chunk 3. */
+export const MODEL_CONTROL_BY_RUNNER: Record<AutoRunner, ModelControl> = {
+  claude: 'selectable',
+  codex: 'selectable',
+  omp: 'selectable',
+  current: 'fixed-unknown',
+};
 
 export interface AutoCandidate {
   runner: AutoRunner;
-  model: AutoModel;
+  /** Absent only for fixed-unknown runners (`current`). */
+  model?: AutoModel;
   effort?: AutoEffort;
 }
 
@@ -51,7 +78,12 @@ export interface CapabilityReport {
 /** Persisted on the resolved step as `route`. */
 export interface AutoRouteRecord {
   policy: typeof AUTO_POLICY_VERSION;
+  modelControl: ModelControl;
   rejected: RouteRejection[];
+  /** Judge steps only (Phase 6). */
+  producer?: { step: string; family?: ModelFamily };
+  /** Absent means not degraded. */
+  degraded?: { code: DegradedCode; reason: string };
 }
 
 interface AutoRoute extends AutoCandidate {
@@ -132,22 +164,126 @@ export const AUTO_V1_CANDIDATES_BY_ID = {
 
 type AutoStepId = keyof typeof AUTO_V1_CANDIDATES_BY_ID;
 
-/** Walk the step's candidates in order; first eligible wins and carries every earlier rejection. */
+/** Terminal fallback appended by the selector; never part of the 13×3 table. */
+const CURRENT_FALLBACK: AutoCandidate = { runner: 'current' };
+const MODEL_IDENTITY_UNAVAILABLE_REASON =
+  'No explicit auto candidate is eligible; running on the current harness whose model identity is unavailable.';
+
+/** Plain projection of an earlier flow step; flow.ts builds it so the leaf never imports flow types. */
+export interface PriorStep {
+  id: string;
+  runner?: AutoRunner;
+  model?: AutoModel;
+}
+
+/** Judge step to ids of the steps that produce the artifact it reviews; the latest prior one wins. */
+const JUDGE_PRODUCER: Partial<Record<AutoStepId, readonly string[]>> = {
+  'design-review': ['design-discussion'],
+  validate: ['implement', 'repair'],
+};
+
+interface ProducerLookup {
+  ids: readonly string[];
+  step?: PriorStep;
+}
+
+/** Walk the step's candidates in order; first eligible wins and carries every earlier rejection.
+ * When nothing is eligible, fall back to the current harness with a degraded route. */
 export function selectAutoRoute(
   stepId: AutoStepId,
-  reports: readonly CapabilityReport[]
-): { route: AutoRoute } | { rejected: RouteRejection[] } {
+  reports: readonly CapabilityReport[],
+  priorSteps: readonly PriorStep[] = []
+): { route: AutoRoute } {
   const reportsByRunner = new Map(reports.map((report) => [report.runner, report]));
+  const producer = findProducer(stepId, priorSteps);
+  const candidates = partitionByFamily(
+    AUTO_V1_CANDIDATES_BY_ID[stepId],
+    familyOf(producer?.step?.model)
+  );
   const rejected: RouteRejection[] = [];
-  for (const candidate of AUTO_V1_CANDIDATES_BY_ID[stepId]) {
+  for (const candidate of candidates) {
     const rejection = rejectCandidate(candidate, reportsByRunner.get(candidate.runner));
     if (rejection) {
       rejected.push(rejection);
       continue;
     }
-    return { route: { ...candidate, route: { policy: AUTO_POLICY_VERSION, rejected } } };
+    return { route: buildRoute(candidate, rejected, producer) };
   }
-  return { rejected };
+  return { route: buildRoute(CURRENT_FALLBACK, rejected, producer) };
+}
+
+/** Undefined for non-judge steps; `step` undefined when no producer precedes the judge. */
+function findProducer(
+  stepId: AutoStepId,
+  priorSteps: readonly PriorStep[]
+): ProducerLookup | undefined {
+  const ids = JUDGE_PRODUCER[stepId];
+  if (!ids) return undefined;
+  const step = [...priorSteps].reverse().find((prior) => ids.includes(prior.id));
+  return { ids, step };
+}
+
+function familyOf(model: AutoModel | undefined): ModelFamily | undefined {
+  return model === undefined ? undefined : FAMILY_BY_MODEL[model];
+}
+
+/** Stable partition: different-family candidates first, same-family after; table order within each. */
+function partitionByFamily(
+  candidates: readonly AutoCandidate[],
+  family: ModelFamily | undefined
+): readonly AutoCandidate[] {
+  if (!family) return candidates;
+  const differs = (candidate: AutoCandidate) => familyOf(candidate.model) !== family;
+  return [...candidates.filter(differs), ...candidates.filter((candidate) => !differs(candidate))];
+}
+
+function buildRoute(
+  candidate: AutoCandidate,
+  rejected: RouteRejection[],
+  producer: ProducerLookup | undefined
+): AutoRoute {
+  const record: AutoRouteRecord = {
+    policy: AUTO_POLICY_VERSION,
+    modelControl: MODEL_CONTROL_BY_RUNNER[candidate.runner],
+    rejected,
+  };
+  if (producer?.step) {
+    const family = familyOf(producer.step.model);
+    record.producer = { step: producer.step.id, ...(family ? { family } : {}) };
+  }
+  const degraded = degradedFor(candidate, producer);
+  if (degraded) record.degraded = degraded;
+  return { ...candidate, route: record };
+}
+
+/** Precedence: current chosen > same family as producer > producer family unknown. */
+function degradedFor(
+  candidate: AutoCandidate,
+  producer: ProducerLookup | undefined
+): AutoRouteRecord['degraded'] {
+  if (candidate.runner === 'current') {
+    return { code: 'model_identity_unavailable', reason: MODEL_IDENTITY_UNAVAILABLE_REASON };
+  }
+  if (!producer) return undefined;
+  const { ids, step } = producer;
+  if (!step) {
+    return {
+      code: 'producer_family_unknown',
+      reason: `No completed ${ids.join(' or ')} step precedes this judge; independence cannot be verified.`,
+    };
+  }
+  const family = familyOf(step.model);
+  if (!family) {
+    return {
+      code: 'producer_family_unknown',
+      reason: `Producer ${step.id} ran on ${step.runner ?? 'an unknown runner'} with no known model family; independence cannot be verified.`,
+    };
+  }
+  if (familyOf(candidate.model) !== family) return undefined;
+  return {
+    code: 'same_family_as_producer',
+    reason: `Producer ${step.id} ran on the ${family} family and no different-family candidate is eligible.`,
+  };
 }
 
 export type ProbeExec = (
@@ -156,11 +292,16 @@ export type ProbeExec = (
   options: { timeout: number }
 ) => Promise<{ stdout: string; stderr: string }>;
 
-const PROBE_COMMANDS: Record<AutoRunner, { file: string; args: readonly string[] }> = {
+type ProbedRunner = Exclude<AutoRunner, 'current'>;
+
+const PROBE_COMMANDS: Record<ProbedRunner, { file: string; args: readonly string[] }> = {
   omp: { file: 'omp', args: ['models', '--json'] },
   codex: { file: 'codex', args: ['login', 'status'] },
   claude: { file: 'claude', args: ['auth', 'status', '--json'] },
 };
+
+// `current` is the harness already running the flow: always eligible, never probed.
+const isProbedRunner = (runner: AutoRunner): runner is ProbedRunner => runner !== 'current';
 
 // Wrapper keeps the promisified execFile overloads out of the ProbeExec signature.
 const defaultExec: ProbeExec = (file, args, options) => execFileAsync(file, [...args], options);
@@ -170,11 +311,11 @@ export async function probeHarnesses(
   runners: readonly AutoRunner[],
   exec: ProbeExec = defaultExec
 ): Promise<CapabilityReport[]> {
-  const distinct = [...new Set(runners)];
+  const distinct = [...new Set(runners)].filter(isProbedRunner);
   return Promise.all(distinct.map((runner) => probeRunner(runner, exec)));
 }
 
-async function probeRunner(runner: AutoRunner, exec: ProbeExec): Promise<CapabilityReport> {
+async function probeRunner(runner: ProbedRunner, exec: ProbeExec): Promise<CapabilityReport> {
   const command = PROBE_COMMANDS[runner];
   try {
     const { stdout, stderr } = await exec(command.file, command.args, {
@@ -245,7 +386,7 @@ function interpretClaudeAuth(stdout: string): CapabilityReport {
 }
 
 function classifyProbeError(
-  runner: AutoRunner,
+  runner: ProbedRunner,
   error: unknown
 ): { code: RejectionCode; reason: string } {
   const failure = error as {
@@ -306,7 +447,7 @@ function rejectCandidate(
       reason: report.reason ?? `${candidate.runner} is unavailable.`,
     };
   }
-  if (candidate.runner !== 'omp') return undefined;
+  if (candidate.runner !== 'omp' || candidate.model === undefined) return undefined;
 
   const efforts = report.models?.get(candidate.model);
   if (efforts === undefined) {

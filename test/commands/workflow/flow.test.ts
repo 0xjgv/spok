@@ -46,6 +46,12 @@ const CODEX_LOGGED_OUT: CapabilityReport = {
   code: 'not_authenticated',
   reason: 'codex login status reported: Not logged in',
 };
+const CLAUDE_LOGGED_OUT: CapabilityReport = {
+  runner: 'claude',
+  available: false,
+  code: 'not_authenticated',
+  reason: 'claude auth status --json reports loggedIn is not true.',
+};
 const NOTHING_AVAILABLE: CapabilityReport[] = [
   {
     runner: 'codex',
@@ -146,6 +152,10 @@ async function readFlowEvents(taskDir: string): Promise<Array<Record<string, unk
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+function routing(step: FlowStep | undefined) {
+  return { runner: step?.runner, model: step?.model, effort: step?.effort, route: step?.route };
 }
 
 async function writeMemory(projectRoot: string, text: string): Promise<void> {
@@ -596,29 +606,75 @@ describe('auto flow profile', () => {
       },
     });
   });
+});
 
-  it('blocks with no_eligible_route and writes no state when nothing is eligible', async () => {
+describe('auto flow current fallback', () => {
+  const flow = useFlowHarness();
+
+  it('falls back to the current harness and writes state when nothing is eligible', async () => {
     process.env.SPOK_FLOW_PROFILE = 'auto';
     vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
 
     const result = await getFlowNext(flow.taskDir);
 
-    expect(result.state).toBe('blocked');
-    expect(result.reason).toBe(
-      'No eligible auto route for step validate-problem: ' +
-        'codex gpt-5.6-sol: codex is not installed or not on PATH.; ' +
-        'omp openai-codex/gpt-5.6-sol: omp is not installed or not on PATH.; ' +
-        'claude opus: claude auth status --json reports loggedIn is not true.'
+    expect(result.state).toBe('ready');
+    expect(result.step).toMatchObject({
+      id: 'validate-problem',
+      runner: 'current',
+      route: {
+        policy: 'auto-v1',
+        modelControl: 'fixed-unknown',
+        degraded: {
+          code: 'model_identity_unavailable',
+          reason:
+            'No explicit auto candidate is eligible; running on the current harness whose model identity is unavailable.',
+        },
+      },
+    });
+    expect(result.step).not.toHaveProperty('model');
+    expect(result.step).not.toHaveProperty('effort');
+    expect(
+      result.step?.route?.rejected.map((rejection) => `${rejection.runner}:${rejection.code}`)
+    ).toEqual(['codex:executable_missing', 'omp:executable_missing', 'claude:not_authenticated']);
+    const stored = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
     );
-    await expect(fs.stat(path.join(flow.taskDir, WORKFLOW_STATE_FILE))).rejects.toThrow();
+    expect(Object.keys(stored.steps[0])).toEqual([
+      'id',
+      'skill',
+      'argument',
+      'expectedOutput',
+      'status',
+      'runner',
+      'route',
+    ]);
     const events = await readFlowEvents(flow.taskDir);
     expect(events.at(-1)).toMatchObject({
       event: 'flow_next',
-      state: 'blocked',
-      code: 'no_eligible_route',
+      state: 'ready',
+      step: 'validate-problem',
     });
+    expect(events.at(-1)).not.toHaveProperty('code');
   });
 
+  it('keeps the current route on later calls and records it without a model on completion', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
+    await getFlowNext(flow.taskDir);
+    vi.mocked(probeHarnesses).mockClear();
+
+    const again = await getFlowNext(flow.taskDir);
+    expect(again.step).toMatchObject({ id: 'validate-problem', runner: 'current' });
+    expect(probeHarnesses).not.toHaveBeenCalled();
+
+    await flow.completeProblemValidation();
+    const events = await readFlowEvents(flow.taskDir);
+    const completion = events.find(
+      (event) => event.event === 'flow_complete' && event.completedStep === 'validate-problem'
+    );
+    expect(completion).toMatchObject({ runner: 'current' });
+    expect(completion).not.toHaveProperty('model');
+  });
 });
 
 describe('auto flow route persistence', () => {
@@ -679,18 +735,108 @@ describe('auto flow route persistence', () => {
       await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
     );
 
-    const routing = (step: FlowStep | undefined) => ({
-      runner: step?.runner,
-      model: step?.model,
-      effort: step?.effort,
-      route: step?.route,
-    });
     expect(routing(second.step)).toEqual(routing(first.step));
     expect(routing(status.nextStep)).toEqual(routing(first.step));
     expect(second.step?.runner).toBe('omp');
     expect(probeHarnesses).toHaveBeenCalledTimes(1);
     expect(secondState).toEqual({ ...firstState, updatedAt: secondState.updatedAt });
     expect(secondState.updatedAt >= firstState.updatedAt).toBe(true);
+  });
+});
+
+describe('auto flow completed route persistence', () => {
+  const flow = useFlowHarness();
+
+  it('keeps every completed auto route by occurrence through completion, splicing, and reload', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await flow.advanceToValidate();
+    const failed = await flow.completeValidate(FAIL_VALIDATION);
+    expect(failed.state).toBe('ready');
+    const validateBefore = failed.steps.filter((step) => step.id === 'validate')[0];
+    expect(validateBefore).toMatchObject({ status: 'completed', runner: 'claude', model: 'opus' });
+
+    const status = await getFlowStatus(flow.taskDir);
+
+    for (const step of status.steps.filter((candidate) => candidate.status === 'completed')) {
+      expect(step.runner, step.id).toBeDefined();
+      expect(step.model, step.id).toBeDefined();
+      expect(step.route, step.id).toMatchObject({ policy: 'auto-v1' });
+    }
+    const [validate0, validate1] = status.steps.filter((step) => step.id === 'validate');
+    expect(routing(validate0)).toEqual(routing(validateBefore));
+    expect(validate1).not.toHaveProperty('runner');
+    expect(status.steps.find((step) => step.id === 'repair')).not.toHaveProperty('runner');
+
+    vi.mocked(probeHarnesses).mockClear().mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
+    const next = await getFlowNext(flow.taskDir);
+
+    expect(next.step).toMatchObject({ id: 'repair', runner: 'omp', model: 'openai-codex/gpt-5.6-sol' });
+    expect(probeHarnesses).toHaveBeenCalledTimes(1);
+    const persisted = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    const [stored0, stored1] = persisted.steps.filter((step: FlowStep) => step.id === 'validate');
+    expect(routing(stored0)).toEqual(routing(validateBefore));
+    expect(stored1).toMatchObject({ status: 'pending' });
+    expect(stored1).not.toHaveProperty('runner');
+  });
+
+  it('never rewrites a completed auto route when harness availability changes', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await flow.completeProblemValidation();
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const before = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    expect(before.steps[0]).toMatchObject({ status: 'completed', runner: 'codex' });
+
+    vi.mocked(probeHarnesses).mockClear().mockResolvedValue(NOTHING_AVAILABLE);
+    const status = await getFlowStatus(flow.taskDir);
+    expect(routing(status.steps[0])).toEqual(routing(before.steps[0]));
+    expect(probeHarnesses).not.toHaveBeenCalled();
+
+    vi.mocked(probeHarnesses).mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.step).toMatchObject({ id: 'research-questions', runner: 'omp' });
+    const after = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    expect(routing(after.steps[0])).toEqual(routing(before.steps[0]));
+  });
+});
+
+describe('auto flow route compatibility', () => {
+  const flow = useFlowHarness();
+
+  it('treats a persisted current runner without a model as resolved and never probes it', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await getFlowNext(flow.taskDir);
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    delete state.steps[0].model;
+    delete state.steps[0].effort;
+    state.steps[0] = { ...state.steps[0], runner: 'current', route: { policy: 'auto-v1', rejected: [] } };
+    await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+    vi.mocked(probeHarnesses).mockClear().mockResolvedValue(ALL_HARNESSES_AVAILABLE);
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.step).toMatchObject({ id: 'validate-problem', runner: 'current' });
+    expect(result.step).not.toHaveProperty('model');
+    expect(result.step).not.toHaveProperty('effort');
+    expect(probeHarnesses).not.toHaveBeenCalled();
+  });
+
+  it('reads a chunk-1 route without modelControl back as selectable', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await getFlowNext(flow.taskDir);
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    delete state.steps[0].route.modelControl;
+    await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+    vi.mocked(probeHarnesses).mockClear();
+
+    const status = await getFlowStatus(flow.taskDir);
+
+    expect(status.nextStep?.route).toMatchObject({ policy: 'auto-v1', modelControl: 'selectable' });
+    expect(probeHarnesses).not.toHaveBeenCalled();
   });
 
   it('keeps explicit-profile state and responses free of route data', async () => {
@@ -712,6 +858,116 @@ describe('auto flow route persistence', () => {
     expect(secondState).toEqual({ ...firstState, updatedAt: secondState.updatedAt });
     expect(JSON.stringify(secondState)).not.toContain('"route"');
     expect(probeHarnesses).not.toHaveBeenCalled();
+  });
+});
+
+describe('auto flow judge anti-affinity', () => {
+  const flow = useFlowHarness();
+
+  it('reviews a Fable design on Codex Sol and records the producer family', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await flow.advanceToDesignReview();
+
+    const next = await getFlowNext(flow.taskDir);
+
+    expect(next.steps.find((step) => step.id === 'design-discussion')).toMatchObject({
+      runner: 'claude',
+      model: 'fable',
+    });
+    expect(next.step).toMatchObject({
+      id: 'design-review',
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+      route: { producer: { step: 'design-discussion', family: 'fable' } },
+    });
+    expect(next.step?.route).not.toHaveProperty('degraded');
+  });
+
+  it('marks same_family_as_producer when only OMP Sol is available for design and review', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    vi.mocked(probeHarnesses).mockResolvedValue(
+      withCapabilityReports([CODEX_LOGGED_OUT, CLAUDE_LOGGED_OUT])
+    );
+    await flow.advanceToDesignReview();
+
+    const next = await getFlowNext(flow.taskDir);
+
+    expect(next.steps.find((step) => step.id === 'design-discussion')).toMatchObject({
+      runner: 'omp',
+      model: 'openai-codex/gpt-5.6-sol',
+    });
+    expect(next.step).toMatchObject({
+      id: 'design-review',
+      runner: 'omp',
+      model: 'openai-codex/gpt-5.6-sol',
+      route: {
+        producer: { step: 'design-discussion', family: 'sol' },
+        degraded: { code: 'same_family_as_producer' },
+      },
+    });
+    expect(next.step?.route?.rejected.map((rejection) => rejection.runner)).toEqual([
+      'claude',
+      'codex',
+    ]);
+  });
+});
+
+describe('auto flow judge repair anti-affinity', () => {
+  const flow = useFlowHarness();
+
+  it('validates each occurrence against its own latest producer across a repair cycle', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await flow.advanceToValidate();
+
+    const first = await getFlowNext(flow.taskDir);
+    expect(first.step).toMatchObject({
+      id: 'validate',
+      runner: 'claude',
+      model: 'opus',
+      route: { producer: { step: 'implement', family: 'sol' } },
+    });
+    const validate0Route = routing(first.step);
+
+    await flow.completeValidate(FAIL_VALIDATION);
+    const repair = await getFlowNext(flow.taskDir);
+    expect(repair.step).toMatchObject({ id: 'repair', runner: 'codex', model: 'gpt-5.6-sol' });
+    await flow.completeRepair();
+
+    const second = await getFlowNext(flow.taskDir);
+    expect(second.step).toMatchObject({
+      id: 'validate',
+      runner: 'claude',
+      model: 'opus',
+      route: { producer: { step: 'repair', family: 'sol' } },
+    });
+    expect(second.step?.route).not.toHaveProperty('degraded');
+    const [validate0] = second.steps.filter((step) => step.id === 'validate');
+    expect(routing(validate0)).toEqual(validate0Route);
+  });
+
+  it('marks producer_family_unknown when the implementation ran on current', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await flow.advanceToDesignReview();
+    await flow.completeDesignReview();
+    await flow.completeFileStep('plan', 'plan.md');
+    vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
+    await flow.completeSummaryStep('implement', 'Implemented the plan.');
+    vi.mocked(probeHarnesses).mockResolvedValue(ALL_HARNESSES_AVAILABLE);
+    await flow.completeSummaryStep('simplify', 'Simplified the implementation.');
+
+    const next = await getFlowNext(flow.taskDir);
+
+    expect(next.steps.find((step) => step.id === 'implement')).toMatchObject({ runner: 'current' });
+    expect(next.step).toMatchObject({
+      id: 'validate',
+      runner: 'claude',
+      model: 'opus',
+      route: {
+        producer: { step: 'implement' },
+        degraded: { code: 'producer_family_unknown' },
+      },
+    });
+    expect(next.step?.route?.producer).not.toHaveProperty('family');
   });
 });
 
@@ -1828,14 +2084,101 @@ describe('auto flow command output', () => {
     ]);
   });
 
-  it('prints the no-eligible-route blocker in text mode', async () => {
+  it('prints Degraded only for degraded judge routes', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await flow.advanceToDesignReview();
+    logs.length = 0;
+
+    await flowNextCommand(flow.taskDir);
+
+    expect(logs.slice(0, 4)).toEqual([
+      'Next step: design-review',
+      'Profile: auto',
+      'Runner: codex',
+      'Skill: spok-review-design',
+    ]);
+    expect(logs.some((line) => line.startsWith('Degraded:'))).toBe(false);
+  });
+});
+
+describe('auto flow current route output', () => {
+  const flow = useFlowHarness();
+  let logs: string[];
+
+  beforeEach(() => {
+    logs = [];
+    vi.spyOn(console, 'log').mockImplementation((message = '') => {
+      logs.push(String(message));
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = 0;
+  });
+
+  it('prints a persisted current route without model or effort lines', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await getFlowNext(flow.taskDir);
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    delete state.steps[0].model;
+    delete state.steps[0].effort;
+    state.steps[0].runner = 'current';
+    state.steps[0].route = { policy: 'auto-v1', rejected: [] };
+    await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+    logs.length = 0;
+
+    await flowStatusCommand(flow.taskDir);
+
+    expect(logs).toEqual([
+      'Next step: validate-problem',
+      'Profile: auto',
+      'Runner: current',
+      'Skill: spok-validate-problem',
+      'Policy: auto-v1',
+      `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
+      `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
+    ]);
+  });
+
+  it('prints the degraded current route in text mode', async () => {
     process.env.SPOK_FLOW_PROFILE = 'auto';
     vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
 
     await flowNextCommand(flow.taskDir);
 
-    expect(logs[0]).toMatch(/^Blocked: No eligible auto route for step validate-problem: /);
-    expect(process.exitCode).toBe(1);
+    expect(logs).toEqual([
+      'Next step: validate-problem',
+      'Profile: auto',
+      'Runner: current',
+      'Skill: spok-validate-problem',
+      'Policy: auto-v1',
+      'Degraded: No explicit auto candidate is eligible; running on the current harness whose model identity is unavailable.',
+      'Rejected: codex gpt-5.6-sol xhigh — codex is not installed or not on PATH.',
+      'Rejected: omp openai-codex/gpt-5.6-sol xhigh — omp is not installed or not on PATH.',
+      'Rejected: claude opus medium — claude auth status --json reports loggedIn is not true.',
+      `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
+      `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
+    ]);
+    expect(process.exitCode).not.toBe(1);
+  });
+});
+
+describe('auto flow JSON output', () => {
+  const flow = useFlowHarness();
+  let logs: string[];
+
+  beforeEach(() => {
+    logs = [];
+    vi.spyOn(console, 'log').mockImplementation((message = '') => {
+      logs.push(String(message));
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = 0;
   });
 
   it('carries route in JSON output for auto', async () => {
@@ -1844,11 +2187,32 @@ describe('auto flow command output', () => {
     await flowNextCommand(flow.taskDir, { json: true });
 
     const parsed = JSON.parse(logs.join('\n'));
-    expect(parsed.step.route).toEqual({ policy: 'auto-v1', rejected: [] });
-    expect(parsed.steps[0].route).toEqual({ policy: 'auto-v1', rejected: [] });
+    expect(parsed.step.route).toEqual({
+      policy: 'auto-v1',
+      modelControl: 'selectable',
+      rejected: [],
+    });
+    expect(parsed.steps[0].route).toEqual({
+      policy: 'auto-v1',
+      modelControl: 'selectable',
+      rejected: [],
+    });
     expect(parsed.steps[1]).not.toHaveProperty('route');
   });
 
+  it('carries modelControl and degraded in JSON output for a current route', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
+
+    await flowNextCommand(flow.taskDir, { json: true });
+
+    const parsed = JSON.parse(logs.join('\n'));
+    expect(parsed.step).toMatchObject({
+      runner: 'current',
+      route: { modelControl: 'fixed-unknown', degraded: { code: 'model_identity_unavailable' } },
+    });
+    expect(parsed.step).not.toHaveProperty('model');
+  });
 });
 
 describe('flow command output details', () => {

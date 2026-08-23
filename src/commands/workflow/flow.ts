@@ -6,6 +6,7 @@ import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project
 import { FileSystemUtils } from '../../utils/file-system.js';
 import {
   AUTO_V1_CANDIDATES_BY_ID,
+  MODEL_CONTROL_BY_RUNNER,
   probeHarnesses,
   selectAutoRoute,
   type AutoCandidate,
@@ -790,9 +791,7 @@ function normalizeState(
     }
 
     const step = stepFromDefinition(definition, completed ? 'completed' : 'pending', completed?.result);
-    return profile === 'auto' && step.status !== 'completed'
-      ? withPersistedRoute(step, storedByKey.get(key))
-      : step;
+    return profile === 'auto' ? withPersistedRoute(step, storedByKey.get(key)) : step;
   });
 
   const state: WorkflowState = {
@@ -812,16 +811,20 @@ function normalizeState(
 
 /** Single writer for auto routes so key order matches across getFlowNext and normalizeState. */
 function withPersistedRoute(step: FlowStep, stored: Partial<FlowStep> | undefined): FlowStep {
-  if (!stored?.runner || !stored.model) return step;
+  if (!stored?.runner) return step;
   const { id, skill, ...rest } = step;
   return {
     id,
     skill,
     ...rest,
     runner: stored.runner,
-    model: stored.model,
-    effort: stored.effort,
-    route: stored.route,
+    ...(stored.model !== undefined ? { model: stored.model } : {}),
+    ...(stored.effort !== undefined ? { effort: stored.effort } : {}),
+    // Chunk-1 routes predate modelControl; default it in memory from the runner.
+    route: stored.route && {
+      ...stored.route,
+      modelControl: stored.route.modelControl ?? MODEL_CONTROL_BY_RUNNER[stored.runner],
+    },
   };
 }
 
@@ -876,7 +879,6 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Invalid workflow state profile:')) return 'invalid_state_profile';
   if (reason.startsWith('Unknown flow profile:')) return 'unknown_flow_profile';
   if (reason.startsWith('Flow profile mismatch:')) return 'flow_profile_mismatch';
-  if (reason.startsWith('No eligible auto route for step ')) return 'no_eligible_route';
   if (reason.startsWith('Missing completed artifact for step ')) return 'missing_completed_artifact';
   if (reason.startsWith('Expected step ')) return 'wrong_step';
   if (reason.startsWith('Unknown workflow step:')) return 'unknown_step';
@@ -1152,27 +1154,20 @@ function blockedResponse(state: WorkflowState, reason: string): FlowResponse {
 }
 
 /** Auto profile only. Probes the ready step's distinct candidates concurrently, then applies
- * auto-v1 in policy order and fills the route in place; returns a blocker reason when nothing is
- * eligible. */
-async function resolveReadyStepRoute(state: WorkflowState): Promise<string | undefined> {
-  if (state.profile !== 'auto') return undefined;
+ * auto-v1 in policy order and fills the route in place. A step that already has a runner is
+ * never re-routed; when nothing is eligible the selector falls back to the current harness. */
+async function resolveReadyStepRoute(state: WorkflowState): Promise<void> {
+  if (state.profile !== 'auto') return;
   const index = state.steps.findIndex((step) => step.status === 'ready');
   const ready = state.steps[index];
-  if (!ready || ready.runner) return undefined;
+  if (!ready || ready.runner) return;
 
   // Step ids come from the definition table, so the cast is safe.
   const stepId = ready.id as RoutedStepId;
   const runners = AUTO_CANDIDATES_BY_STEP[stepId].map((candidate) => candidate.runner);
   const reports = await probeHarnesses(runners);
-  const selection = selectAutoRoute(stepId, reports);
-  if ('rejected' in selection) {
-    const detail = selection.rejected
-      .map((entry) => `${entry.runner} ${entry.model}: ${entry.reason}`)
-      .join('; ');
-    return `No eligible auto route for step ${ready.id}: ${detail}`;
-  }
-  state.steps[index] = withPersistedRoute(ready, selection.route);
-  return undefined;
+  const { route } = selectAutoRoute(stepId, reports, state.steps.slice(0, index));
+  state.steps[index] = withPersistedRoute(ready, route);
 }
 
 function normalizeOutputPath(output: string): string {
@@ -1585,13 +1580,7 @@ export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
     return response;
   }
 
-  const noRoute = await resolveReadyStepRoute(loaded.state);
-  if (noRoute) {
-    const response = blockedResponse(loaded.state, noRoute);
-    await recordFlowResponse(response, 'flow_next');
-    return response;
-  }
-
+  await resolveReadyStepRoute(loaded.state);
   await writeState(loaded.state);
   const response = buildResponse(loaded.state);
   const nextResponse = {
@@ -1757,23 +1746,26 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
 }
 
 function printStepRoute(step: FlowStep): void {
-  if (!step.runner || !step.model) {
+  if (!step.runner) {
     console.log('Route: unresolved until spok flow next');
     console.log(`Skill: ${step.skill}`);
     return;
   }
   console.log(`Runner: ${step.runner}`);
   console.log(`Skill: ${step.skill}`);
-  console.log(`Model: ${step.model}`);
+  if (step.model) {
+    console.log(`Model: ${step.model}`);
+  }
   if (step.effort) {
     console.log(`Effort: ${step.effort}`);
   }
   if (!step.route) return;
   console.log(`Policy: ${step.route.policy}`);
+  if (step.route.degraded) {
+    console.log(`Degraded: ${step.route.degraded.reason}`);
+  }
   for (const rejection of step.route.rejected) {
-    const effort = rejection.effort ? ` ${rejection.effort}` : '';
-    console.log(
-      `Rejected: ${rejection.runner} ${rejection.model}${effort} — ${rejection.reason}`
-    );
+    const label = [rejection.runner, rejection.model, rejection.effort].filter(Boolean).join(' ');
+    console.log(`Rejected: ${label} — ${rejection.reason}`);
   }
 }

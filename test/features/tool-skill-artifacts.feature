@@ -566,6 +566,28 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "Route: unresolved until spok flow next"
     And the Spok CLI output does not contain "Runner:"
 
+  Scenario: Auto flow status shows a degraded current route
+    Given a new project
+    And the auto flow profile is active
+    And a staged flow task
+    And the staged auto flow task is ready on a degraded current route
+    When I run spok flow status for the staged task
+    Then the Spok CLI output contains "Next step: validate-problem"
+    And the Spok CLI output contains "Runner: current"
+    And the Spok CLI output contains "Degraded: No explicit auto candidate is eligible; running on the current harness whose model identity is unavailable."
+    And the Spok CLI output does not contain "Model:"
+
+  Scenario: Auto flow resume preserves every persisted route
+    Given a new project
+    And the auto flow profile is active
+    And a staged flow task
+    And the staged auto flow task is completed through validation on persisted routes
+    And a repair cycle is pending
+    When I run spok flow status as JSON for the staged task
+    Then the JSON flow step "implement" occurrence 0 has runner "codex" and model "gpt-5.6-sol"
+    And the JSON flow step "validate" occurrence 0 has runner "claude" and model "opus"
+    And the JSON flow step "repair" occurrence 0 has no runner
+
   Scenario: Global skills install writes to home-scoped tool directories
     Given a new project
     When I install global Spok skills for the tools "claude,codex,factory"
