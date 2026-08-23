@@ -4,25 +4,34 @@ import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
 import { FileSystemUtils } from '../../utils/file-system.js';
+import {
+  AUTO_V1_CANDIDATES_BY_ID,
+  probeHarnesses,
+  selectAutoRoute,
+  type AutoCandidate,
+  type AutoEffort,
+  type AutoModel,
+  type AutoRouteRecord,
+  type AutoRunner,
+} from './harness-routing.js';
 
 const execFileAsync = promisify(execFile);
 
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
 export const FLOW_EVENT_LOG_FILE = 'flow-events.jsonl';
 
-export type FlowModel = 'haiku' | 'sonnet' | 'opus' | 'gpt-5.6-terra' | 'gpt-5.6-sol' | 'fable';
-export type FlowEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/** Routing vocabulary lives in the leaf module; flow.ts re-exports it under its own names. */
+export type FlowModel = AutoModel;
+export type FlowEffort = AutoEffort;
+export type FlowRunner = AutoRunner;
+type Routing = AutoCandidate;
 export type FlowCompletionKind = 'file' | 'summary' | 'commit';
 export type FlowStepStatus = 'pending' | 'ready' | 'completed';
 export type FlowRunState = 'ready' | 'blocked' | 'complete';
-export type FlowRunner = 'claude' | 'codex';
-export type FlowProfile = FlowRunner | 'hybrid';
+/** Profiles resolvable at state creation; `auto` defers routing to `spok flow next`. */
+type DetectedProfile = 'claude' | 'codex';
+export type FlowProfile = DetectedProfile | 'hybrid' | 'auto';
 type FlowTier = 'max' | 'heavy' | 'mid' | 'cheap';
-interface Routing {
-  runner: FlowRunner;
-  model: FlowModel;
-  effort?: FlowEffort;
-}
 
 const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
 const DESIGN_REVIEW_STEP_ID = 'design-review';
@@ -105,12 +114,16 @@ const HYBRID_ROUTING_BY_ID = {
   [SELF_LEARN_STEP_ID]: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
 } as const satisfies Record<RoutedStepId, Routing>;
 
-function detectTool(): FlowRunner {
+/** Sole key check for the auto policy table: fails to compile if harness-routing.ts drops a step that flow.ts routes. */
+const AUTO_CANDIDATES_BY_STEP: Record<RoutedStepId, readonly AutoCandidate[]> =
+  AUTO_V1_CANDIDATES_BY_ID;
+
+function detectTool(): DetectedProfile {
   return process.env.CODEX_HOME?.trim() ? 'codex' : 'claude';
 }
 
 function isFlowProfile(value: unknown): value is FlowProfile {
-  return value === 'claude' || value === 'codex' || value === 'hybrid';
+  return value === 'claude' || value === 'codex' || value === 'hybrid' || value === 'auto';
 }
 
 function requestedFlowProfile(): { profile?: FlowProfile; reason?: string } {
@@ -118,7 +131,7 @@ function requestedFlowProfile(): { profile?: FlowProfile; reason?: string } {
   if (!raw) return {};
   if (isFlowProfile(raw)) return { profile: raw };
   return {
-    reason: `Unknown flow profile: ${raw}. Expected claude, codex, or hybrid.`,
+    reason: `Unknown flow profile: ${raw}. Expected claude, codex, hybrid, or auto.`,
   };
 }
 
@@ -134,13 +147,16 @@ export interface FlowStepResult {
 export interface FlowStep {
   id: string;
   skill: string;
-  runner: FlowRunner;
-  model: FlowModel;
+  /** Absent on auto-profile steps until `spok flow next` resolves them. */
+  runner?: FlowRunner;
+  model?: FlowModel;
   effort?: FlowEffort;
   argument: string;
   expectedOutput?: string;
   status: FlowStepStatus;
   result?: FlowStepResult;
+  /** Auto profile only: policy version and every candidate rejected before this route was chosen. */
+  route?: AutoRouteRecord;
   /** 1-based repair-cycle attempt for spliced repair/validate steps; absent on the base graph. */
   attempt?: number;
   /** Derived per response, never persisted: the full subagent prompt to dispatch verbatim. */
@@ -193,8 +209,8 @@ export interface FlowCompleteCommandOptions extends FlowCommandOptions, FlowComp
 interface StepDefinition {
   id: RoutedStepId;
   skill: string;
-  runner: FlowRunner;
-  model: FlowModel;
+  runner?: FlowRunner;
+  model?: FlowModel;
   effort?: FlowEffort;
   argument: string;
   expectedOutput?: string;
@@ -543,16 +559,19 @@ function buildFlowStepPaths(taskDir: string): FlowStepPaths {
   };
 }
 
+function profileRouting(spec: StepDefinitionSpec, profile: FlowProfile): Routing | undefined {
+  if (profile === 'auto') return undefined;
+  if (profile === 'hybrid') return HYBRID_ROUTING_BY_ID[spec.id];
+  if (profile === 'claude') return CLAUDE_ROUTING_BY_ID[spec.id];
+  return CODEX_ROUTING_BY_TIER[FLOW_STEP_TIER_BY_ID[spec.id]];
+}
+
 function buildStepDefinition(
   spec: StepDefinitionSpec,
   paths: FlowStepPaths,
   profile: FlowProfile
 ): StepDefinition {
-  const routing = profile === 'hybrid'
-    ? HYBRID_ROUTING_BY_ID[spec.id]
-    : profile === 'claude'
-      ? CLAUDE_ROUTING_BY_ID[spec.id]
-      : CODEX_ROUTING_BY_TIER[FLOW_STEP_TIER_BY_ID[spec.id]];
+  const routing = profileRouting(spec, profile);
   return {
     id: spec.id,
     skill: spec.skill,
@@ -607,12 +626,11 @@ function stepFromDefinition(
   status: FlowStepStatus,
   result?: FlowStepResult
 ): FlowStep {
+  const { runner, model, effort } = definition;
   return {
     id: definition.id,
     skill: definition.skill,
-    runner: definition.runner,
-    model: definition.model,
-    effort: definition.effort,
+    ...(runner && model ? { runner, model, effort } : {}),
     argument: definition.argument,
     expectedOutput: definition.expectedOutput,
     status,
@@ -687,7 +705,7 @@ function shouldCompleteDesignReviewForLegacyState(storedSteps: unknown[]): boole
   });
 }
 
-function inferLegacyProfile(stored: unknown): FlowRunner | undefined {
+function inferLegacyProfile(stored: unknown): DetectedProfile | undefined {
   if (!stored || typeof stored !== 'object') return;
   const steps = Array.isArray((stored as Partial<WorkflowState>).steps)
     ? (stored as Partial<WorkflowState>).steps!
@@ -740,11 +758,13 @@ function normalizeState(
       : 0;
   const storedSteps = Array.isArray(candidate.steps) ? candidate.steps : [];
   const completedByKey = new Map<string, FlowStep>();
+  const storedByKey = new Map<string, Partial<FlowStep>>();
   const storedOccurrences = new Map<string, number>();
   for (const step of storedSteps) {
     const id = storedStepId(step);
     if (id === undefined) continue;
     const key = takeOccurrenceKey(storedOccurrences, id);
+    storedByKey.set(key, step as Partial<FlowStep>);
     if (isCompletedStep(step)) completedByKey.set(key, step);
   }
 
@@ -753,7 +773,8 @@ function normalizeState(
   const completeDesignReview = shouldCompleteDesignReviewForLegacyState(storedSteps);
   const definitionOccurrences = new Map<string, number>();
   const steps = definitions.map((definition) => {
-    const completed = completedByKey.get(takeOccurrenceKey(definitionOccurrences, definition.id));
+    const key = takeOccurrenceKey(definitionOccurrences, definition.id);
+    const completed = completedByKey.get(key);
     if (!completed && definition.id === PROBLEM_VALIDATION_STEP_ID && skipProblemValidation) {
       return stepFromDefinition(definition, 'completed', {
         summary: 'Skipped for legacy workflow state created before validate-problem existed.',
@@ -768,7 +789,10 @@ function normalizeState(
       });
     }
 
-    return stepFromDefinition(definition, completed ? 'completed' : 'pending', completed?.result);
+    const step = stepFromDefinition(definition, completed ? 'completed' : 'pending', completed?.result);
+    return profile === 'auto' && step.status !== 'completed'
+      ? withPersistedRoute(step, storedByKey.get(key))
+      : step;
   });
 
   const state: WorkflowState = {
@@ -784,6 +808,21 @@ function normalizeState(
 
   markNextStepReady(state);
   return state;
+}
+
+/** Single writer for auto routes so key order matches across getFlowNext and normalizeState. */
+function withPersistedRoute(step: FlowStep, stored: Partial<FlowStep> | undefined): FlowStep {
+  if (!stored?.runner || !stored.model) return step;
+  const { id, skill, ...rest } = step;
+  return {
+    id,
+    skill,
+    ...rest,
+    runner: stored.runner,
+    model: stored.model,
+    effort: stored.effort,
+    route: stored.route,
+  };
 }
 
 function markNextStepReady(state: WorkflowState): void {
@@ -837,6 +876,7 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Invalid workflow state profile:')) return 'invalid_state_profile';
   if (reason.startsWith('Unknown flow profile:')) return 'unknown_flow_profile';
   if (reason.startsWith('Flow profile mismatch:')) return 'flow_profile_mismatch';
+  if (reason.startsWith('No eligible auto route for step ')) return 'no_eligible_route';
   if (reason.startsWith('Missing completed artifact for step ')) return 'missing_completed_artifact';
   if (reason.startsWith('Expected step ')) return 'wrong_step';
   if (reason.startsWith('Unknown workflow step:')) return 'unknown_step';
@@ -1109,6 +1149,30 @@ function blockedResponse(state: WorkflowState, reason: string): FlowResponse {
     nextStep: getCurrentStep(state),
     reason,
   };
+}
+
+/** Auto profile only. Probes the ready step's distinct candidates concurrently, then applies
+ * auto-v1 in policy order and fills the route in place; returns a blocker reason when nothing is
+ * eligible. */
+async function resolveReadyStepRoute(state: WorkflowState): Promise<string | undefined> {
+  if (state.profile !== 'auto') return undefined;
+  const index = state.steps.findIndex((step) => step.status === 'ready');
+  const ready = state.steps[index];
+  if (!ready || ready.runner) return undefined;
+
+  // Step ids come from the definition table, so the cast is safe.
+  const stepId = ready.id as RoutedStepId;
+  const runners = AUTO_CANDIDATES_BY_STEP[stepId].map((candidate) => candidate.runner);
+  const reports = await probeHarnesses(runners);
+  const selection = selectAutoRoute(stepId, reports);
+  if ('rejected' in selection) {
+    const detail = selection.rejected
+      .map((entry) => `${entry.runner} ${entry.model}: ${entry.reason}`)
+      .join('; ');
+    return `No eligible auto route for step ${ready.id}: ${detail}`;
+  }
+  state.steps[index] = withPersistedRoute(ready, selection.route);
+  return undefined;
 }
 
 function normalizeOutputPath(output: string): string {
@@ -1521,6 +1585,13 @@ export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
     return response;
   }
 
+  const noRoute = await resolveReadyStepRoute(loaded.state);
+  if (noRoute) {
+    const response = blockedResponse(loaded.state, noRoute);
+    await recordFlowResponse(response, 'flow_next');
+    return response;
+  }
+
   await writeState(loaded.state);
   const response = buildResponse(loaded.state);
   const nextResponse = {
@@ -1664,12 +1735,7 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
   if (response.profile) {
     console.log(`Profile: ${response.profile}`);
   }
-  console.log(`Runner: ${step.runner}`);
-  console.log(`Skill: ${step.skill}`);
-  console.log(`Model: ${step.model}`);
-  if (step.effort) {
-    console.log(`Effort: ${step.effort}`);
-  }
+  printStepRoute(step);
   console.log(`Argument: ${step.argument}`);
   if (step.expectedOutput) {
     console.log(`Expected output: ${step.expectedOutput}`);
@@ -1687,5 +1753,27 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
   }
   if (response.workRootWarning) {
     console.log(`Work root warning: ${response.workRootWarning}`);
+  }
+}
+
+function printStepRoute(step: FlowStep): void {
+  if (!step.runner || !step.model) {
+    console.log('Route: unresolved until spok flow next');
+    console.log(`Skill: ${step.skill}`);
+    return;
+  }
+  console.log(`Runner: ${step.runner}`);
+  console.log(`Skill: ${step.skill}`);
+  console.log(`Model: ${step.model}`);
+  if (step.effort) {
+    console.log(`Effort: ${step.effort}`);
+  }
+  if (!step.route) return;
+  console.log(`Policy: ${step.route.policy}`);
+  for (const rejection of step.route.rejected) {
+    const effort = rejection.effort ? ` ${rejection.effort}` : '';
+    console.log(
+      `Rejected: ${rejection.runner} ${rejection.model}${effort} — ${rejection.reason}`
+    );
   }
 }

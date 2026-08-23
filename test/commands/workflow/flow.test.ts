@@ -6,6 +6,15 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../../../src/commands/workflow/harness-routing.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/commands/workflow/harness-routing.js')>()),
+  probeHarnesses: vi.fn(),
+}));
+
+import {
+  probeHarnesses,
+  type CapabilityReport,
+} from '../../../src/commands/workflow/harness-routing.js';
 import {
   completeFlowStep,
   flowCompleteCommand,
@@ -14,8 +23,55 @@ import {
   getFlowEventLogPath,
   getFlowNext,
   getFlowStatus,
+  type FlowStep,
   WORKFLOW_STATE_FILE,
 } from '../../../src/commands/workflow/flow.js';
+
+const OMP_THINKING = ['low', 'medium', 'high', 'xhigh', 'max'];
+const ALL_HARNESSES_AVAILABLE: CapabilityReport[] = [
+  { runner: 'codex', available: true },
+  { runner: 'claude', available: true },
+  {
+    runner: 'omp',
+    available: true,
+    models: new Map([
+      ['openai-codex/gpt-5.6-sol', OMP_THINKING],
+      ['openai-codex/gpt-5.6-terra', OMP_THINKING],
+    ]),
+  },
+];
+const CODEX_LOGGED_OUT: CapabilityReport = {
+  runner: 'codex',
+  available: false,
+  code: 'not_authenticated',
+  reason: 'codex login status reported: Not logged in',
+};
+const NOTHING_AVAILABLE: CapabilityReport[] = [
+  {
+    runner: 'codex',
+    available: false,
+    code: 'executable_missing',
+    reason: 'codex is not installed or not on PATH.',
+  },
+  {
+    runner: 'omp',
+    available: false,
+    code: 'executable_missing',
+    reason: 'omp is not installed or not on PATH.',
+  },
+  {
+    runner: 'claude',
+    available: false,
+    code: 'not_authenticated',
+    reason: 'claude auth status --json reports loggedIn is not true.',
+  },
+];
+
+function withCapabilityReports(overrides: CapabilityReport[]): CapabilityReport[] {
+  return ALL_HARNESSES_AVAILABLE.map(
+    (report) => overrides.find((override) => override.runner === report.runner) ?? report
+  );
+}
 
 interface FlowHarness {
   readonly projectRoot: string;
@@ -110,6 +166,7 @@ function useFlowHarness(): FlowHarness {
     originalFlowProfile = process.env.SPOK_FLOW_PROFILE;
     delete process.env.CODEX_HOME;
     delete process.env.SPOK_FLOW_PROFILE;
+    vi.mocked(probeHarnesses).mockReset().mockResolvedValue(ALL_HARNESSES_AVAILABLE);
     tempDir = path.join(os.tmpdir(), `spok-flow-${randomUUID()}`);
     taskDir = path.join(tempDir, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
     await fs.mkdir(taskDir, { recursive: true });
@@ -323,6 +380,92 @@ describe('deterministic workflow step state', () => {
     expect(result.reason).toBe('Flow profile mismatch: state uses hybrid, requested claude.');
   });
 
+});
+
+describe('auto flow profile state', () => {
+  const flow = useFlowHarness();
+
+  it('leaves auto-profile steps unrouted on status and writes no state file', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+
+    const result = await getFlowStatus(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.profile).toBe('auto');
+    expect(result.nextStep?.id).toBe('validate-problem');
+    for (const step of result.steps) {
+      expect(step).not.toHaveProperty('runner');
+      expect(step).not.toHaveProperty('model');
+      expect(step).not.toHaveProperty('route');
+    }
+    expect(probeHarnesses).not.toHaveBeenCalled();
+    await expect(fs.stat(path.join(flow.taskDir, WORKFLOW_STATE_FILE))).rejects.toThrow();
+  });
+
+  it('persists profile auto and leaves pending steps unrouted', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+
+    await getFlowNext(flow.taskDir);
+
+    const state = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    expect(state.profile).toBe('auto');
+    for (const step of state.steps.slice(1)) {
+      expect(step).not.toHaveProperty('runner');
+      expect(step).not.toHaveProperty('model');
+      expect(step).not.toHaveProperty('route');
+    }
+  });
+
+  it('rejects an unknown profile and lists auto among the options', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'foo';
+
+    const result = await getFlowStatus(flow.taskDir);
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toBe(
+      'Unknown flow profile: foo. Expected claude, codex, hybrid, or auto.'
+    );
+  });
+
+  it('loads a stored auto profile and blocks a mismatched explicit request', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await getFlowNext(flow.taskDir);
+
+    delete process.env.SPOK_FLOW_PROFILE;
+    expect((await getFlowStatus(flow.taskDir)).profile).toBe('auto');
+
+    process.env.SPOK_FLOW_PROFILE = 'hybrid';
+    const mismatch = await getFlowStatus(flow.taskDir);
+    expect(mismatch.state).toBe('blocked');
+    expect(mismatch.reason).toBe('Flow profile mismatch: state uses auto, requested hybrid.');
+  });
+
+  it('keeps explicit-profile step keys in the original order', async () => {
+    await getFlowNext(flow.taskDir);
+
+    const state = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    expect(Object.keys(state.steps[0])).toEqual([
+      'id',
+      'skill',
+      'runner',
+      'model',
+      'effort',
+      'argument',
+      'expectedOutput',
+      'status',
+    ]);
+    expect(probeHarnesses).not.toHaveBeenCalled();
+  });
+
+});
+
+describe('deterministic workflow completion state', () => {
+  const flow = useFlowHarness();
+
   it('appends self-learn when project config enables it', async () => {
     await flow.enableSelfLearn();
 
@@ -385,6 +528,190 @@ describe('deterministic workflow step state', () => {
 
     expect(result.state).toBe('ready');
     expect(result.nextStep?.id).toBe('commit');
+  });
+});
+
+describe('auto flow profile', () => {
+  const flow = useFlowHarness();
+
+  it('resolves the ready step with the first eligible candidate and persists only that step', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.step).toMatchObject({
+      id: 'validate-problem',
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'xhigh',
+      route: { policy: 'auto-v1', rejected: [] },
+    });
+    expect(probeHarnesses).toHaveBeenCalledTimes(1);
+    expect(probeHarnesses).toHaveBeenCalledWith(['codex', 'omp', 'claude']);
+    const stored = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    expect(stored.steps[0]).toMatchObject({
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'xhigh',
+      route: { policy: 'auto-v1', rejected: [] },
+    });
+    expect(Object.keys(stored.steps[0])).toEqual([
+      'id',
+      'skill',
+      'argument',
+      'expectedOutput',
+      'status',
+      'runner',
+      'model',
+      'effort',
+      'route',
+    ]);
+    expect(stored.steps[1]).not.toHaveProperty('runner');
+  });
+
+  it('falls back to OMP and records the Codex rejection', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    vi.mocked(probeHarnesses).mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step).toMatchObject({
+      runner: 'omp',
+      model: 'openai-codex/gpt-5.6-sol',
+      effort: 'xhigh',
+      route: {
+        policy: 'auto-v1',
+        rejected: [
+          {
+            runner: 'codex',
+            model: 'gpt-5.6-sol',
+            effort: 'xhigh',
+            code: 'not_authenticated',
+            reason: CODEX_LOGGED_OUT.reason,
+          },
+        ],
+      },
+    });
+  });
+
+  it('blocks with no_eligible_route and writes no state when nothing is eligible', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toBe(
+      'No eligible auto route for step validate-problem: ' +
+        'codex gpt-5.6-sol: codex is not installed or not on PATH.; ' +
+        'omp openai-codex/gpt-5.6-sol: omp is not installed or not on PATH.; ' +
+        'claude opus: claude auth status --json reports loggedIn is not true.'
+    );
+    await expect(fs.stat(path.join(flow.taskDir, WORKFLOW_STATE_FILE))).rejects.toThrow();
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      event: 'flow_next',
+      state: 'blocked',
+      code: 'no_eligible_route',
+    });
+  });
+
+});
+
+describe('auto flow route persistence', () => {
+  const flow = useFlowHarness();
+
+  it('does not re-probe a persisted auto step with runner and model but no route', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await getFlowNext(flow.taskDir);
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    delete state.steps[0].route;
+    await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+    vi.mocked(probeHarnesses).mockReset().mockResolvedValue(NOTHING_AVAILABLE);
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.state).toBe('ready');
+    expect(result.step).toMatchObject({
+      id: 'validate-problem',
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'xhigh',
+    });
+    expect(result.step?.route).toBeUndefined();
+    expect(probeHarnesses).not.toHaveBeenCalled();
+    const persisted = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    expect(persisted.steps[0]).not.toHaveProperty('route');
+  });
+
+  it('resolves the next step with a fresh probe after completing the first', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    await getFlowNext(flow.taskDir);
+    await flow.completeProblemValidation();
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step).toMatchObject({
+      id: 'research-questions',
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'medium',
+    });
+    expect(probeHarnesses).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns the persisted route on later next and status calls without probing again', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    vi.mocked(probeHarnesses).mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
+    const first = await getFlowNext(flow.taskDir);
+    const firstState = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
+
+    const second = await getFlowNext(flow.taskDir);
+    const status = await getFlowStatus(flow.taskDir);
+    const secondState = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+
+    const routing = (step: FlowStep | undefined) => ({
+      runner: step?.runner,
+      model: step?.model,
+      effort: step?.effort,
+      route: step?.route,
+    });
+    expect(routing(second.step)).toEqual(routing(first.step));
+    expect(routing(status.nextStep)).toEqual(routing(first.step));
+    expect(second.step?.runner).toBe('omp');
+    expect(probeHarnesses).toHaveBeenCalledTimes(1);
+    expect(secondState).toEqual({ ...firstState, updatedAt: secondState.updatedAt });
+    expect(secondState.updatedAt >= firstState.updatedAt).toBe(true);
+  });
+
+  it('keeps explicit-profile state and responses free of route data', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'hybrid';
+
+    const result = await getFlowNext(flow.taskDir);
+    const firstState = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    await getFlowNext(flow.taskDir);
+    const secondState = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+
+    expect(JSON.stringify(result)).not.toContain('"route"');
+    expect(
+      result.steps.map(({ id, runner, model, effort }) => ({ id, runner, model, effort }))
+    ).toEqual(EXPECTED_HYBRID_STEP_ROUTING);
+    expect(secondState).toEqual({ ...firstState, updatedAt: secondState.updatedAt });
+    expect(JSON.stringify(secondState)).not.toContain('"route"');
+    expect(probeHarnesses).not.toHaveBeenCalled();
   });
 });
 
@@ -1446,6 +1773,98 @@ describe('flow command output', () => {
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
       `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
     ]);
+  });
+
+});
+
+describe('auto flow command output', () => {
+  const flow = useFlowHarness();
+  let logs: string[];
+
+  beforeEach(() => {
+    logs = [];
+    vi.spyOn(console, 'log').mockImplementation((message = '') => {
+      logs.push(String(message));
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = 0;
+  });
+
+  it('prints the unresolved route for an auto-profile status', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+
+    await flowStatusCommand(flow.taskDir);
+
+    expect(logs).toEqual([
+      'Next step: validate-problem',
+      'Profile: auto',
+      'Route: unresolved until spok flow next',
+      'Skill: spok-validate-problem',
+      `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
+      `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
+    ]);
+  });
+
+  it('prints policy and rejections for a resolved auto step', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    vi.mocked(probeHarnesses).mockResolvedValue(withCapabilityReports([CODEX_LOGGED_OUT]));
+
+    await flowNextCommand(flow.taskDir);
+
+    expect(logs).toEqual([
+      'Next step: validate-problem',
+      'Profile: auto',
+      'Runner: omp',
+      'Skill: spok-validate-problem',
+      'Model: openai-codex/gpt-5.6-sol',
+      'Effort: xhigh',
+      'Policy: auto-v1',
+      'Rejected: codex gpt-5.6-sol xhigh — codex login status reported: Not logged in',
+      `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
+      `Expected output: ${path.join(flow.taskDir, 'problem-validation.md')}`,
+    ]);
+  });
+
+  it('prints the no-eligible-route blocker in text mode', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+    vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
+
+    await flowNextCommand(flow.taskDir);
+
+    expect(logs[0]).toMatch(/^Blocked: No eligible auto route for step validate-problem: /);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('carries route in JSON output for auto', async () => {
+    process.env.SPOK_FLOW_PROFILE = 'auto';
+
+    await flowNextCommand(flow.taskDir, { json: true });
+
+    const parsed = JSON.parse(logs.join('\n'));
+    expect(parsed.step.route).toEqual({ policy: 'auto-v1', rejected: [] });
+    expect(parsed.steps[0].route).toEqual({ policy: 'auto-v1', rejected: [] });
+    expect(parsed.steps[1]).not.toHaveProperty('route');
+  });
+
+});
+
+describe('flow command output details', () => {
+  const flow = useFlowHarness();
+  let logs: string[];
+
+  beforeEach(() => {
+    logs = [];
+    vi.spyOn(console, 'log').mockImplementation((message = '') => {
+      logs.push(String(message));
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = 0;
   });
 
   it('prints the memory summary and warning in text mode', async () => {

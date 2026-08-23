@@ -556,6 +556,16 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "Model: gpt-5.6-sol"
     And the Spok CLI output contains "Effort: max"
 
+  Scenario: Auto flow status leaves the ready step unresolved
+    Given a new project
+    And the auto flow profile is active
+    And a staged flow task
+    When I run spok flow status for the staged task
+    Then the Spok CLI output contains "Next step: validate-problem"
+    And the Spok CLI output contains "Profile: auto"
+    And the Spok CLI output contains "Route: unresolved until spok flow next"
+    And the Spok CLI output does not contain "Runner:"
+
   Scenario: Global skills install writes to home-scoped tool directories
     Given a new project
     When I install global Spok skills for the tools "claude,codex,factory"

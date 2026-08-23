@@ -386,6 +386,10 @@ Given('the hybrid flow profile is active', function () {
   process.env.SPOK_FLOW_PROFILE = 'hybrid';
 });
 
+Given('the auto flow profile is active', function () {
+  process.env.SPOK_FLOW_PROFILE = 'auto';
+});
+
 Given(
   'an existing Spok setup for the tools {string} without the workflow skill {string}',
   async function (this: SkillArtifactWorld, tools: string, skillName: string) {
@@ -512,6 +516,13 @@ When('I run spok flow next as JSON for the staged task', async function (this: S
   this.cliResult = await runCLI(['flow', 'next', this.flowTaskDir, '--json'], {
     cwd: this.projectDir,
   });
+  assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
+});
+
+When('I run spok flow status for the staged task', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  this.cliResult = await runCLI(['flow', 'status', this.flowTaskDir], { cwd: this.projectDir });
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
 });
 
