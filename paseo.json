@@ -1,0 +1,5 @@
+{
+  "worktree": {
+    "setup": "\"$HOME/.local/bin/wt-impl\" \"$PASEO_BRANCH_NAME\""
+  }
+}
