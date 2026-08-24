@@ -28,7 +28,6 @@
 
 - The human is the engineer. They own design, API shape, and merge authority. You propose, they dispose.
 - Do NOT run `git commit`, `git push`, or equivalent publishing commands unless the user's current prompt asked for it. The verbs `commit`, `push`, `ship`, `land`, `merge` in action context authorize that turn only.
-- If you decide on your own to "commit this and move on," the `PreToolUse` hook will deny the command. That is working as intended.
 </important>
 
 <important if="you accept a new task">
@@ -46,5 +45,4 @@
 
 <important if="you want to edit `.dependency-cruiser.json` (arch config)">
 - Do not silently edit the arch config to silence a violation. Architectural violations imply a design decision — surface them to the human.
-- The `PreToolUse` hook denies edits to `.dependency-cruiser.json` unless the user's current prompt explicitly authorized it.
 </important>

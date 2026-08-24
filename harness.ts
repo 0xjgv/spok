@@ -618,23 +618,15 @@ async function cmdPostEdit(): Promise<void> {
 
 // ── Stages ──────────────────────────────────────────────────────────
 
-async function checkHooksPresent(): Promise<void> {
+async function checkStopHookPresent(): Promise<void> {
   const { existsSync } = await import('node:fs');
   const settingsPath = `${ROOT}/.claude/settings.json`;
   if (!existsSync(settingsPath)) return;
   const settings = JSON.parse(await Bun.file(settingsPath).text()) as {
     hooks?: Record<string, unknown[]>;
   };
-  if (!Object.keys(settings.hooks ?? {}).length) return;
-
-  const required = [
-    '.claude/scripts/ups-classify.sh',
-    '.claude/scripts/pre-bash-gate.sh',
-    '.claude/scripts/pre-edit-gate.sh',
-  ];
-  const missing = required.filter((p) => !existsSync(`${ROOT}/${p}`));
-  if (missing.length > 0) {
-    console.log(`  ${RED}⚠${RESET} Missing hook scripts: ${missing.join(', ')}`);
+  if (!JSON.stringify(settings.hooks?.Stop ?? []).includes('post-edit')) {
+    console.log(`  ${RED}⚠${RESET} Missing Stop hook wiring: .claude/settings.json`);
   }
 }
 
@@ -709,7 +701,7 @@ async function cmdCheck(): Promise<void> {
     await run('Tests', ['bunx', 'vitest', 'run'], { extract: extractTestSummary, noExit: true }),
   );
 
-  await checkHooksPresent();
+  await checkStopHookPresent();
   results.push(await checkAgentsMdDrift(true));
   await printSuppressionsReport();
 
