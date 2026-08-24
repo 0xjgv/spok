@@ -21,10 +21,12 @@ so the user can intervene.
 - \`<change>\` — use the current tool and select that change
 - \`hybrid\` — use the built-in Claude + Codex profile and infer the change
 - \`hybrid <change>\` — use the built-in Claude + Codex profile for that change
+- \`auto\` — let the deterministic flow controller route each step and infer the change
+- \`auto <change>\` — let the deterministic flow controller route each step for that change
 
-Treat an exact leading \`hybrid\` token as the execution mode and remove it before
-selecting the change. The token is reserved. If the change is still ambiguous you
-MUST prompt the user.
+Treat an exact leading \`hybrid\` or \`auto\` token as the execution mode and remove
+it before selecting the change. Both tokens are reserved. If the change is still
+ambiguous you MUST prompt the user.
 
 **CLI self-discovery**: When unsure about Spok's CLI surface, run \`spok capabilities --json\`. Use it only for discovery; keep the workflow recipe below as the primary path.
 
@@ -32,7 +34,7 @@ MUST prompt the user.
 
 1. **Select the change**
 
-   - Record whether the leading argument selected hybrid execution.
+   - Record whether the leading argument selected hybrid or auto execution.
    - Use the remaining change name argument if provided.
    - Otherwise infer from recent conversation.
    - Otherwise run \`spok list --json\` and use **AskUserQuestion** to let the user pick.
@@ -66,6 +68,11 @@ MUST prompt the user.
      every step — check only that harness's markers.
    - Before staging a hybrid run (\`hybrid\` / \`hybrid <change>\`), both harnesses
      execute steps — check both harnesses' markers.
+   - Before staging an auto run (\`auto\` / \`auto <change>\`), check only the
+     current harness's markers, the same as default execution. Availability
+     probing (executables, authentication, models, OMP isolation) is
+     owned by the deterministic flow controller at \`spok flow next\` time;
+     apply must not duplicate or front-run it.
    - If the harness(es) that will execute the flow are missing any marker,
      tell the user to run \`spok skills install --tools claude,codex\` (or just
      \`--tools claude\` / \`--tools codex\` for a single-harness default run) and
@@ -160,6 +167,8 @@ MUST prompt the user.
      the staged ticket directory as the argument using the **Skill tool**.
    - For \`/spok-apply hybrid\`, call \`spok-flow\` with
      \`hybrid "<absolute-ticket-dir>"\` as its argument using the **Skill tool**.
+   - For \`/spok-apply auto\`, call \`spok-flow\` with
+     \`auto "<absolute-ticket-dir>"\` as its argument using the **Skill tool**.
 
    The flow skill drives research → design → plan → implement → review → commit and returns when done or when it hits a blocker.
 

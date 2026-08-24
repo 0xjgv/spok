@@ -1,14 +1,14 @@
 ---
 name: spok-flow
-description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk, with native or hybrid model routing and an optional post-commit self-learn gate. Driven by spok-apply.
-argument-hint: [hybrid] <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
+description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk, with native, hybrid, or automatic model routing and an optional post-commit self-learn gate. Driven by spok-apply.
+argument-hint: [hybrid|auto] <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
 version: 0.9.0
 ---
 # Flow Instructions
 
 ## 0. Receive Pre-Staged Task Directory
 
-`spok-apply` has already created the task directory and written `ticket.md` for the chunk to execute. The argument to this skill is the **absolute path** to that directory (e.g. `spok/changes/<change-slug>/.flow/<chunk-slug>/`). A leading `hybrid` token selects the built-in Claude + Codex execution profile; remove that token before resolving the task directory.
+`spok-apply` has already created the task directory and written `ticket.md` for the chunk to execute. The argument to this skill is the **absolute path** to that directory (e.g. `spok/changes/<change-slug>/.flow/<chunk-slug>/`). A leading `hybrid` token selects the built-in Claude + Codex execution profile; remove that token before resolving the task directory. A leading `auto` token selects the automatic routing profile; remove that token before resolving the task directory.
 
 > Verify the directory exists and contains `ticket.md` using the **Read** tool. Do NOT recreate the directory or overwrite `ticket.md`.
 
@@ -19,7 +19,8 @@ If `ticket.md` is missing, halt and report back — `spok-apply` is responsible 
 The `spok` CLI owns the inner flow sequence and resume state. Do not choose, skip, reorder, or rename steps yourself.
 
 For a hybrid invocation, prefix every `spok flow status`, `spok flow next`, and
-`spok flow complete` command with `SPOK_FLOW_PROFILE=hybrid`. For a default
+`spok flow complete` command with `SPOK_FLOW_PROFILE=hybrid`. For an auto
+invocation, prefix the same commands with `SPOK_FLOW_PROFILE=auto`. For a default
 invocation, run the commands without that environment variable. An existing
 workflow state owns its persisted profile; if the requested profile conflicts,
 surface the CLI blocker exactly.
@@ -34,6 +35,12 @@ Hybrid equivalent:
 
 ```bash
 SPOK_FLOW_PROFILE=hybrid spok flow status "<task-dir>" --json
+```
+
+Auto equivalent:
+
+```bash
+SPOK_FLOW_PROFILE=auto spok flow status "<task-dir>" --json
 ```
 
 If it returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches.
@@ -69,6 +76,8 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 
    If the response carries `memoryWarning` or `workRootWarning`, surface it to the user once and continue.
 
+   If the returned `step.route` carries `degraded`, surface `step.route.degraded.reason` to the user once and continue with dispatch; degradation never blocks, never alters the persisted route, and never reroutes.
+
 4. Dispatch the step through `step.runner`. The only valid runner values are
    `claude`, `codex`, `omp`, or `current`. If `step.runner` is anything else,
    report the malformed route and halt before dispatch. Do not detect or infer
@@ -102,7 +111,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    - When `step.runner` is `omp`, first verify `omp` is on `PATH`. Then prove
      `<project-root>` is a linked Git worktree again, even though routing
      already checked at selection time: run
-     `git -C "<project-root>" rev-parse --path-format=absolute --git-dir --git-common-dir`
+     `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "<project-root>" rev-parse --path-format=absolute --git-dir --git-common-dir`
      and require both printed absolute paths to resolve and differ. If the
      command fails or the two paths are equal, report the missing isolation and
      halt before sending the prompt. When the proof holds, run sequentially in
@@ -115,7 +124,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      Pass `<step.prompt>` **verbatim** on stdin through the process API; do not
      interpolate it into a shell command.
 
-   Resolve `<project-root>` with `git -C "<task-dir>" rev-parse --show-toplevel`.
+   Resolve `<project-root>` with `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "<task-dir>" rev-parse --show-toplevel`.
    Run both Git commands with `GIT_DIR`, `GIT_COMMON_DIR`, and `GIT_WORK_TREE`
    removed from the child environment through the process API.
    Use `--dangerously-bypass-hook-trust` to run enabled hooks without an

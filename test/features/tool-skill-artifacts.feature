@@ -166,6 +166,16 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "--dangerously-bypass-hook-trust"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "claude -p"
 
+  Scenario: Apply exposes an automatic routing execution mode
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-apply" under ".claude/skills" mentions "/spok-apply auto"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "auto <change>"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "owned by the deterministic flow controller at `spok flow next` time"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "auto \"<absolute-ticket-dir>\""
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "SPOK_FLOW_PROFILE=auto"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "A leading `auto` token selects the automatic routing profile"
+
   Scenario: Hybrid apply preflights both harness skill closures
     Given a new project
     When I initialize Spok for the tools "claude"
@@ -617,6 +627,12 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "halt before sending the prompt"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "A failed dispatch never changes the harness, model, or effort"
     And the workflow skill "spok-flow" under ".claude/skills" does not mention "CODEX_HOME"
+
+  Scenario: Flow surfaces degraded routes and keeps the OMP isolation example copy-safe
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-flow" under ".claude/skills" mentions "env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "surface `step.route.degraded.reason` to the user once and continue with dispatch"
 
   Scenario: Global skills install writes to home-scoped tool directories
     Given a new project
