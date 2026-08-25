@@ -183,6 +183,13 @@ Feature: Tool skill artifacts
     Then the workflow skill "spok-apply" under ".claude/skills" mentions "spok flow next"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "capability_unavailable"
 
+  Scenario: Commit accounting excludes only flow-generated capabilities
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-ci-commit" under ".claude/skills" mentions "status --porcelain --untracked-files=all"
+    And the workflow skill "spok-ci-commit" under ".claude/skills" mentions "Exclude only the generated capability directories named in the dispatching prompt"
+    And the workflow skill "spok-ci-commit" under ".claude/skills" mentions "Every other unexplained changed path remains a blocker"
+
   Scenario: Inner flow implementation overrides standalone orchestration
     Given a new project
     When I initialize Spok for the tools "claude"

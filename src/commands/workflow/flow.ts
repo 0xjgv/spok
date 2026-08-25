@@ -155,6 +155,7 @@ export interface WorkflowState {
   status: FlowRunState;
   steps: FlowStep[];
   repairAttempts: number;
+  materializedCapabilityPaths: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -476,11 +477,21 @@ function editingWorkRootClause(workRoot: string): string {
   );
 }
 
+function materializedCapabilityClause(paths: string[]): string {
+  return [
+    'Generated capability directories in the work root:',
+    ...paths.map((capabilityPath) => `- \`${capabilityPath}/\``),
+    'Exclude only these exact directories and their descendants from mismatch detection and staging. ' +
+      'Every other unexplained changed path remains a blocker.',
+  ].join('\n');
+}
+
 /** The whole subagent prompt. The driver dispatches it verbatim and assembles nothing. */
 function buildStepPrompt(
   definition: StepDefinition,
   rules: string[],
-  workRoot?: string
+  workRoot?: string,
+  materializedCapabilityPaths: string[] = []
 ): string {
   const sections: string[] = [];
 
@@ -506,7 +517,12 @@ function buildStepPrompt(
   if (clause) sections.push(clause);
 
   if (workRoot) {
-    if (definition.completionKind === 'commit') sections.push(workRootClause(workRoot));
+    if (definition.completionKind === 'commit') {
+      sections.push(workRootClause(workRoot));
+      if (materializedCapabilityPaths.length > 0) {
+        sections.push(materializedCapabilityClause(materializedCapabilityPaths));
+      }
+    }
     if (definition.id === 'simplify' || definition.id === REPAIR_STEP_ID) {
       sections.push(editingWorkRootClause(workRoot));
     }
@@ -627,6 +643,7 @@ function createInitialState(taskDir: string, profile: FlowProfile): WorkflowStat
       stepFromDefinition(definition, index === 0 ? 'ready' : 'pending')
     ),
     repairAttempts: 0,
+    materializedCapabilityPaths: [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -772,6 +789,15 @@ function normalizeState(
     status: 'ready',
     steps,
     repairAttempts,
+    materializedCapabilityPaths: Array.isArray(candidate.materializedCapabilityPaths)
+      ? [
+          ...new Set(
+            candidate.materializedCapabilityPaths
+              .filter((value): value is string => typeof value === 'string' && path.isAbsolute(value))
+              .map((value) => path.normalize(value))
+          ),
+        ]
+      : [],
     createdAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
     updatedAt: initial.updatedAt,
   };
@@ -876,8 +902,11 @@ const SKILLS_DIR_BY_RUNNER: Record<FlowRunner, string> = {
  * to materialize into, so resolution is skipped and discovery falls back to
  * whatever the harness already has installed.
  */
-async function ensureStepCapability(taskDir: string, step: FlowStep): Promise<string | undefined> {
-  const projectRoot = findProjectRootForTaskDir(taskDir);
+async function ensureStepCapability(
+  state: WorkflowState,
+  step: FlowStep
+): Promise<string | undefined> {
+  const projectRoot = findProjectRootForTaskDir(state.taskDir);
   if (!projectRoot) return;
 
   const result = await ensureVendoredSkill(projectRoot, SKILLS_DIR_BY_RUNNER[step.runner], step.skill);
@@ -889,7 +918,13 @@ async function ensureStepCapability(taskDir: string, step: FlowStep): Promise<st
   }
 
   if (result.status === 'materialized') {
-    await appendFlowEvent(taskDir, {
+    if (result.skillPath) {
+      const capabilityPath = path.dirname(result.skillPath);
+      if (!state.materializedCapabilityPaths.includes(capabilityPath)) {
+        state.materializedCapabilityPaths.push(capabilityPath);
+      }
+    }
+    await appendFlowEvent(state.taskDir, {
       schemaVersion: 1,
       timestamp: nowIso(),
       event: 'capability_materialized',
@@ -1024,14 +1059,18 @@ function withStepPrompt(
   rules: string[],
   repairAttempts: number,
   profile: FlowProfile,
-  workRoot?: string
+  workRoot?: string,
+  materializedCapabilityPaths: string[] = []
 ): FlowStep | undefined {
   if (!step) return step;
 
   const definition = getDefinitionById(taskDir, step.id, repairAttempts, profile);
   if (!definition) return step;
 
-  return { ...step, prompt: buildStepPrompt(definition, rules, workRoot) };
+  return {
+    ...step,
+    prompt: buildStepPrompt(definition, rules, workRoot, materializedCapabilityPaths),
+  };
 }
 
 /** The most recently recorded work root: repair can move the work after implement. */
@@ -1041,6 +1080,35 @@ function recordedWorkRoot(state: WorkflowState): string | undefined {
     if (step.status === 'completed' && step.result?.workRoot) workRoot = step.result.workRoot;
   }
   return workRoot;
+}
+
+function materializedCapabilitiesInWorkRoot(
+  state: WorkflowState,
+  workRoot: string | undefined
+): string[] {
+  if (!workRoot) return [];
+
+  const projectRoot = findProjectRootForTaskDir(state.taskDir);
+  if (!projectRoot) return [];
+
+  const allowedCapabilityPaths = new Set(
+    state.steps.map((step) =>
+      FileSystemUtils.canonicalizeExistingPath(
+        path.join(projectRoot, SKILLS_DIR_BY_RUNNER[step.runner], 'skills', step.skill)
+      )
+    )
+  );
+  const resolvedRoot = FileSystemUtils.canonicalizeExistingPath(workRoot);
+  return state.materializedCapabilityPaths.flatMap((capabilityPath) => {
+    const resolvedCapabilityPath = FileSystemUtils.canonicalizeExistingPath(capabilityPath);
+    if (!allowedCapabilityPaths.has(resolvedCapabilityPath)) return [];
+
+    const relative = path.relative(resolvedRoot, resolvedCapabilityPath);
+    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      return [];
+    }
+    return [FileSystemUtils.toPosixPath(relative)];
+  });
 }
 
 /**
@@ -1065,7 +1133,8 @@ function buildResponse(
     memory?.rules ?? [],
     state.repairAttempts,
     state.profile,
-    workRoot
+    workRoot,
+    materializedCapabilitiesInWorkRoot(state, workRoot)
   );
   return {
     state: state.status,
@@ -1556,7 +1625,7 @@ export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
 
   const currentStep = getCurrentStep(loaded.state);
   if (currentStep) {
-    const capabilityBlock = await ensureStepCapability(loaded.state.taskDir, currentStep);
+    const capabilityBlock = await ensureStepCapability(loaded.state, currentStep);
     if (capabilityBlock) {
       const response = blockedResponse(loaded.state, capabilityBlock);
       await recordFlowResponse(response, 'flow_next');

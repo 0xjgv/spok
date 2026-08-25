@@ -12,6 +12,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,6 +70,55 @@ function skillMarkerPath(root: string, toolSkillsDir: string, skillName: string)
   return path.join(root, toolSkillsDir, 'skills', skillName, 'SKILL.md');
 }
 
+function presentSkillResult(
+  projectMarker: string,
+  globalMarker: string
+): EnsureSkillResult | undefined {
+  const marker = fs.existsSync(projectMarker)
+    ? projectMarker
+    : fs.existsSync(globalMarker)
+      ? globalMarker
+      : undefined;
+  return marker ? { status: 'present', skillPath: marker } : undefined;
+}
+
+async function publishCopiedSkill(
+  tempSkill: string,
+  destSkill: string,
+  projectMarker: string
+): Promise<EnsureSkillStatus> {
+  try {
+    await fs.promises.rename(tempSkill, destSkill);
+    return 'materialized';
+  } catch {
+    if (fs.existsSync(projectMarker)) return 'present';
+  }
+
+  const staleSkill = `${tempSkill}.stale`;
+  let displacedStaleSkill = false;
+  try {
+    await fs.promises.rename(destSkill, staleSkill);
+    displacedStaleSkill = true;
+  } catch {
+    // Another materializer may have removed the incomplete destination.
+  }
+
+  try {
+    await fs.promises.rename(tempSkill, destSkill);
+    return 'materialized';
+  } catch (error) {
+    if (fs.existsSync(projectMarker)) return 'present';
+    if (displacedStaleSkill) {
+      await fs.promises.rename(staleSkill, destSkill).catch(() => {});
+    }
+    throw error;
+  } finally {
+    if (fs.existsSync(projectMarker)) {
+      await fs.promises.rm(staleSkill, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}
+
 /**
  * Ensure one vendored skill is discoverable for a tool, materializing it from
  * the Spok distribution into the project when missing.
@@ -90,28 +140,29 @@ export async function ensureVendoredSkill(
     return { status: 'present', skillPath: projectMarker };
   }
 
+  const homeDir = options.homeDir ?? os.homedir();
+  const globalMarker = skillMarkerPath(homeDir, toolSkillsDir, skillName);
   const srcSkill = path.join(sourceDir, skillName);
   if (fs.existsSync(path.join(srcSkill, 'SKILL.md'))) {
     const destSkill = path.dirname(projectMarker);
-    const tempSkill = `${destSkill}.tmp-${process.pid}`;
+    const suffix = `${process.pid}-${randomUUID()}`;
+    const tempSkill = `${destSkill}.tmp-${suffix}`;
     try {
       await copyDir(srcSkill, tempSkill);
-      await fs.promises.rename(tempSkill, destSkill);
+      const status = await publishCopiedSkill(tempSkill, destSkill, projectMarker);
+      return { status, skillPath: projectMarker };
     } catch (error) {
-      await fs.promises.rm(tempSkill, { recursive: true, force: true }).catch(() => {});
-      // A concurrent run may have won the rename; only that makes the miss benign.
-      if (!fs.existsSync(projectMarker)) {
-        return {
+      return (
+        presentSkillResult(projectMarker, globalMarker) ?? {
           status: 'unavailable',
           reason: `could not materialize ${skillName}: ${(error as Error).message}`,
-        };
-      }
+        }
+      );
+    } finally {
+      await fs.promises.rm(tempSkill, { recursive: true, force: true }).catch(() => {});
     }
-    return { status: 'materialized', skillPath: projectMarker };
   }
 
-  const homeDir = options.homeDir ?? os.homedir();
-  const globalMarker = skillMarkerPath(homeDir, toolSkillsDir, skillName);
   if (fs.existsSync(globalMarker)) {
     return { status: 'present', skillPath: globalMarker };
   }

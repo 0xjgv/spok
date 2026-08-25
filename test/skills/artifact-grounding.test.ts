@@ -173,6 +173,16 @@ describe('spok-ci-commit grounding rules', () => {
       expect(body).toContain('**Fail loudly instead of falling back to a directory scan.**');
       expect(body).toContain('do not widen the search to another directory');
     });
+
+    it('excludes only capability paths named by the flow', async () => {
+      const body = await readSkill('spok-ci-commit');
+
+      expect(body).toContain('status --porcelain --untracked-files=all');
+      expect(body).toContain(
+        'Exclude only the generated capability directories named in the dispatching prompt'
+      );
+      expect(body).toContain('Every other unexplained changed path remains a blocker');
+    });
   });
 });
 

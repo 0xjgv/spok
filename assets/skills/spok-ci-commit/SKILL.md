@@ -29,8 +29,12 @@ itself — never from memory, never from a scan of whatever directory you happen
    - This artifact-derived list is the authority on what belongs in the commit.
 
 2. **Confirm it against the repository:**
-   - Run `git -C <work-root> status --porcelain` and `git -C <work-root> diff` to see what
-     actually changed.
+   - Run `git -C <work-root> status --porcelain --untracked-files=all` and
+     `git -C <work-root> diff` to see what actually changed.
+   - The dispatching prompt may name exact generated capability directories in the work root.
+     Exclude only the generated capability directories named in the dispatching prompt, including
+     their descendants, from both the artifact-derived and changed-path lists, and never stage them.
+     When the prompt names none, exclude none. Every other unexplained changed path remains a blocker.
    - Stage exactly the **intersection** of the artifact-derived list and the changed paths.
    - **Fail loudly instead of falling back to a directory scan.** If the intersection is
      empty, if the artifacts name paths that are unchanged, or if the repository carries

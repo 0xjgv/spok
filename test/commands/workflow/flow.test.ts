@@ -16,6 +16,7 @@ import {
   getFlowStatus,
   WORKFLOW_STATE_FILE,
 } from '../../../src/commands/workflow/flow.js';
+import * as skillVendor from '../../../src/core/skill-vendor.js';
 
 interface FlowHarness {
   readonly projectRoot: string;
@@ -1586,6 +1587,14 @@ async function advanceToCommit(flow: FlowHarness, workRoot: string): Promise<voi
   expect(validated.state).not.toBe('blocked');
 }
 
+async function markFlowProjectRoot(flow: FlowHarness): Promise<void> {
+  await fs.writeFile(
+    path.join(flow.projectRoot, 'spok', 'config.yaml'),
+    'schema: spec-driven\n',
+    'utf-8'
+  );
+}
+
 describe('work root attribution', () => {
   const flow = useFlowHarness();
   const repo = useWorkRootRepo();
@@ -1793,16 +1802,8 @@ describe('commit SHA verification', () => {
 describe('lazy step capability resolution', () => {
   const flow = useFlowHarness();
 
-  async function markProjectRoot(): Promise<void> {
-    await fs.writeFile(
-      path.join(flow.projectRoot, 'spok', 'config.yaml'),
-      'schema: spec-driven\n',
-      'utf-8'
-    );
-  }
-
   it('materializes the active step skill for its runner inside a Spok project', async () => {
-    await markProjectRoot();
+    await markFlowProjectRoot(flow);
 
     const response = await getFlowNext(flow.taskDir);
 
@@ -1830,11 +1831,16 @@ describe('lazy step capability resolution', () => {
     expect(
       eventsAfter.filter((event) => event.event === 'capability_materialized')
     ).toHaveLength(1);
+
+    const state = JSON.parse(
+      await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
+    );
+    expect(state.materializedCapabilityPaths).toEqual([path.dirname(marker)]);
   });
 
   it('materializes codex-runner skills into the codex skills dir on hybrid runs', async () => {
     process.env.SPOK_FLOW_PROFILE = 'hybrid';
-    await markProjectRoot();
+    await markFlowProjectRoot(flow);
 
     const response = await getFlowNext(flow.taskDir);
 
@@ -1859,29 +1865,58 @@ describe('lazy step capability resolution', () => {
     ).rejects.toThrow();
   });
 
-  it('blocks without consuming the step when the capability cannot be materialized, then resumes', async () => {
-    await markProjectRoot();
-    // A file where the skills dir must go makes materialization fail deterministically.
-    const obstruction = path.join(flow.projectRoot, '.claude');
-    await fs.writeFile(obstruction, 'not a directory', 'utf-8');
-
-    const blocked = await getFlowNext(flow.taskDir);
-
-    expect(blocked.state).toBe('blocked');
-    expect(blocked.reason).toContain('Capability unavailable for step validate-problem');
-    await expect(
-      fs.access(path.join(flow.taskDir, WORKFLOW_STATE_FILE))
-    ).rejects.toThrow();
-    const events = await readFlowEvents(flow.taskDir);
-    expect(events.at(-1)).toMatchObject({
-      event: 'flow_next',
-      state: 'blocked',
-      code: 'capability_unavailable',
+  it('blocks without consuming the step when no local or global capability is available, then resumes', async () => {
+    const ensureSkill = vi.spyOn(skillVendor, 'ensureVendoredSkill').mockResolvedValue({
+      status: 'unavailable',
+      reason: 'test capability is unavailable',
     });
+    try {
+      await markFlowProjectRoot(flow);
 
-    await fs.rm(obstruction);
-    const resumed = await getFlowNext(flow.taskDir);
-    expect(resumed.state).toBe('ready');
-    expect(resumed.step?.id).toBe('validate-problem');
+      const blocked = await getFlowNext(flow.taskDir);
+
+      expect(blocked.state).toBe('blocked');
+      expect(blocked.reason).toContain('Capability unavailable for step validate-problem');
+      await expect(
+        fs.access(path.join(flow.taskDir, WORKFLOW_STATE_FILE))
+      ).rejects.toThrow();
+      const events = await readFlowEvents(flow.taskDir);
+      expect(events.at(-1)).toMatchObject({
+        event: 'flow_next',
+        state: 'blocked',
+        code: 'capability_unavailable',
+      });
+
+      ensureSkill.mockRestore();
+      const resumed = await getFlowNext(flow.taskDir);
+      expect(resumed.state).toBe('ready');
+      expect(resumed.step?.id).toBe('validate-problem');
+    } finally {
+      ensureSkill.mockRestore();
+    }
+  });
+});
+
+describe('materialized capability commit accounting', () => {
+  const flow = useFlowHarness();
+
+  it('names only flow capability directories in the commit prompt', async () => {
+    await markFlowProjectRoot(flow);
+    await advanceToCommit(flow, flow.projectRoot);
+
+    const response = await getFlowNext(flow.taskDir);
+
+    expect(response.step?.id).toBe('commit');
+    expect(response.step?.prompt).toContain('Generated capability directories in the work root:');
+    expect(response.step?.prompt).toContain('`.claude/skills/spok-validate-problem/`');
+    expect(response.step?.prompt).toContain('Every other unexplained changed path remains a blocker.');
+
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    state.materializedCapabilityPaths.push(path.join(flow.projectRoot, 'src'));
+    await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+
+    const reloaded = await getFlowStatus(flow.taskDir);
+    expect(reloaded.nextStep?.prompt).not.toContain('`src/`');
   });
 });

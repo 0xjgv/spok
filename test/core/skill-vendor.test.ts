@@ -234,6 +234,33 @@ describe('skill-vendor', () => {
       expect(again.status).toBe('present');
     });
 
+    it('replaces a non-empty project skill directory without a marker', async () => {
+      const skillDir = path.join(projectRoot, '.agents/skills/spok-helper');
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'stale.md'), 'incomplete install\n');
+
+      const result = await ensureVendoredSkill(projectRoot, '.agents', 'spok-helper', {
+        sourceDir,
+        homeDir,
+      });
+
+      expect(result.status).toBe('materialized');
+      expect(fs.existsSync(path.join(skillDir, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(skillDir, 'stale.md'))).toBe(false);
+    });
+
+    it('reports a concurrent materialization winner as present', async () => {
+      const results = await Promise.all([
+        ensureVendoredSkill(projectRoot, '.agents', 'spok-helper', { sourceDir, homeDir }),
+        ensureVendoredSkill(projectRoot, '.agents', 'spok-helper', { sourceDir, homeDir }),
+      ]);
+
+      expect(results.map((result) => result.status).sort()).toEqual([
+        'materialized',
+        'present',
+      ]);
+    });
+
     it('falls back to a global install when the distribution lacks the skill', async () => {
       const globalMarker = path.join(homeDir, '.claude/skills/spok-mystery/SKILL.md');
       fs.mkdirSync(path.dirname(globalMarker), { recursive: true });
@@ -246,6 +273,20 @@ describe('skill-vendor', () => {
 
       expect(result.status).toBe('present');
       expect(result.skillPath).toBe(globalMarker);
+    });
+
+    it('falls back to a global install when project materialization fails', async () => {
+      const globalMarker = path.join(homeDir, '.claude/skills/spok-flow/SKILL.md');
+      fs.mkdirSync(path.dirname(globalMarker), { recursive: true });
+      fs.writeFileSync(globalMarker, '# global\n');
+      fs.writeFileSync(path.join(projectRoot, '.claude'), 'not a directory');
+
+      const result = await ensureVendoredSkill(projectRoot, '.claude', 'spok-flow', {
+        sourceDir,
+        homeDir,
+      });
+
+      expect(result).toEqual({ status: 'present', skillPath: globalMarker });
     });
 
     it('reports unavailable when no source can provide the skill', async () => {
