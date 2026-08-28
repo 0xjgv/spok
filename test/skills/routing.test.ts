@@ -114,10 +114,19 @@ describe('spok-flow current and OMP dispatch contract', () => {
   it('limits active-host inference to host-local pinned profiles', async () => {
     const body = await readFlowSkill();
     expect(body).toContain('Detect the active harness once');
+    expect(body).toContain('`CODEX_HOME`, `CODEX_THREAD_ID`');
+    expect(body).toContain('`CODEX_SESSION_ID`, or `CODEX_SHELL`');
     expect(body).toContain('`response.profile` is');
     expect(body).toContain('`step.runner` matches the active harness');
     expect(body).toContain('Hybrid and auto profiles');
     expect(body).toContain('never use this native branch');
+  });
+
+  it('resumes unfinished default steps on the active primary harness', async () => {
+    const body = await readFlowSkill();
+    expect(body).toContain('A default\nClaude or Codex flow follows the active harness when it resumes');
+    expect(body).toContain('completed-step\nrouting remains historical');
+    expect(body).toContain('Explicit hybrid and auto workflow states retain their persisted profile');
   });
 
   it('dispatches host-local pinned steps natively with routed model and effort', async () => {

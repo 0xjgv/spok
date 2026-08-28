@@ -120,8 +120,15 @@ const HYBRID_ROUTING_BY_ID = {
 const AUTO_CANDIDATES_BY_STEP: Record<RoutedStepId, readonly AutoCandidate[]> =
   AUTO_V1_CANDIDATES_BY_ID;
 
+const CODEX_HARNESS_ENV = [
+  'CODEX_HOME',
+  'CODEX_THREAD_ID',
+  'CODEX_SESSION_ID',
+  'CODEX_SHELL',
+] as const;
+
 function detectTool(): DetectedProfile {
-  return process.env.CODEX_HOME?.trim() ? 'codex' : 'claude';
+  return CODEX_HARNESS_ENV.some((name) => process.env[name]?.trim()) ? 'codex' : 'claude';
 }
 
 function isFlowProfile(value: unknown): value is FlowProfile {
@@ -742,7 +749,8 @@ function resolveStateProfile(
       reason: `Flow profile mismatch: state uses ${existing}, requested ${requested}.`,
     };
   }
-  return { profile: existing ?? requested ?? detectTool() };
+  if (existing === 'hybrid' || existing === 'auto') return { profile: existing };
+  return { profile: requested ?? detectTool() };
 }
 
 function normalizeState(
@@ -792,7 +800,9 @@ function normalizeState(
     }
 
     const step = stepFromDefinition(definition, completed ? 'completed' : 'pending', completed?.result);
-    return profile === 'auto' ? withPersistedRoute(step, storedByKey.get(key)) : step;
+    return profile === 'auto' || completed
+      ? withPersistedRoute(step, storedByKey.get(key))
+      : step;
   });
 
   const state: WorkflowState = {
@@ -810,7 +820,7 @@ function normalizeState(
   return state;
 }
 
-/** Single writer for auto routes so key order matches across getFlowNext and normalizeState. */
+/** Preserves completed history and keeps auto routes stable across every normalization. */
 function withPersistedRoute(step: FlowStep, stored: Partial<FlowStep> | undefined): FlowStep {
   if (!stored?.runner) return step;
   const { id, skill, ...rest } = step;

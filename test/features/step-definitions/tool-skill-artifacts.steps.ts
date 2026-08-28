@@ -11,10 +11,19 @@ import { UpdateCommand } from '../../../src/core/update.js';
 import { GlobalSkillsInstallCommand } from '../../../src/core/skills-install.js';
 import { runCLI, type RunCLIResult } from '../../helpers/run-cli.js';
 
+const CODEX_HARNESS_ENV = [
+  'CODEX_HOME',
+  'CODEX_THREAD_ID',
+  'CODEX_SESSION_ID',
+  'CODEX_SHELL',
+] as const;
+
+type CodexHarnessEnv = (typeof CODEX_HARNESS_ENV)[number];
+
 interface SkillArtifactWorld {
   projectDir?: string;
   codexHome?: string;
-  originalCodexHome?: string;
+  originalCodexHarnessEnv?: Record<CodexHarnessEnv, string | undefined>;
   originalHome?: string;
   originalUserProfile?: string;
   originalFlowProfile?: string;
@@ -71,7 +80,9 @@ async function runStagedFlowComplete(
 Given('a new project', async function (this: SkillArtifactWorld) {
   this.projectDir = path.join(os.tmpdir(), `spok-acceptance-${randomUUID()}`);
   this.codexHome = path.join(this.projectDir, 'codex-home');
-  this.originalCodexHome = process.env.CODEX_HOME;
+  this.originalCodexHarnessEnv = Object.fromEntries(
+    CODEX_HARNESS_ENV.map((name) => [name, process.env[name]])
+  ) as Record<CodexHarnessEnv, string | undefined>;
   this.originalHome = process.env.HOME;
   this.originalUserProfile = process.env.USERPROFILE;
   this.originalFlowProfile = process.env.SPOK_FLOW_PROFILE;
@@ -538,12 +549,17 @@ Given(
 );
 
 Given('the Claude harness is active', function (this: SkillArtifactWorld) {
-  delete process.env.CODEX_HOME; // cleared so the spawned CLI detects claude
+  for (const name of CODEX_HARNESS_ENV) delete process.env[name];
 });
 
 Given('the Codex harness is active', function (this: SkillArtifactWorld) {
   assert.ok(this.codexHome, 'codexHome must be set by Given a new project');
   process.env.CODEX_HOME = this.codexHome; // explicit for legibility; already set by 'a new project'
+});
+
+Given('the Codex Desktop harness is active without CODEX_HOME', function () {
+  delete process.env.CODEX_HOME;
+  process.env.CODEX_THREAD_ID = 'codex-desktop-thread';
 });
 
 Given('the hybrid flow profile is active', function () {
@@ -1206,10 +1222,12 @@ Then(
 );
 
 After(async function (this: SkillArtifactWorld) {
-  if (this.originalCodexHome === undefined) {
-    delete process.env.CODEX_HOME;
-  } else {
-    process.env.CODEX_HOME = this.originalCodexHome;
+  if (this.originalCodexHarnessEnv) {
+    for (const name of CODEX_HARNESS_ENV) {
+      const value = this.originalCodexHarnessEnv[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
   if (this.originalPath !== undefined) {
     process.env.PATH = this.originalPath;

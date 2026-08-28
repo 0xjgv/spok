@@ -522,6 +522,19 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "Model: gpt-5.6-sol"
     And the Spok CLI output contains "Effort: xhigh"
 
+  Scenario: Default flow resumes unfinished work on the current Codex Desktop harness
+    Given a new project
+    And the Claude harness is active
+    And a staged flow task
+    And the staged flow task is completed through research
+    And the Codex Desktop harness is active without CODEX_HOME
+    When I run spok flow next for the staged task
+    Then the Spok CLI output contains "Profile: codex"
+    And the Spok CLI output contains "Next step: design-discussion"
+    And the Spok CLI output contains "Runner: codex"
+    And the Spok CLI output contains "Model: gpt-5.6-sol"
+    And the Spok CLI output contains "Effort: max"
+
   Scenario: Hybrid flow starts problem validation on Codex Sol
     Given a new project
     And the hybrid flow profile is active

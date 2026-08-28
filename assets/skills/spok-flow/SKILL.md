@@ -21,9 +21,11 @@ The `spok` CLI owns the inner flow sequence and resume state. Do not choose, ski
 For a hybrid invocation, prefix every `spok flow status`, `spok flow next`, and
 `spok flow complete` command with `SPOK_FLOW_PROFILE=hybrid`. For an auto
 invocation, prefix the same commands with `SPOK_FLOW_PROFILE=auto`. For a default
-invocation, run the commands without that environment variable. An existing
-workflow state owns its persisted profile; if the requested profile conflicts,
-surface the CLI blocker exactly.
+invocation, run the commands without that environment variable. A default
+Claude or Codex flow follows the active harness when it resumes: completed-step
+routing remains historical, while unfinished steps use the current harness's
+profile. Explicit hybrid and auto workflow states retain their persisted profile;
+if a requested profile conflicts, surface the CLI blocker exactly.
 
 Run:
 
@@ -82,13 +84,13 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    `claude`, `codex`, `omp`, or `current`. If `step.runner` is anything else,
    report the malformed route and halt before dispatch.
 
-   Detect the active harness once: a non-empty `CODEX_HOME` means `codex`;
-   otherwise it is `claude`. Use this only to choose native dispatch for a
-   host-local pinned profile. That branch applies when `response.profile` is
-   `claude` or `codex` and `step.runner` matches the active harness. It never
-   changes the persisted runner, model, or effort. Hybrid and auto profiles
-   never use this native branch; their named runners execute through the
-   corresponding CLI.
+   Detect the active harness once: a non-empty `CODEX_HOME`, `CODEX_THREAD_ID`,
+   `CODEX_SESSION_ID`, or `CODEX_SHELL` means `codex`; otherwise it is `claude`.
+   Use this only to choose native dispatch for a host-local pinned profile. That
+   branch applies when `response.profile` is `claude` or `codex` and
+   `step.runner` matches the active harness. It never changes the persisted
+   runner, model, or effort. Hybrid and auto profiles never use this native branch;
+   their named runners execute through the corresponding CLI.
 
    Validate required fields first: `claude`, `codex`, and `omp` require a
    non-empty `step.model`, and `omp` additionally requires a non-empty

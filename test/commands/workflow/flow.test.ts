@@ -28,6 +28,14 @@ import {
 } from '../../../src/commands/workflow/flow.js';
 
 const OMP_THINKING = ['low', 'medium', 'high', 'xhigh', 'max'];
+const CODEX_HARNESS_ENV = [
+  'CODEX_HOME',
+  'CODEX_THREAD_ID',
+  'CODEX_SESSION_ID',
+  'CODEX_SHELL',
+] as const;
+type CodexHarnessEnv = (typeof CODEX_HARNESS_ENV)[number];
+
 const ALL_HARNESSES_AVAILABLE: CapabilityReport[] = [
   { runner: 'codex', available: true },
   { runner: 'claude', available: true },
@@ -168,13 +176,15 @@ async function writeMemory(projectRoot: string, text: string): Promise<void> {
 function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness {
   let tempDir: string;
   let taskDir: string;
-  let originalCodexHome: string | undefined;
+  let originalCodexHarnessEnv: Record<CodexHarnessEnv, string | undefined>;
   let originalFlowProfile: string | undefined;
 
   beforeEach(async () => {
-    originalCodexHome = process.env.CODEX_HOME;
+    originalCodexHarnessEnv = Object.fromEntries(
+      CODEX_HARNESS_ENV.map((name) => [name, process.env[name]])
+    ) as Record<CodexHarnessEnv, string | undefined>;
     originalFlowProfile = process.env.SPOK_FLOW_PROFILE;
-    delete process.env.CODEX_HOME;
+    for (const name of CODEX_HARNESS_ENV) delete process.env[name];
     delete process.env.SPOK_FLOW_PROFILE;
     vi.mocked(probeHarnesses).mockReset().mockResolvedValue(ALL_HARNESSES_AVAILABLE);
     tempDir = path.join(os.tmpdir(), `spok-flow-${randomUUID()}`);
@@ -198,10 +208,10 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
   });
 
   afterEach(async () => {
-    if (originalCodexHome === undefined) {
-      delete process.env.CODEX_HOME;
-    } else {
-      process.env.CODEX_HOME = originalCodexHome;
+    for (const name of CODEX_HARNESS_ENV) {
+      const value = originalCodexHarnessEnv[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
     }
     if (originalFlowProfile === undefined) {
       delete process.env.SPOK_FLOW_PROFILE;
@@ -368,6 +378,43 @@ describe('deterministic workflow step state', () => {
       { id: 'validate', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
       { id: 'commit', runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
     ]);
+  });
+
+  it('detects Codex Desktop from CODEX_THREAD_ID without CODEX_HOME', async () => {
+    process.env.CODEX_THREAD_ID = `thread-${randomUUID()}`;
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.profile).toBe('codex');
+    expect(result.step).toMatchObject({
+      id: 'validate-problem',
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'xhigh',
+    });
+  });
+
+  it('reroutes unfinished default steps when resuming on another primary harness', async () => {
+    await flow.completeProblemValidation();
+    await flow.completeFileStep('research-questions', 'research-questions.md');
+    await flow.completeFileStep('research', 'research.md');
+
+    process.env.CODEX_THREAD_ID = `thread-${randomUUID()}`;
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.profile).toBe('codex');
+    expect(result.steps[0]).toMatchObject({
+      id: 'validate-problem',
+      status: 'completed',
+      runner: 'claude',
+      model: 'opus',
+    });
+    expect(result.step).toMatchObject({
+      id: 'design-discussion',
+      runner: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'max',
+    });
   });
 
   it('routes hybrid steps across Codex and Claude', async () => {
