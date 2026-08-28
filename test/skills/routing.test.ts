@@ -93,7 +93,7 @@ describe('spok-flow prompt dispatch contract', () => {
     expect(body).toContain('Do not use `--dangerously-bypass-approvals-and-sandbox`');
   });
 
-  it('uses host-neutral native delegation for the host-owned fallback agent', async () => {
+  it('uses host-neutral native delegation for host-owned agents', async () => {
     const body = await readFlowSkill();
 
     expect(body).toContain("the current host's native subagent mechanism");
@@ -111,10 +111,21 @@ describe('spok-flow current and OMP dispatch contract', () => {
     expect(body).toContain('halt before dispatch');
   });
 
-  it('removes active-host inference entirely', async () => {
+  it('limits active-host inference to host-local pinned profiles', async () => {
     const body = await readFlowSkill();
-    expect(body).not.toContain('CODEX_HOME');
-    expect(body).not.toContain('active harness');
+    expect(body).toContain('Detect the active harness once');
+    expect(body).toContain('`response.profile` is');
+    expect(body).toContain('`step.runner` matches the active harness');
+    expect(body).toContain('Hybrid and auto profiles');
+    expect(body).toContain('never use this native branch');
+  });
+
+  it('dispatches host-local pinned steps natively with routed model and effort', async () => {
+    const body = await readFlowSkill();
+    expect(body).toContain('For a host-local pinned profile');
+    expect(body).toContain('`model: <step.model>`');
+    expect(body).toContain('`reasoning_effort: <step.effort>`');
+    expect(body).toContain('`effort: <step.effort>`');
   });
 
   it('dispatches current natively with no model or effort', async () => {

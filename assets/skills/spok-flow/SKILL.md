@@ -80,9 +80,15 @@ Then repeat this loop until the CLI returns `state: "complete"`:
 
 4. Dispatch the step through `step.runner`. The only valid runner values are
    `claude`, `codex`, `omp`, or `current`. If `step.runner` is anything else,
-   report the malformed route and halt before dispatch. Do not detect or infer
-   host identity from the environment; an explicit runner always executes
-   through its named CLI.
+   report the malformed route and halt before dispatch.
+
+   Detect the active harness once: a non-empty `CODEX_HOME` means `codex`;
+   otherwise it is `claude`. Use this only to choose native dispatch for a
+   host-local pinned profile. That branch applies when `response.profile` is
+   `claude` or `codex` and `step.runner` matches the active harness. It never
+   changes the persisted runner, model, or effort. Hybrid and auto profiles
+   never use this native branch; their named runners execute through the
+   corresponding CLI.
 
    Validate required fields first: `claude`, `codex`, and `omp` require a
    non-empty `step.model`, and `omp` additionally requires a non-empty
@@ -91,18 +97,26 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    ignore hand-authored `model` or `effort` values on it rather than inventing
    flags.
 
+   - For a host-local pinned profile, delegate in the foreground through the
+     current host's native subagent mechanism to the host-owned
+     `general-purpose` agent. Pass `<step.prompt>` **verbatim** as the prompt and
+     pass `model: <step.model>`. When `step.effort` is present, Codex receives
+     `reasoning_effort: <step.effort>` and Claude Code receives
+     `effort: <step.effort>`.
    - When `step.runner` is `current`, delegate in the foreground
      through the current host's native subagent mechanism to the
      host-owned `general-purpose` agent. Pass `<step.prompt>` **verbatim** as the prompt.
      Pass no model and no effort.
-   - When `step.runner` is `claude`, first verify `claude` is on `PATH`, then
-     run `claude -p` sequentially in the foreground. Use
+   - When `step.runner` is `claude` and the host-local pinned branch does not
+     apply, first verify `claude` is on `PATH`, then run `claude -p`
+     sequentially in the foreground. Use
      `--no-session-persistence`, `--model <step.model>`,
      `--permission-mode auto`, text output, and, when `step.effort` is present,
      `--effort <step.effort>`. Pass `<step.prompt>` **verbatim** on stdin; do
      not interpolate it into a shell command.
-   - When `step.runner` is `codex`, first verify `codex` is on `PATH`, then run
-     `codex exec` sequentially in the foreground. Use `--ephemeral`,
+   - When `step.runner` is `codex` and the host-local pinned branch does not
+     apply, first verify `codex` is on `PATH`, then run `codex exec`
+     sequentially in the foreground. Use `--ephemeral`,
      `--dangerously-bypass-hook-trust`, `--cd <project-root>`,
      `--model <step.model>`, `--sandbox workspace-write`, and, when
      `step.effort` is present, `-c model_reasoning_effort="<step.effort>"`.
@@ -130,8 +144,9 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    Use `--dangerously-bypass-hook-trust` to run enabled hooks without an
    interactive trust prompt; it does not enable disabled hooks or relax the
    sandbox. Do not use `--dangerously-bypass-approvals-and-sandbox`. If the
-   executable is missing, authentication fails, the isolation re-check fails,
-   or the child exits nonzero, report the error and halt.
+   native delegation fails, an executable is missing, authentication fails,
+   the isolation re-check fails, or the child exits nonzero, report the error
+   and halt.
    Do not call `spok flow complete`; leaving the current step ready makes the
    run safely resumable after the tool is fixed.
    A failed dispatch never changes the harness, model, or effort,

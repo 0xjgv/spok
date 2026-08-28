@@ -193,6 +193,18 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-apply" under ".claude/skills" mentions "check only that harness's markers."
     And the workflow skill "spok-apply" under ".claude/skills" mentions "check both harnesses' markers."
 
+  Scenario: Default apply dispatches through the current harness with routed model effort
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-flow" under ".claude/skills" mentions "Detect the active harness once"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "`response.profile` is"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "`claude` or `codex`"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "`step.runner` matches the active harness"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "`model: <step.model>`"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "`reasoning_effort: <step.effort>`"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "Hybrid and auto profiles"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "never use this native branch"
+
   Scenario: Inner flow implementation overrides standalone orchestration
     Given a new project
     When I initialize Spok for the tools "claude"
@@ -616,7 +628,7 @@ Feature: Tool skill artifacts
     Then the Spok CLI output contains "\"runner\": \"omp\""
     And the Spok CLI output contains "\"model\": \"openai-codex/gpt-5.6-sol\""
 
-  Scenario: Flow skill dispatches current and OMP without host inference or silent retry
+  Scenario: Flow skill dispatches current and OMP without silent retry
     Given a new project
     When I initialize Spok for the tools "claude"
     Then the workflow skill "spok-flow" under ".claude/skills" mentions "`claude`, `codex`, `omp`, or `current`"
@@ -626,7 +638,7 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "`GIT_DIR`, `GIT_COMMON_DIR`, and `GIT_WORK_TREE`"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "halt before sending the prompt"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "A failed dispatch never changes the harness, model, or effort"
-    And the workflow skill "spok-flow" under ".claude/skills" does not mention "CODEX_HOME"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "never use this native branch"
 
   Scenario: Flow surfaces degraded routes and keeps the OMP isolation example copy-safe
     Given a new project
