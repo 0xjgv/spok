@@ -5,8 +5,21 @@ export interface CliSignal {
   properties: TelemetryProperties;
 }
 
-const FLOW_SUBCOMMANDS = new Set(['status', 'next', 'complete']);
+const FLOW_SUBCOMMANDS = new Set(['status', 'next', 'pause', 'answer', 'complete']);
 const HELP_FLAGS = new Set(['--help', '-h']);
+const REQUIRED_FLOW_OPTIONS: Partial<
+  Record<string, ReadonlyArray<readonly [flag: string, code: string]>>
+> = {
+  complete: [['--step', 'missing_step_option']],
+  pause: [
+    ['--step', 'missing_step_option'],
+    ['--questions', 'missing_questions_option'],
+  ],
+  answer: [
+    ['--question', 'missing_question_option'],
+    ['--answer', 'missing_answer_option'],
+  ],
+};
 
 function isHelpFlag(token: string | undefined): boolean {
   return typeof token === 'string' && HELP_FLAGS.has(token);
@@ -42,6 +55,15 @@ function helpTarget(args: string[]): string | undefined {
 function helpInvocation(args: string[]): string {
   if (args[0] === 'help' || args[1] === 'help') return 'help_command';
   return 'help_option';
+}
+
+function missingFlowOptionSignal(subcommand: string, args: string[]): CliSignal | undefined {
+  const missing = REQUIRED_FLOW_OPTIONS[subcommand]?.find(([flag]) => !args.includes(flag));
+  if (!missing) return;
+  return {
+    event: 'cli_invalid_invocation',
+    properties: { command: `flow ${subcommand}`, code: missing[1] },
+  };
 }
 
 function flowInvalidSignal(args: string[]): CliSignal | undefined {
@@ -83,15 +105,7 @@ function flowInvalidSignal(args: string[]): CliSignal | undefined {
     };
   }
 
-  if (subcommand === 'complete' && !args.includes('--step')) {
-    return {
-      event: 'cli_invalid_invocation',
-      properties: {
-        command: 'flow complete',
-        code: 'missing_step_option',
-      },
-    };
-  }
+  return missingFlowOptionSignal(subcommand, args);
 }
 
 export function collectCliSignals(args: string[]): CliSignal[] {

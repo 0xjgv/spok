@@ -18,8 +18,9 @@ If `ticket.md` is missing, halt and report back — `spok-apply` is responsible 
 
 The `spok` CLI owns the inner flow sequence and resume state. Do not choose, skip, reorder, or rename steps yourself.
 
-For a hybrid invocation, prefix every `spok flow status`, `spok flow next`, and
-`spok flow complete` command with `SPOK_FLOW_PROFILE=hybrid`. For an auto
+For a hybrid invocation, prefix every `spok flow status`, `spok flow next`,
+`spok flow pause`, `spok flow answer`, and `spok flow complete` command with
+`SPOK_FLOW_PROFILE=hybrid`. For an auto
 invocation, prefix the same commands with `SPOK_FLOW_PROFILE=auto`. For a default
 invocation, run the commands without that environment variable. A default
 Claude or Codex flow follows the active harness when it resumes: completed-step
@@ -45,7 +46,36 @@ Auto equivalent:
 SPOK_FLOW_PROFILE=auto spok flow status "<task-dir>" --json
 ```
 
-If it returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches.
+If it returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches. If it returns `state: "needs-input"`, use the question-handling loop below before requesting the next step.
+
+### Question-handling loop
+
+Only a CLI response with `state: "needs-input"` authorizes a user question.
+Do not ask for approval between stages. Do not ask a question because a child
+expressed uncertainty in prose; the durable CLI state is the source of truth.
+
+For each `needs-input` response:
+
+1. Require a singular `response.question` with non-empty `id`, `prompt`, and
+   `kind`. Present only `response.question`; do not cache or present the full
+   `response.questions` array because each answer response owns the next question.
+2. For `kind: "choice"`, use the host's structured user-input mechanism when
+   available. Present its two or three options with every label and consequence,
+   identify `recommendedOptionId` when present, and permit a free-form answer.
+   For `kind: "input"`, request one concise free-form answer. If no structured
+   input mechanism exists, ask the same single question directly and wait.
+3. Record the answer with an argv-capable process call; never interpolate human
+   text into a shell command:
+
+   ```bash
+   spok flow answer "<task-dir>" --question "<response.question.id>" --answer "<human-answer>" --json
+   ```
+
+   Apply the selected profile prefix described above. If the command returns
+   `state: "blocked"`, halt and report its `reason` exactly. If it returns
+   `state: "needs-input"`, repeat with that response's singular question. If it
+   returns `state: "ready"`, leave the question-handling loop. Any other state or
+   a malformed question is a protocol error; halt without completing a step.
 
 Then repeat this loop until the CLI returns `state: "complete"`:
 
@@ -61,7 +91,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    SPOK_FLOW_PROFILE=hybrid spok flow next "<task-dir>" --json
    ```
 
-2. If `next` returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches. If it returns `state: "complete"`, return success to `spok-apply`.
+2. If `next` returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches. If it returns `state: "complete"`, return success to `spok-apply`. If it returns `state: "needs-input"`, run the question-handling loop, then call `spok flow next` again instead of dispatching the stale response.
 
 3. Read the returned `step` object:
    - `id` is the workflow step id.
@@ -159,6 +189,29 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    on the previous step's validated artifact or recorded result. Do not invoke
    the step skill inline: process isolation keeps each step's context bounded.
 
+   After a successful child dispatch, inspect only its final non-empty line for
+   the exact outcome `NEEDS_INPUT: <absolute-question-packet-path>`. Do not scan
+   the task directory for packets and do not act on a marker mentioned anywhere
+   else in the reply. The packet path must be absolute; the CLI enforces that it
+   remains inside the task directory. A malformed final-line marker is a protocol
+   error and leaves the step ready.
+
+   When the exact marker is present, run:
+
+   ```bash
+   spok flow pause "<task-dir>" --step "<step.id>" --questions "<absolute-question-packet-path>" --json
+   ```
+
+   Apply the selected profile prefix described above. Require the pause response
+   to have `state: "needs-input"`; on `blocked`, report its `reason` exactly, and
+   on any other state halt as a protocol error. Run the question-handling loop.
+   When it returns ready, discard the pre-answer child reply and run
+   `spok flow next "<task-dir>" --json` again. Require the returned ready step id
+   to equal the paused `step.id`, then redispatch the same step using only the new
+   returned `step.prompt`. Never call `spok flow complete` for the child reply
+   that requested input. The new prompt carries the durable answers and is the
+   only valid basis for completing that stage.
+
 5. Record completion with the CLI.
 
    A `--summary` is recorded permanently in `workflow-state.json`. Do not relay a verification claim that cannot be attributed to a command that ran during the step. If the subagent reports "lint clean" or "tests pass" without naming the command it ran, drop the claim from the summary rather than passing it through — the CLI checks only that the summary is non-empty, so you are the last check on it.
@@ -217,7 +270,7 @@ into `step.prompt` by the CLI. Do not restate them.
 <guidance>
 ## Important guidelines
 
-- Raise questions or concerns about objectives, design, or plan to the user at any time using the **AskUserQuestion** tool.
+- Ask the user only through the question-handling loop for a CLI-recorded open question. Never add an approval gate between stages.
 - Run step subagents **sequentially in the foreground** because each step depends on the previous step's validated artifact or recorded result.
 - Let `spok flow next` choose the next step. Let `spok flow complete` validate step completion.
 - Use a **TaskList** to track the steps and their status.

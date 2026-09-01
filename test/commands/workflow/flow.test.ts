@@ -16,6 +16,7 @@ import {
   type CapabilityReport,
 } from '../../../src/commands/workflow/harness-routing.js';
 import {
+  answerFlowQuestion,
   completeFlowStep,
   flowCompleteCommand,
   flowNextCommand,
@@ -23,6 +24,7 @@ import {
   getFlowEventLogPath,
   getFlowNext,
   getFlowStatus,
+  pauseFlowStep,
   type FlowStep,
   WORKFLOW_STATE_FILE,
 } from '../../../src/commands/workflow/flow.js';
@@ -108,6 +110,31 @@ const FAIL_VALIDATION =
 const PASS_DESIGN_REVIEW = '---\ntype: design-review\nverdict: PASS\n---\n\n# Design Review\n';
 const FAIL_DESIGN_REVIEW = '---\ntype: design-review\nverdict: FAIL\n---\n\n# Design Review\n\n- revise the design\n';
 
+const OPEN_QUESTIONS = {
+  questions: [
+    {
+      id: 'interface',
+      prompt: 'Choose the public interface',
+      kind: 'choice',
+      options: [
+        { id: 'webhook', label: 'Webhook', consequence: 'Send asynchronous updates.' },
+        { id: 'polling', label: 'Polling', consequence: 'Request updates on demand.' },
+      ],
+      recommendedOptionId: 'webhook',
+    },
+    {
+      id: 'failure-policy',
+      prompt: 'Choose the failure policy',
+      kind: 'choice',
+      options: [
+        { id: 'retry', label: 'Retry', consequence: 'Attempt transient failures again.' },
+        { id: 'fail-fast', label: 'Fail fast', consequence: 'Stop at the first failure.' },
+      ],
+      recommendedOptionId: 'retry',
+    },
+  ],
+} as const;
+
 const EXPECTED_STEP_ROUTING = [
   { id: 'validate-problem', model: 'opus', effort: 'medium' },
   { id: 'research-questions', model: 'opus', effort: 'medium' },
@@ -171,6 +198,12 @@ async function writeMemory(projectRoot: string, text: string): Promise<void> {
   await fs.mkdir(configDir, { recursive: true });
   await fs.writeFile(path.join(configDir, 'config.yaml'), 'schema: spec-driven\n', 'utf-8');
   await fs.writeFile(path.join(configDir, 'MEMORY.md'), text, 'utf-8');
+}
+
+async function writeQuestionPacket(taskDir: string, packet: unknown = OPEN_QUESTIONS): Promise<string> {
+  const packetPath = path.join(taskDir, 'open-questions.json');
+  await fs.writeFile(packetPath, `${JSON.stringify(packet, null, 2)}\n`, 'utf-8');
+  return packetPath;
 }
 
 function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness {
@@ -2142,6 +2175,168 @@ describe('completed artifact revalidation', () => {
   });
 });
 
+describe('flow open questions', () => {
+  const flow = useFlowHarness();
+
+  async function advanceToDesignDiscussion(): Promise<void> {
+    await flow.completeProblemValidation();
+    await flow.completeFileStep('research-questions', 'research-questions.md');
+    await flow.completeFileStep('research', 'research.md');
+  }
+
+  it('persists questions without completing or rerouting the current step', async () => {
+    await advanceToDesignDiscussion();
+    const ready = await getFlowNext(flow.taskDir);
+    const packetPath = await writeQuestionPacket(flow.taskDir);
+
+    const paused = await pauseFlowStep(flow.taskDir, {
+      step: 'design-discussion',
+      questions: packetPath,
+    });
+
+    expect(paused.state).toBe('needs-input');
+    expect(paused.question).toMatchObject({ id: 'interface', prompt: 'Choose the public interface' });
+    expect(paused.nextStep).toMatchObject({ id: 'design-discussion', status: 'ready' });
+    expect(paused.completedStep).toBeUndefined();
+    expect(routing(paused.nextStep)).toEqual(routing(ready.step));
+
+    process.env.CODEX_THREAD_ID = `thread-${randomUUID()}`;
+    const resumed = await getFlowStatus(flow.taskDir);
+    expect(resumed.state).toBe('needs-input');
+    expect(resumed.profile).toBe('codex');
+    expect(resumed.question?.id).toBe('interface');
+    expect(routing(resumed.nextStep)).toEqual(routing(ready.step));
+
+    const output = path.join(flow.taskDir, 'design-discussion.md');
+    await fs.writeFile(output, '# Design Discussion\n', 'utf-8');
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const beforeCompletion = await fs.readFile(statePath, 'utf-8');
+    const prematureCompletion = await completeFlowStep(flow.taskDir, {
+      step: 'design-discussion',
+      output,
+    });
+    expect(prematureCompletion.state).toBe('blocked');
+    expect(prematureCompletion.reason).toBe(
+      'Step design-discussion has unanswered questions.'
+    );
+    expect((await getFlowStatus(flow.taskDir)).state).toBe('needs-input');
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(beforeCompletion);
+
+    const stored = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    const storedStep = stored.steps.find((step: FlowStep) => step.id === 'design-discussion');
+    expect(storedStep).toMatchObject({
+      status: 'ready',
+      interactions: [{ round: 1, questions: OPEN_QUESTIONS.questions, answers: [] }],
+    });
+    expect(storedStep).not.toHaveProperty('prompt');
+  });
+
+  it('answers questions in order and reruns the same step with durable answers', async () => {
+    await advanceToDesignDiscussion();
+    const initial = await getFlowNext(flow.taskDir);
+    expect(initial.step?.prompt).toContain(
+      path.join(flow.taskDir, 'open-questions', 'design-discussion-round-1.json')
+    );
+    const packetPath = await writeQuestionPacket(flow.taskDir);
+    await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packetPath });
+
+    const first = await answerFlowQuestion(flow.taskDir, {
+      question: 'interface',
+      answer: 'webhook',
+    });
+    expect(first.state).toBe('needs-input');
+    expect(first.question?.id).toBe('failure-policy');
+    expect(first.nextStep?.id).toBe('design-discussion');
+
+    const second = await answerFlowQuestion(flow.taskDir, {
+      question: 'failure-policy',
+      answer: 'retry',
+    });
+    expect(second.state).toBe('ready');
+    expect(second.question).toBeUndefined();
+    expect(second.nextStep?.id).toBe('design-discussion');
+    expect(second.nextStep?.prompt).toContain('interface: webhook');
+    expect(second.nextStep?.prompt).toContain('failure-policy: retry');
+    expect(second.nextStep?.prompt).toContain('Regenerate the stage output after applying these answers.');
+    expect(second.nextStep?.prompt).toContain(
+      path.join(flow.taskDir, 'open-questions', 'design-discussion-round-2.json')
+    );
+
+    const resumed = await getFlowNext(flow.taskDir);
+    expect(resumed.step?.id).toBe('design-discussion');
+    expect(resumed.step?.prompt).toContain('interface: webhook');
+    expect(resumed.step?.prompt).toContain('failure-policy: retry');
+  });
+
+  it('rejects a stage artifact created before the final answer', async () => {
+    await advanceToDesignDiscussion();
+    await getFlowNext(flow.taskDir);
+    const packetPath = await writeQuestionPacket(flow.taskDir);
+    await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packetPath });
+    const output = path.join(flow.taskDir, 'design-discussion.md');
+    await fs.writeFile(output, '# Stale Design Discussion\n', 'utf-8');
+
+    await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
+    await answerFlowQuestion(flow.taskDir, { question: 'failure-policy', answer: 'retry' });
+
+    const stale = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
+    expect(stale.state).toBe('blocked');
+    expect(stale.reason).toContain('must regenerate its output after answering questions');
+
+    await fs.writeFile(output, '# Answered Design Discussion\n', 'utf-8');
+    const completed = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
+    expect(completed.state).toBe('ready');
+    expect(completed.completedStep?.id).toBe('design-discussion');
+  });
+
+  it('rejects a task-local packet symlink that resolves outside the task directory', async () => {
+    if (process.platform === 'win32') return;
+    await advanceToDesignDiscussion();
+    await getFlowNext(flow.taskDir);
+    const outsidePacket = path.join(flow.projectRoot, 'outside-questions.json');
+    await fs.writeFile(outsidePacket, JSON.stringify(OPEN_QUESTIONS), 'utf-8');
+    const packetLink = path.join(flow.taskDir, 'linked-questions.json');
+    await fs.symlink(outsidePacket, packetLink);
+
+    const result = await pauseFlowStep(flow.taskDir, {
+      step: 'design-discussion',
+      questions: packetLink,
+    });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('must be inside the task directory');
+    expect((await getFlowStatus(flow.taskDir)).state).toBe('ready');
+  });
+
+  it('blocks malformed packets and out-of-order answers without changing state', async () => {
+    await advanceToDesignDiscussion();
+    await getFlowNext(flow.taskDir);
+    const malformedPath = await writeQuestionPacket(flow.taskDir, {
+      questions: [{ id: 'interface', prompt: 'Choose', kind: 'choice', options: [] }],
+    });
+
+    const malformed = await pauseFlowStep(flow.taskDir, {
+      step: 'design-discussion',
+      questions: malformedPath,
+    });
+    expect(malformed.state).toBe('blocked');
+    expect(malformed.reason).toContain('Invalid questions packet');
+    expect((await getFlowStatus(flow.taskDir)).state).toBe('ready');
+
+    const packetPath = await writeQuestionPacket(flow.taskDir);
+    await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packetPath });
+    const before = await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8');
+
+    const outOfOrder = await answerFlowQuestion(flow.taskDir, {
+      question: 'failure-policy',
+      answer: 'retry',
+    });
+    expect(outOfOrder.state).toBe('blocked');
+    expect(outOfOrder.reason).toBe('Expected question interface, got failure-policy.');
+    expect(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')).toBe(before);
+  });
+});
+
 describe('flow step prompt composition', () => {
   const flow = useFlowHarness();
 
@@ -2153,6 +2348,13 @@ describe('flow step prompt composition', () => {
     expect(result.step?.prompt).toContain('`spok-validate-problem`');
     expect(result.step?.prompt).toContain(path.join(flow.taskDir, 'ticket.md'));
     expect(result.step?.prompt).toContain('return the absolute path');
+    expect(result.step?.prompt).toContain('`NEEDS_INPUT: <absolute-question-packet-path>`');
+    expect(result.step?.prompt).toContain('normal completion are mutually exclusive');
+    expect(result.step?.prompt).toContain(
+      path.join(flow.taskDir, 'open-questions', 'validate-problem-round-1.json')
+    );
+    expect(result.step?.prompt).toContain('Do not ask the user directly');
+    expect(result.step?.prompt).toContain('do not ask for approval between stages');
     expect(result.step?.prompt).not.toContain('MEMORY.md');
     expect(result.memoryPath).toBeUndefined();
     expect(result.memoryWarning).toBeUndefined();

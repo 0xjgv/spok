@@ -2,6 +2,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
+import { z } from 'zod';
 import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
 import { FileSystemUtils } from '../../utils/file-system.js';
 import {
@@ -29,7 +30,7 @@ export type FlowRunner = AutoRunner;
 type Routing = AutoCandidate;
 export type FlowCompletionKind = 'file' | 'summary' | 'commit';
 export type FlowStepStatus = 'pending' | 'ready' | 'completed';
-export type FlowRunState = 'ready' | 'blocked' | 'complete';
+export type FlowRunState = 'ready' | 'needs-input' | 'blocked' | 'complete';
 /** Profiles resolvable at state creation; `auto` defers routing to `spok flow next`. */
 type DetectedProfile = 'claude' | 'codex';
 export type FlowProfile = DetectedProfile | 'hybrid' | 'auto';
@@ -153,6 +154,79 @@ export interface FlowStepResult {
   workRoot?: string;
 }
 
+const FlowQuestionOptionSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    label: z.string().trim().min(1),
+    consequence: z.string().trim().min(1),
+  })
+  .strict();
+
+const FlowQuestionSchema = z
+  .discriminatedUnion('kind', [
+    z
+      .object({
+        id: z.string().trim().min(1),
+        prompt: z.string().trim().min(1),
+        kind: z.literal('choice'),
+        options: z.array(FlowQuestionOptionSchema).min(2).max(3),
+        recommendedOptionId: z.string().trim().min(1).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        id: z.string().trim().min(1),
+        prompt: z.string().trim().min(1),
+        kind: z.literal('input'),
+      })
+      .strict(),
+  ])
+  .superRefine((question, context) => {
+    if (question.kind !== 'choice') return;
+    const optionIds = question.options.map((option) => option.id);
+    if (new Set(optionIds).size !== optionIds.length) {
+      context.addIssue({ code: 'custom', message: 'choice option ids must be unique' });
+    }
+    if (question.recommendedOptionId && !optionIds.includes(question.recommendedOptionId)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'recommendedOptionId must name one of the choice options',
+      });
+    }
+  });
+
+const QuestionPacketSchema = z
+  .object({ questions: z.array(FlowQuestionSchema).min(1) })
+  .strict()
+  .superRefine((packet, context) => {
+    const ids = packet.questions.map((question) => question.id);
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({ code: 'custom', message: 'question ids must be unique' });
+    }
+  });
+
+const FlowQuestionAnswerSchema = z
+  .object({
+    questionId: z.string().trim().min(1),
+    answer: z.string().trim().min(1),
+    answeredAt: z.string().min(1),
+  })
+  .strict();
+
+const FlowInteractionSchema = z
+  .object({
+    round: z.number().int().positive(),
+    pausedAt: z.string().min(1),
+    resolvedAt: z.string().min(1).optional(),
+    questions: z.array(FlowQuestionSchema).min(1),
+    answers: z.array(FlowQuestionAnswerSchema),
+  })
+  .strict();
+
+export type FlowQuestion = z.infer<typeof FlowQuestionSchema>;
+export type FlowQuestionAnswer = z.infer<typeof FlowQuestionAnswerSchema>;
+export type FlowInteraction = z.infer<typeof FlowInteractionSchema>;
+
 export interface FlowStep {
   id: string;
   skill: string;
@@ -168,6 +242,8 @@ export interface FlowStep {
   route?: AutoRouteRecord;
   /** 1-based repair-cycle attempt for spliced repair/validate steps; absent on the base graph. */
   attempt?: number;
+  /** Durable question rounds reported while this occurrence remains unfinished. */
+  interactions?: FlowInteraction[];
   /** Derived per response, never persisted: the full subagent prompt to dispatch verbatim. */
   prompt?: string;
 }
@@ -199,6 +275,8 @@ export interface FlowResponse {
   memoryWarning?: string;
   workRoot?: string;
   workRootWarning?: string;
+  question?: FlowQuestion;
+  questions?: FlowQuestion[];
 }
 
 export interface FlowCompleteInput {
@@ -214,6 +292,19 @@ export interface FlowCommandOptions {
 }
 
 export interface FlowCompleteCommandOptions extends FlowCommandOptions, FlowCompleteInput {}
+
+export interface FlowPauseInput {
+  step: string;
+  questions: string;
+}
+
+export interface FlowAnswerInput {
+  question: string;
+  answer: string;
+}
+
+export interface FlowPauseCommandOptions extends FlowCommandOptions, FlowPauseInput {}
+export interface FlowAnswerCommandOptions extends FlowCommandOptions, FlowAnswerInput {}
 
 interface StepDefinition {
   id: RoutedStepId;
@@ -346,7 +437,7 @@ const SELF_LEARN_STEP_DEFINITION_SPEC = {
 interface FlowEvent {
   schemaVersion: 1;
   timestamp: string;
-  event: 'flow_status' | 'flow_next' | 'flow_complete';
+  event: 'flow_status' | 'flow_next' | 'flow_complete' | 'flow_pause' | 'flow_answer';
   state: FlowRunState;
   step?: string;
   completedStep?: string;
@@ -470,6 +561,54 @@ function buildMemoryWarning(memory: MemoryRead | undefined): string | undefined 
   return `${memory.path}: ${problems.join('; ')}.`;
 }
 
+function interactionAnswers(interactions: FlowInteraction[] | undefined): FlowQuestionAnswer[] {
+  return interactions?.flatMap((interaction) => interaction.answers) ?? [];
+}
+
+function unansweredQuestions(step: FlowStep | undefined): FlowQuestion[] {
+  if (!step?.interactions) return [];
+  const answered = new Set(
+    interactionAnswers(step.interactions).map((answer) => answer.questionId)
+  );
+  return step.interactions
+    .flatMap((interaction) => interaction.questions)
+    .filter((question) => !answered.has(question.id));
+}
+
+function answeredQuestionsClause(interactions: FlowInteraction[] | undefined): string | undefined {
+  const answers = interactionAnswers(interactions);
+  if (answers.length === 0) return;
+  return [
+    'Human answers to earlier open questions. Treat these as authoritative:',
+    ...answers.map((answer) => `- ${answer.questionId}: ${answer.answer}`),
+    'Regenerate the stage output after applying these answers. Do not treat an output created before this resumed attempt as complete.',
+  ].join('\n');
+}
+
+function openQuestionClause(
+  taskDir: string,
+  stepId: RoutedStepId,
+  interactions: FlowInteraction[] | undefined
+): string {
+  const round = (interactions?.length ?? 0) + 1;
+  const packetPath = path.join(taskDir, 'open-questions', `${stepId}-round-${round}.json`);
+  return [
+    'Work autonomously. Resolve code-answerable uncertainty from the repository and supplied artifacts. ' +
+      'Do not ask the user directly and do not ask for approval between stages.',
+    'Only when consequential human intent is missing and choosing would materially change behavior, ' +
+      `create or overwrite this exact packet path: \`${packetPath}\`. Create its parent directory when needed.`,
+    'The packet must be strict JSON with a non-empty `questions` array. Every question needs unique, ' +
+      'stable `id` and non-empty `prompt` fields. An `input` question has `kind: "input"`. A `choice` ' +
+      'question has `kind: "choice"`, two or three `options`, and may have `recommendedOptionId`; every ' +
+      'option needs unique, non-empty `id`, `label`, and `consequence` fields. Never reuse a question id ' +
+      'from an earlier round.',
+    'For that outcome, do not create the stage completion artifact or return a completion summary. End ' +
+      'your reply with a final line exactly `NEEDS_INPUT: <absolute-question-packet-path>`, replacing the ' +
+      `placeholder with \`${packetPath}\`. The NEEDS_INPUT outcome and normal completion are mutually exclusive.`,
+    'If no consequential human intent is missing, do not create a question packet and complete the stage normally.',
+  ].join('\n');
+}
+
 const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
   implement:
     'You are running inside spok-flow. Implement and verify the plan, return a ' +
@@ -509,8 +648,10 @@ function editingWorkRootClause(workRoot: string): string {
 
 /** The whole subagent prompt. The driver dispatches it verbatim and assembles nothing. */
 function buildStepPrompt(
+  taskDir: string,
   definition: StepDefinition,
   rules: string[],
+  interactions?: FlowInteraction[],
   workRoot?: string
 ): string {
   const sections: string[] = [];
@@ -527,6 +668,8 @@ function buildStepPrompt(
     `Call the \`${definition.skill}\` skill with \`${definition.argument}\` as the argument using the Skill tool.`
   );
 
+  sections.push(openQuestionClause(taskDir, definition.id, interactions));
+
   sections.push(
     definition.completionKind === 'file'
       ? 'When complete, return the absolute path of the document that was created.'
@@ -535,6 +678,9 @@ function buildStepPrompt(
 
   const clause = STEP_PROMPT_CLAUSES[definition.id];
   if (clause) sections.push(clause);
+
+  const answers = answeredQuestionsClause(interactions);
+  if (answers) sections.push(answers);
 
   if (workRoot) {
     if (definition.completionKind === 'commit') sections.push(workRootClause(workRoot));
@@ -799,10 +945,17 @@ function normalizeState(
       });
     }
 
-    const step = stepFromDefinition(definition, completed ? 'completed' : 'pending', completed?.result);
-    return profile === 'auto' || completed
-      ? withPersistedRoute(step, storedByKey.get(key))
+    const step = stepFromDefinition(
+      definition,
+      completed ? 'completed' : 'pending',
+      completed?.result
+    );
+    const stored = storedByKey.get(key);
+    const interactions = readStoredInteractions(stored?.interactions);
+    const routed = profile === 'auto' || completed || interactions
+      ? withPersistedRoute(step, stored)
       : step;
+    return interactions ? { ...routed, interactions } : routed;
   });
 
   const state: WorkflowState = {
@@ -818,6 +971,11 @@ function normalizeState(
 
   markNextStepReady(state);
   return state;
+}
+
+function readStoredInteractions(value: unknown): FlowInteraction[] | undefined {
+  const parsed = z.array(FlowInteractionSchema).safeParse(value);
+  return parsed.success && parsed.data.length > 0 ? parsed.data : undefined;
 }
 
 /** Preserves completed history and keeps auto routes stable across every normalization. */
@@ -840,20 +998,24 @@ function withPersistedRoute(step: FlowStep, stored: Partial<FlowStep> | undefine
 }
 
 function markNextStepReady(state: WorkflowState): void {
-  let readySet = false;
+  let readyStep: FlowStep | undefined;
 
   for (const step of state.steps) {
     if (step.status === 'completed') continue;
 
-    if (!readySet) {
+    if (!readyStep) {
       step.status = 'ready';
-      readySet = true;
+      readyStep = step;
     } else {
       step.status = 'pending';
     }
   }
 
-  state.status = readySet ? 'ready' : 'complete';
+  if (!readyStep) {
+    state.status = 'complete';
+  } else {
+    state.status = unansweredQuestions(readyStep).length > 0 ? 'needs-input' : 'ready';
+  }
 }
 
 async function pathIsFile(targetPath: string): Promise<boolean> {
@@ -1051,7 +1213,10 @@ function withStepPrompt(
   const definition = getDefinitionById(taskDir, step.id, repairAttempts, profile);
   if (!definition) return step;
 
-  return { ...step, prompt: buildStepPrompt(definition, rules, workRoot) };
+  return {
+    ...step,
+    prompt: buildStepPrompt(taskDir, definition, rules, step.interactions, workRoot),
+  };
 }
 
 /** The most recently recorded work root: repair can move the work after implement. */
@@ -1087,6 +1252,7 @@ function buildResponse(
     state.profile,
     workRoot
   );
+  const questions = unansweredQuestions(nextStep);
   return {
     state: state.status,
     profile: state.profile,
@@ -1103,6 +1269,8 @@ function buildResponse(
     memoryWarning: buildMemoryWarning(memory),
     workRoot,
     workRootWarning: buildWorkRootWarning(state, workRoot),
+    question: questions[0],
+    questions: questions.length > 0 ? questions : undefined,
   };
 }
 
@@ -1246,6 +1414,26 @@ function validateFileCompletion(
   if (actual !== expected) {
     return `Expected output path ${definition.expectedOutput} for step ${definition.id}, got ${path.resolve(input.output)}.`;
   }
+}
+
+async function answeredArtifactFreshnessError(
+  step: FlowStep,
+  definition: StepDefinition
+): Promise<string | undefined> {
+  if (definition.completionKind !== 'file' || !definition.expectedOutput) return;
+  const resolvedAt = step.interactions?.at(-1)?.resolvedAt;
+  if (!resolvedAt) return;
+
+  let modifiedAt: number;
+  try {
+    modifiedAt = (await fs.stat(definition.expectedOutput)).mtimeMs;
+  } catch {
+    return;
+  }
+
+  const answeredAt = Date.parse(resolvedAt);
+  if (Number.isNaN(answeredAt) || modifiedAt > answeredAt) return;
+  return `Step ${definition.id} must regenerate its output after answering questions: ${definition.expectedOutput}`;
 }
 
 function extractMarkdownSection(content: string, heading: string): string {
@@ -1588,6 +1776,200 @@ async function exhaustedRepairBlockReason(state: WorkflowState): Promise<string 
   return repairAttemptsExhaustedReason(output);
 }
 
+function questionPacketPathError(taskDir: string, packetPath: string): string | undefined {
+  const relative = path.relative(taskDir, packetPath);
+  if (!relative || (!relative.startsWith('..') && !path.isAbsolute(relative))) return;
+  return `Questions packet must be inside the task directory ${taskDir}: ${packetPath}`;
+}
+
+async function readQuestionPacket(
+  taskDir: string,
+  inputPath: string
+): Promise<FlowQuestion[] | string> {
+  const packetPath = path.resolve(inputPath);
+  const locationError = questionPacketPathError(taskDir, packetPath);
+  if (locationError) return locationError;
+
+  let canonicalTaskDir: string;
+  let canonicalPacketPath: string;
+  try {
+    [canonicalTaskDir, canonicalPacketPath] = await Promise.all([
+      fs.realpath(taskDir),
+      fs.realpath(packetPath),
+    ]);
+  } catch {
+    return `Questions packet cannot be read: ${packetPath}`;
+  }
+  if (questionPacketPathError(canonicalTaskDir, canonicalPacketPath)) {
+    return `Questions packet must be inside the task directory ${taskDir}: ${packetPath}`;
+  }
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(canonicalPacketPath, 'utf-8');
+  } catch {
+    return `Questions packet cannot be read: ${packetPath}`;
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return `Invalid questions packet JSON: ${packetPath}`;
+  }
+
+  const parsed = QuestionPacketSchema.safeParse(value);
+  if (!parsed.success) {
+    const detail = parsed.error.issues[0]?.message ?? 'packet does not match the schema';
+    return `Invalid questions packet ${packetPath}: ${detail}`;
+  }
+  return parsed.data.questions;
+}
+
+function repeatedQuestionId(step: FlowStep, questions: FlowQuestion[]): string | undefined {
+  const existing = new Set(
+    step.interactions?.flatMap((interaction) =>
+      interaction.questions.map((question) => question.id)
+    ) ?? []
+  );
+  return questions.find((question) => existing.has(question.id))?.id;
+}
+
+export async function pauseFlowStep(
+  taskDirInput: string,
+  input: FlowPauseInput
+): Promise<FlowResponse> {
+  const loaded = await loadOrCreateState(taskDirInput);
+  if (!loaded.state) {
+    const response = buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+    await recordFlowResponse(response, 'flow_pause');
+    return response;
+  }
+
+  const artifactError = await validateCompletedArtifacts(loaded.state);
+  if (artifactError) {
+    const response = blockedResponse(loaded.state, artifactError);
+    await recordFlowResponse(response, 'flow_pause');
+    return response;
+  }
+
+  const currentStep = getCurrentStep(loaded.state);
+  if (!currentStep) return buildResponse(loaded.state);
+  if (input.step !== currentStep.id) {
+    const response = blockedResponse(
+      loaded.state,
+      `Expected step ${currentStep.id}, got ${input.step}.`
+    );
+    await recordFlowResponse(response, 'flow_pause');
+    return response;
+  }
+  if (loaded.state.status === 'needs-input') {
+    const response = blockedResponse(
+      loaded.state,
+      `Step ${currentStep.id} already has unanswered questions.`
+    );
+    await recordFlowResponse(response, 'flow_pause');
+    return response;
+  }
+
+  const questions = await readQuestionPacket(loaded.state.taskDir, input.questions);
+  if (typeof questions === 'string') {
+    const response = blockedResponse(loaded.state, questions);
+    await recordFlowResponse(response, 'flow_pause');
+    return response;
+  }
+  const repeated = repeatedQuestionId(currentStep, questions);
+  if (repeated) {
+    const response = blockedResponse(
+      loaded.state,
+      `Question id ${repeated} was already used for step ${currentStep.id}.`
+    );
+    await recordFlowResponse(response, 'flow_pause');
+    return response;
+  }
+
+  const timestamp = nowIso();
+  currentStep.interactions = [
+    ...(currentStep.interactions ?? []),
+    {
+      round: (currentStep.interactions?.length ?? 0) + 1,
+      pausedAt: timestamp,
+      questions,
+      answers: [],
+    },
+  ];
+  markNextStepReady(loaded.state);
+  await writeState(loaded.state);
+  const response = buildResponse(loaded.state);
+  await recordFlowResponse(response, 'flow_pause');
+  return response;
+}
+
+export async function answerFlowQuestion(
+  taskDirInput: string,
+  input: FlowAnswerInput
+): Promise<FlowResponse> {
+  const loaded = await loadOrCreateState(taskDirInput);
+  if (!loaded.state) {
+    const response = buildBlockedResponse(loaded.taskDir, loaded.statePath, loaded.reason!);
+    await recordFlowResponse(response, 'flow_answer');
+    return response;
+  }
+
+  const artifactError = await validateCompletedArtifacts(loaded.state);
+  if (artifactError) {
+    const response = blockedResponse(loaded.state, artifactError);
+    await recordFlowResponse(response, 'flow_answer');
+    return response;
+  }
+
+  const currentStep = getCurrentStep(loaded.state);
+  const expected = unansweredQuestions(currentStep)[0];
+  if (loaded.state.status !== 'needs-input' || !currentStep || !expected) {
+    const response = blockedResponse(loaded.state, 'The flow has no unanswered question.');
+    await recordFlowResponse(response, 'flow_answer');
+    return response;
+  }
+  if (input.question !== expected.id) {
+    const response = blockedResponse(
+      loaded.state,
+      `Expected question ${expected.id}, got ${input.question}.`
+    );
+    await recordFlowResponse(response, 'flow_answer');
+    return response;
+  }
+  const answer = input.answer.trim();
+  if (!answer) {
+    const response = blockedResponse(loaded.state, `Question ${expected.id} requires an answer.`);
+    await recordFlowResponse(response, 'flow_answer');
+    return response;
+  }
+
+  const interaction = currentStep.interactions?.find((candidate) =>
+    candidate.questions.some((question) => question.id === expected.id)
+  );
+  if (!interaction) {
+    const response = blockedResponse(
+      loaded.state,
+      `Question ${expected.id} has no persisted interaction.`
+    );
+    await recordFlowResponse(response, 'flow_answer');
+    return response;
+  }
+
+  const timestamp = nowIso();
+  interaction.answers.push({ questionId: expected.id, answer, answeredAt: timestamp });
+  const answered = new Set(interaction.answers.map((item) => item.questionId));
+  if (interaction.questions.every((question) => answered.has(question.id))) {
+    interaction.resolvedAt = timestamp;
+  }
+  markNextStepReady(loaded.state);
+  await writeState(loaded.state);
+  const response = buildResponse(loaded.state);
+  await recordFlowResponse(response, 'flow_answer');
+  return response;
+}
+
 /** Read-only: derives state from disk without creating or touching the state file. */
 export async function getFlowStatus(taskDirInput: string): Promise<FlowResponse> {
   const loaded = await loadOrCreateState(taskDirInput);
@@ -1675,6 +2057,15 @@ export async function completeFlowStep(
     return response;
   }
 
+  if (loaded.state.status === 'needs-input') {
+    const response = blockedResponse(
+      loaded.state,
+      `Step ${currentStep.id} has unanswered questions.`
+    );
+    await recordFlowResponse(response, 'flow_complete');
+    return response;
+  }
+
   if (input.step !== currentStep.id) {
     const response = blockedResponse(
       loaded.state,
@@ -1692,6 +2083,13 @@ export async function completeFlowStep(
   );
   if (!definition) {
     const response = blockedResponse(loaded.state, `Unknown workflow step: ${currentStep.id}.`);
+    await recordFlowResponse(response, 'flow_complete');
+    return response;
+  }
+
+  const staleArtifactError = await answeredArtifactFreshnessError(currentStep, definition);
+  if (staleArtifactError) {
+    const response = blockedResponse(loaded.state, staleArtifactError);
     await recordFlowResponse(response, 'flow_complete');
     return response;
   }
@@ -1749,6 +2147,20 @@ export async function flowCompleteCommand(
   reportFlowResponse(await completeFlowStep(taskDir, options), options);
 }
 
+export async function flowPauseCommand(
+  taskDir: string,
+  options: FlowPauseCommandOptions
+): Promise<void> {
+  reportFlowResponse(await pauseFlowStep(taskDir, options), options);
+}
+
+export async function flowAnswerCommand(
+  taskDir: string,
+  options: FlowAnswerCommandOptions
+): Promise<void> {
+  reportFlowResponse(await answerFlowQuestion(taskDir, options), options);
+}
+
 /** Prints the response and signals blocked outcomes via a nonzero exit code. */
 function reportFlowResponse(response: FlowResponse, options: FlowCommandOptions): void {
   printFlowResponse(response, options);
@@ -1780,6 +2192,10 @@ function printFlowResponse(response: FlowResponse, options: FlowCommandOptions):
   }
 
   console.log(`Next step: ${step.id}`);
+  if (response.state === 'needs-input' && response.question) {
+    console.log(`Question: ${response.question.id}`);
+    console.log(response.question.prompt);
+  }
   if (response.profile) {
     console.log(`Profile: ${response.profile}`);
   }

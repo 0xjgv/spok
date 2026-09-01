@@ -101,6 +101,26 @@ describe('spok-flow prompt dispatch contract', () => {
     expect(body).not.toContain('subagent_type');
     expect(body).not.toContain('**Agent** tool');
   });
+
+  it('captures durable questions and redispatches the same step without approval gates', async () => {
+    const body = await readFlowSkill();
+
+    expect(body).toContain('NEEDS_INPUT: <absolute-question-packet-path>');
+    expect(body).toContain('spok flow pause');
+    expect(body).toContain('spok flow answer');
+    expect(body).toContain('response.question');
+    expect(body).toContain('inspect only its final non-empty line');
+    expect(body).toContain('Do not scan\n   the task directory for packets');
+    expect(body).toContain('redispatch the same step');
+    expect(body).toContain('Never call `spok flow complete` for the child reply');
+    expect(body).toContain('Do not ask for approval between stages.');
+    expect(body).not.toContain(
+      'Raise questions or concerns about objectives, design, or plan to the user at any time'
+    );
+    expect(body).toMatch(
+      /prefix every `spok flow status`, `spok flow next`,\s+`spok flow pause`, `spok flow answer`, and `spok flow complete`/
+    );
+  });
 });
 
 describe('spok-flow current and OMP dispatch contract', () => {
@@ -235,6 +255,23 @@ describe('spok-self-learn promotion contract', () => {
 });
 
 describe('spok-create-design-discussion visual evidence contract', () => {
+  it('returns only consequential human decisions through the outer flow', async () => {
+    const body = await fs.readFile(
+      path.join(SKILLS_DIR, 'spok-create-design-discussion', 'SKILL.md'),
+      'utf-8'
+    );
+
+    expect(body).toContain('Resolve code-answerable decisions from repository and research evidence.');
+    expect(body).toContain('Do not ask or wait for the user directly.');
+    expect(body).toContain('write the structured question packet');
+    expect(body).toContain('Human answers to earlier open questions');
+    expect(body).toContain('never reuse an answered question id');
+    expect(body).toContain('When injected human answers are present');
+    expect(body).toContain('Regenerate it after applying the answers');
+    expect(body).not.toContain('Ask exactly one consequential design question per message.');
+    expect(body).not.toContain('Wait for the answer before asking the next question.');
+  });
+
   it('routes required evidence to an approved repository packet', async () => {
     const file = path.join(
       SKILLS_DIR,
@@ -248,6 +285,7 @@ describe('spok-create-design-discussion visual evidence contract', () => {
     expect(body).toContain('"schemaVersion": 1');
     expect(body).toContain('"status": "pending"');
     expect(body).toContain('"approvedBy": "<identity>"');
+    expect(body).toContain('build and open the visual evidence packet before requesting approval');
     expect(body).toContain('Missing either the current or target pane blocks completion');
   });
 

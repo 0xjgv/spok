@@ -25,6 +25,12 @@ import {
   type FlowCommandOptions,
   type FlowCompleteCommandOptions,
 } from '../commands/workflow/index.js';
+import {
+  flowAnswerCommand,
+  flowPauseCommand,
+  type FlowAnswerCommandOptions,
+  type FlowPauseCommandOptions,
+} from '../commands/workflow/flow.js';
 import { maybeShowTelemetryNotice, trackCommand, trackTelemetryEvent, shutdown } from '../telemetry/index.js';
 import { collectCliSignals } from './signals.js';
 
@@ -100,6 +106,8 @@ const COMMAND_VISIBILITY: Record<string, CommandVisibility> = {
   flow: 'internal',
   'flow status': 'internal',
   'flow next': 'internal',
+  'flow pause': 'internal',
+  'flow answer': 'internal',
   'flow complete': 'internal',
 };
 
@@ -112,6 +120,8 @@ const CONFIG_WARNING_COMMANDS = new Set([
   'new:change',
   'flow:status',
   'flow:next',
+  'flow:pause',
+  'flow:answer',
   'flow:complete',
 ]);
 
@@ -566,6 +576,38 @@ flowCmd
   .action(async (taskDir: string, options: FlowCommandOptions) => {
     try {
       await flowNextCommand(taskDir, options);
+    } catch (error) {
+      console.log();
+      ora().fail(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+flowCmd
+  .command('pause <task-dir>')
+  .description('Record open questions for the current deterministic workflow step')
+  .requiredOption('--step <id>', 'Workflow step id that needs input')
+  .requiredOption('--questions <path>', 'Path to the structured questions packet')
+  .option('--json', 'Output as JSON')
+  .action(async (taskDir: string, options: FlowPauseCommandOptions) => {
+    try {
+      await flowPauseCommand(taskDir, options);
+    } catch (error) {
+      console.log();
+      ora().fail(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+flowCmd
+  .command('answer <task-dir>')
+  .description('Answer the current deterministic workflow question')
+  .requiredOption('--question <id>', 'Question id to answer')
+  .requiredOption('--answer <text>', 'Answer text')
+  .option('--json', 'Output as JSON')
+  .action(async (taskDir: string, options: FlowAnswerCommandOptions) => {
+    try {
+      await flowAnswerCommand(taskDir, options);
     } catch (error) {
       console.log();
       ora().fail(`Error: ${(error as Error).message}`);

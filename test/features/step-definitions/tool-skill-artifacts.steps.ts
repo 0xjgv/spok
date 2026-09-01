@@ -236,6 +236,55 @@ Given('the staged flow task is completed through research', async function (
   }
 });
 
+Given('a two-question design-discussion packet', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  const packet = {
+    questions: [
+      {
+        id: 'interface',
+        prompt: 'Choose the public interface',
+        kind: 'choice',
+        options: [
+          {
+            id: 'webhook',
+            label: 'Webhook',
+            consequence: 'Callers receive asynchronous updates.',
+          },
+          {
+            id: 'polling',
+            label: 'Polling',
+            consequence: 'Callers request updates on demand.',
+          },
+        ],
+        recommendedOptionId: 'webhook',
+      },
+      {
+        id: 'failure-policy',
+        prompt: 'Choose the failure policy',
+        kind: 'choice',
+        options: [
+          {
+            id: 'retry',
+            label: 'Retry',
+            consequence: 'Transient failures are attempted again.',
+          },
+          {
+            id: 'fail-fast',
+            label: 'Fail fast',
+            consequence: 'The first failure ends the operation.',
+          },
+        ],
+        recommendedOptionId: 'retry',
+      },
+    ],
+  };
+  await fs.writeFile(
+    path.join(this.flowTaskDir, 'design-discussion-questions.json'),
+    `${JSON.stringify(packet, null, 2)}\n`,
+    'utf-8'
+  );
+});
+
 Given('the staged flow task is completed through structure outline', async function (
   this: SkillArtifactWorld
 ) {
@@ -698,6 +747,48 @@ When('I run spok flow next as JSON for the staged task', async function (this: S
   });
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
 });
+
+When(
+  'I pause the staged flow design-discussion step with the question packet',
+  async function (this: SkillArtifactWorld) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+    this.cliResult = await runCLI(
+      [
+        'flow',
+        'pause',
+        this.flowTaskDir,
+        '--step',
+        'design-discussion',
+        '--questions',
+        path.join(this.flowTaskDir, 'design-discussion-questions.json'),
+        '--json',
+      ],
+      { cwd: this.projectDir }
+    );
+  }
+);
+
+When(
+  'I answer staged flow question {string} with {string}',
+  async function (this: SkillArtifactWorld, question: string, answer: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+    this.cliResult = await runCLI(
+      [
+        'flow',
+        'answer',
+        this.flowTaskDir,
+        '--question',
+        question,
+        '--answer',
+        answer,
+        '--json',
+      ],
+      { cwd: this.projectDir }
+    );
+  }
+);
 
 When('I run spok flow status for the staged task', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');

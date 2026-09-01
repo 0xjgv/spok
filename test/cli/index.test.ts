@@ -5,8 +5,10 @@ import path from 'node:path';
 
 const cliMocks = vi.hoisted(() => ({
   applyInstructionsCommand: vi.fn(async () => {}),
+  flowAnswerCommand: vi.fn(async () => {}),
   flowCompleteCommand: vi.fn(async () => {}),
   flowNextCommand: vi.fn(async () => {}),
+  flowPauseCommand: vi.fn(async () => {}),
   flowStatusCommand: vi.fn(async () => {}),
   initExecute: vi.fn(async () => {}),
   initOptions: vi.fn(),
@@ -17,6 +19,11 @@ const cliMocks = vi.hoisted(() => ({
   statusCommand: vi.fn(async () => {}),
   trackCommand: vi.fn(async () => {}),
   trackTelemetryEvent: vi.fn(async () => {}),
+}));
+
+vi.mock('../../src/commands/workflow/flow.js', () => ({
+  flowAnswerCommand: cliMocks.flowAnswerCommand,
+  flowPauseCommand: cliMocks.flowPauseCommand,
 }));
 
 vi.mock('../../src/commands/workflow/index.js', () => ({
@@ -115,5 +122,29 @@ flow:
       tools: 'none',
     });
     expect(console.log).toHaveBeenCalledWith(`Directory "${targetPath}" doesn't exist, it will be created.`);
+  });
+
+  it.each([
+    {
+      args: [
+        'flow', 'pause', '/tmp/task', '--step', 'design-discussion',
+        '--questions', '/tmp/task/questions.json', '--json',
+      ],
+      command: cliMocks.flowPauseCommand,
+      options: { step: 'design-discussion', questions: '/tmp/task/questions.json', json: true },
+    },
+    {
+      args: [
+        'flow', 'answer', '/tmp/task', '--question', 'interface', '--answer', 'webhook', '--json',
+      ],
+      command: cliMocks.flowAnswerCommand,
+      options: { question: 'interface', answer: 'webhook', json: true },
+    },
+  ])('registers the internal flow question command', async ({ args, command, options }) => {
+    await importCliWithArgs(args);
+
+    await vi.waitFor(() => {
+      expect(command).toHaveBeenCalledWith('/tmp/task', options);
+    });
   });
 });

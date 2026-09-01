@@ -252,13 +252,22 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-create-research" under ".claude/skills" mentions "repaint the affected sections"
     And the workflow skill "spok-create-research" under ".claude/skills" mentions "Open Questions"
 
-  Scenario: Design resolves one decision at a time before completing its artifact
+  Scenario: Autonomous flow captures only consequential open questions
     Given a new project
     When I initialize Spok for the tools "claude"
-    Then the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Ask exactly one consequential design question per message."
-    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "2–3 concrete options"
-    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "tradeoffs and a recommendation"
-    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Wait for the answer before asking the next question."
+    Then the workflow skill "spok-flow" under ".claude/skills" mentions "NEEDS_INPUT: <absolute-question-packet-path>"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow pause"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow answer"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "response.question"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "redispatch the same step"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "Do not ask for approval between stages."
+    And the workflow skill "spok-flow" under ".claude/skills" does not mention "Raise questions or concerns about objectives, design, or plan to the user at any time"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Resolve code-answerable decisions from repository and research evidence."
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Do not ask or wait for the user directly."
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "write the structured question packet"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Human answers to earlier open questions"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "never reuse an answered question id"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "build and open the visual evidence packet before requesting approval"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Do not create or edit `<task-dir>/design-discussion.md` until every consequential decision is resolved"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Its existence marks this flow step complete."
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "System Design"
@@ -404,6 +413,28 @@ Feature: Tool skill artifacts
     Then the Spok CLI output contains "Next step: design-discussion"
     And the Spok CLI output contains "Model: fable"
     And the Spok CLI output contains "Effort: xhigh"
+
+  Scenario: Flow pauses for open questions and resumes the same stage
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through research
+    And a two-question design-discussion packet
+    When I pause the staged flow design-discussion step with the question packet
+    Then the Spok CLI exits with code 0
+    And the Spok CLI output contains "\"state\": \"needs-input\""
+    And the Spok CLI output contains "\"id\": \"design-discussion\""
+    And the Spok CLI output contains "Choose the public interface"
+    When I answer staged flow question "interface" with "webhook"
+    Then the Spok CLI exits with code 0
+    And the Spok CLI output contains "\"state\": \"needs-input\""
+    And the Spok CLI output contains "\"id\": \"design-discussion\""
+    And the Spok CLI output contains "Choose the failure policy"
+    When I answer staged flow question "failure-policy" with "retry"
+    Then the Spok CLI exits with code 0
+    And the Spok CLI output contains "\"state\": \"ready\""
+    And the Spok CLI output contains "\"id\": \"design-discussion\""
+    And the Spok CLI output contains "interface: webhook"
+    And the Spok CLI output contains "failure-policy: retry"
 
   Scenario: Flow next routes validate to a model other than the implementer's
     Given a new project
