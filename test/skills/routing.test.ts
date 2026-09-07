@@ -122,10 +122,10 @@ describe('spok-flow current and OMP dispatch contract', () => {
     expect(body).toContain('never use this native branch');
   });
 
-  it('resumes unfinished default steps on the active primary harness', async () => {
-    const body = await readFlowSkill();
-    expect(body).toContain('A default\nClaude or Codex flow follows the active harness when it resumes');
-    expect(body).toContain('completed-step\nrouting remains historical');
+  it.each(['\n', '\r\n'])('resumes unfinished default steps on the active primary harness with %j line endings', async (newline) => {
+    const body = (await readFlowSkill()).replace(/\r?\n/g, newline);
+    expect(body).toMatch(/A default\s+Claude or Codex flow follows the active harness when it resumes/);
+    expect(body).toMatch(/completed-step\s+routing remains historical/);
     expect(body).toContain('Explicit hybrid and auto workflow states retain their persisted profile');
   });
 
