@@ -18,6 +18,7 @@ describe('UpdateCommand', () => {
   let testDir: string;
   let testHome: string;
   let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
   let originalXdgConfigHome: string | undefined;
   let originalCodexHome: string | undefined;
 
@@ -26,9 +27,11 @@ describe('UpdateCommand', () => {
     testHome = path.join(testDir, 'home');
     await fs.mkdir(path.join(testDir, 'spok'), { recursive: true });
     originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
     originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
     originalCodexHome = process.env.CODEX_HOME;
     process.env.HOME = testHome;
+    process.env.USERPROFILE = testHome;
     process.env.XDG_CONFIG_HOME = path.join(testDir, 'xdg-config');
     process.env.CODEX_HOME = path.join(testDir, 'codex-home');
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -40,6 +43,11 @@ describe('UpdateCommand', () => {
       delete process.env.HOME;
     } else {
       process.env.HOME = originalHome;
+    }
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = originalUserProfile;
     }
     if (originalXdgConfigHome === undefined) {
       delete process.env.XDG_CONFIG_HOME;

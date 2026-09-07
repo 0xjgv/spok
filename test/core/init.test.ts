@@ -85,6 +85,7 @@ function consoleOutput(): string {
 
 let testDir: string;
 let originalHome: string | undefined;
+let originalUserProfile: string | undefined;
 let originalXdgConfigHome: string | undefined;
 let originalCodexHome: string | undefined;
 
@@ -92,9 +93,11 @@ beforeEach(async () => {
   testDir = path.join(os.tmpdir(), `spok-init-${randomUUID()}`);
   await fs.mkdir(testDir, { recursive: true });
   originalHome = process.env.HOME;
+  originalUserProfile = process.env.USERPROFILE;
   originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
   originalCodexHome = process.env.CODEX_HOME;
   process.env.HOME = path.join(testDir, 'home');
+  process.env.USERPROFILE = process.env.HOME;
   process.env.XDG_CONFIG_HOME = path.join(testDir, 'xdg-config');
   process.env.CODEX_HOME = path.join(testDir, 'codex-home');
   vi.mocked(searchableMultiSelect).mockReset();
@@ -110,6 +113,11 @@ afterEach(async () => {
     delete process.env.HOME;
   } else {
     process.env.HOME = originalHome;
+  }
+  if (originalUserProfile === undefined) {
+    delete process.env.USERPROFILE;
+  } else {
+    process.env.USERPROFILE = originalUserProfile;
   }
   if (originalXdgConfigHome === undefined) {
     delete process.env.XDG_CONFIG_HOME;
