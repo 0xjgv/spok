@@ -59,31 +59,31 @@ async function importCliWithArgs(args: string[]): Promise<void> {
   await import('../../src/cli/index.js');
 }
 
+let originalArgv: string[];
+let originalCwd: string;
+let tempDir: string;
+
+beforeEach(() => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  originalArgv = [...process.argv];
+  originalCwd = process.cwd();
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spok-cli-index-'));
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+    throw new Error(`process.exit(${String(code)})`);
+  }) as typeof process.exit);
+});
+
+afterEach(() => {
+  process.argv = originalArgv;
+  process.chdir(originalCwd);
+  fs.rmSync(tempDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
+});
+
 describe('CLI entrypoint', () => {
-  let originalArgv: string[];
-  let originalCwd: string;
-  let tempDir: string;
-
-  beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
-    originalArgv = [...process.argv];
-    originalCwd = process.cwd();
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spok-cli-index-'));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
-      throw new Error(`process.exit(${String(code)})`);
-    }) as typeof process.exit);
-  });
-
-  afterEach(() => {
-    process.argv = originalArgv;
-    process.chdir(originalCwd);
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    vi.restoreAllMocks();
-  });
-
   it('warns about invalid project config before non-json workflow commands run', async () => {
     const spokDir = path.join(tempDir, 'spok');
     fs.mkdirSync(spokDir, { recursive: true });
@@ -145,6 +145,20 @@ flow:
 
     await vi.waitFor(() => {
       expect(command).toHaveBeenCalledWith('/tmp/task', options);
+    });
+  });
+});
+
+describe('Flow completion CLI', () => {
+  it('passes exact changed paths to flow completion', async () => {
+    await importCliWithArgs([
+      'flow', 'complete', '/tmp/task', '--step', 'implement', '--summary', 'Done',
+      '--changed-path', 'src/a file.ts', 'test/a.test.ts', '--json',
+    ]);
+    await vi.waitFor(() => {
+      expect(cliMocks.flowCompleteCommand).toHaveBeenCalledWith('/tmp/task', expect.objectContaining({
+        changedPaths: ['src/a file.ts', 'test/a.test.ts'],
+      }));
     });
   });
 });

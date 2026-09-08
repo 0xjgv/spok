@@ -73,9 +73,9 @@ export interface [name]{
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] [Migration applies cleanly: `bun run ...`]
-- [ ] [Type checking passes: `bun run biome`]
-- [ ] [Tests pass: `bun run test`]
+- [ ] [Relevant behavior check: exact command verified from the repository]
+- [ ] [Type checking passes: exact command verified from the repository]
+- [ ] [Tests pass: exact command verified from the repository]
 - [ ] [other automated verification as appropriate: curl, sql queries, etc]
 
 <optional if="manual validation relevant">
@@ -84,7 +84,7 @@ export interface [name]{
 - [ ] [manual step 2]
 - [ ] [manual step 3]
 
-**Implementation Note**: After completing this phase and all automated verification passes, pause here for manual confirmation from the human that the manual testing was successful before proceeding to the next phase.
+**Implementation Note**: Perform applicable checks directly and record evidence. Continue after verification; ask questions through the flow protocol when useful, without a routine human confirmation gate.
 </optional>
 
 ---

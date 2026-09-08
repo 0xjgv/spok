@@ -52,32 +52,6 @@ ambiguous you MUST prompt the user.
    - \`planningHome.changesDir\` and \`changeRoot\` — use these instead of guessing paths.
    - \`actionContext.mode\` — if it is \`workspace-planning\` and \`allowedEditRoots\` is empty, explain that workspace apply is not supported here, treat linked repos as read-only context, and STOP before staging.
 
-   Before staging, verify every harness that will execute the flow steps can
-   discover the Spok helper closure:
-   - Resolve the project root with \`git rev-parse --show-toplevel\`.
-   - Each harness's installation markers:
-     - Claude: \`<project-root>/.claude/skills/spok-flow/SKILL.md\` or
-       \`~/.claude/skills/spok-flow/SKILL.md\`, and
-       \`<project-root>/.claude/skills/spok-review-design/SKILL.md\` or
-       \`~/.claude/skills/spok-review-design/SKILL.md\`.
-     - Codex: \`<project-root>/.agents/skills/spok-flow/SKILL.md\` or
-       \`~/.agents/skills/spok-flow/SKILL.md\`, and
-       \`<project-root>/.agents/skills/spok-review-design/SKILL.md\` or
-       \`~/.agents/skills/spok-review-design/SKILL.md\`.
-   - Default execution (\`no arguments\` / \`<change>\`) uses the current tool for
-     every step — check only that harness's markers.
-   - Before staging a hybrid run (\`hybrid\` / \`hybrid <change>\`), both harnesses
-     execute steps — check both harnesses' markers.
-   - Before staging an auto run (\`auto\` / \`auto <change>\`), check only the
-     current harness's markers, the same as default execution. Availability
-     probing (executables, authentication, models, OMP isolation) is
-     owned by the deterministic flow controller at \`spok flow next\` time;
-     apply must not duplicate or front-run it.
-   - If the harness(es) that will execute the flow are missing any marker,
-     tell the user to run \`spok skills install --tools claude,codex\` (or just
-     \`--tools claude\` / \`--tools codex\` for a single-harness default run) and
-     STOP before staging.
-
 3. **Parse the chunked tasks.md**
 
    Read \`<changeRoot>/tasks.md\` (or follow the schema's \`tasks\` artifact path if different).
@@ -110,7 +84,9 @@ ambiguous you MUST prompt the user.
      halt with a clear error naming the invalid value; do not stage the ticket.
    - \`body\` — every indented line beneath the checkbox up to the next top-level checkbox.
 
-   If every chunk is checked, congratulate the user and suggest \`/spok-archive\`. STOP.
+   If every chunk is checked, skip steps 4–8 and go directly to step 9 to
+   publish or retry publication. Do not stage a ticket or invoke flow again.
+   An empty chunk list is an error; ask the user to fix \`tasks.md\` and STOP.
 
 4. **Honor prerequisites**
 
@@ -119,6 +95,32 @@ ambiguous you MUST prompt the user.
    missing prerequisite. Do not silently reorder.
 
 5. **Stage the ticket**
+
+   Before staging, verify every harness that will execute the flow steps can
+   discover the Spok helper closure:
+   - Resolve the project root with \`git rev-parse --show-toplevel\`.
+   - Each harness's installation markers:
+     - Claude: \`<project-root>/.claude/skills/spok-flow/SKILL.md\` or
+       \`~/.claude/skills/spok-flow/SKILL.md\`, and
+       \`<project-root>/.claude/skills/spok-review-design/SKILL.md\` or
+       \`~/.claude/skills/spok-review-design/SKILL.md\`.
+     - Codex: \`<project-root>/.agents/skills/spok-flow/SKILL.md\` or
+       \`~/.agents/skills/spok-flow/SKILL.md\`, and
+       \`<project-root>/.agents/skills/spok-review-design/SKILL.md\` or
+       \`~/.agents/skills/spok-review-design/SKILL.md\`.
+   - Default execution (\`no arguments\` / \`<change>\`) uses the current tool for
+     every step — check only that harness's markers.
+   - Before staging a hybrid run (\`hybrid\` / \`hybrid <change>\`), both harnesses
+     execute steps — check both harnesses' markers.
+   - Before staging an auto run (\`auto\` / \`auto <change>\`), check only the
+     current harness's markers, the same as default execution. Availability
+     probing (executables, authentication, models, OMP isolation) is
+     owned by the deterministic flow controller at \`spok flow next\` time;
+     apply must not duplicate or front-run it.
+   - If the harness(es) that will execute the flow are missing any marker,
+     tell the user to run \`spok skills install --tools claude,codex\` (or just
+     \`--tools claude\` / \`--tools codex\` for a single-harness default run) and
+     STOP before staging.
 
    Create \`<changeRoot>/.flow/<chunk-slug>/\` and write a \`ticket.md\` file:
 
@@ -200,7 +202,64 @@ ambiguous you MUST prompt the user.
    See available settings with: spok capabilities --json
    \`\`\`
 
-   If 0 remaining, suggest \`/spok-archive\`.
+   If any chunk remains unchecked, STOP after showing progress. Publish only when
+   the final chunk completes; continue to step 9 when 0 remain.
+
+9. **Publish the completed change once**
+
+   This step also handles an invocation where every chunk was already checked.
+   Keep completed work complete while retrying publication.
+
+   - Resolve the final listed chunk's slug from \`tasks.md\` and its absolute
+     task directory \`<changeRoot>/.flow/<final-chunk-slug>/\`. Require its recorded
+     flow state to exist before running \`spok flow status "<absolute-final-ticket-dir>" --json\`.
+     Require \`state: "complete"\`, \`execution.workRoot\`, and \`execution.branch\`.
+     Use these recorded values for every publication operation. Never infer a checkout or branch from the current directory.
+     For a legacy completed change without execution context, STOP with an explicit
+     unable-to-publish-safely error naming the missing record. Do not initialize a
+     replacement flow, rerun completed work, or publish from a guessed repository.
+   - Run every Git command with \`git -C <execution.workRoot>\`. Verify the recorded
+     checkout exists, its current branch equals \`execution.branch\`, and its HEAD
+     exactly equals the final flow's recorded commit (including a recorded no-op
+     baseline commit). If HEAD differs, STOP and report both commits; do not publish
+     unrelated later commits or reset the checkout. Resolve the target GitHub repository,
+     push remote, head owner, and base branch from that checkout's Git remotes and
+     GitHub repository metadata. If these are ambiguous or unavailable, STOP and
+     report the missing context. Never switch branches or force-push to recover.
+   - Use argument arrays for Git and GitHub CLI calls; if a shell is unavoidable,
+     quote each argument safely. Treat change titles, paths, branch names, and
+     artifact text as data, never shell code. Write the PR body as literal UTF-8
+     to a temporary file and pass \`--body-file\`; never interpolate Markdown into
+     a shell command or use command substitution to construct the body.
+   - Query \`gh pr list\` with explicit \`--repo\`, \`--head <execution.branch>\`,
+     \`--state all\`, and JSON fields including number, url, state, headRefName,
+     headRepository, and headRepositoryOwner. Match the exact head repository,
+     owner, and branch against the verified push destination. Account for pagination
+     before concluding no match exists. Only a successful lookup with an empty result
+     after exact matching permits creation. Authentication, network, and JSON errors
+     must STOP publication; they never mean no matching PR. If multiple matches
+     remain, report their URLs and STOP rather than choosing or creating another.
+     Reuse an existing open PR. If a matching PR is closed or merged, return its URL
+     and explain its state; do not push more work, reopen it, or create a duplicate.
+   - Derive one change-level PR title and body from \`proposal.md\`, \`tasks.md\`, specs,
+     and design when present. Verify actual commits and the full diff against the
+     resolved PR base in the recorded checkout; cover every completed chunk, not
+     only the final chunk's baseline. Include verification only when task artifacts
+     record the exact commands and results. Do not invent passing checks.
+   - Push the recorded branch to the verified remote with an explicit refspec and
+     no force option. On success, use \`gh pr edit\` for the matching open PR or
+     \`gh pr create\` only when lookup proved absence. Pass explicit \`--repo\`, title,
+     and \`--body-file\`; creation also specifies the verified base and head.
+     If creation fails or its outcome is uncertain, repeat the exact lookup before
+     any create retry so a successful-but-unacknowledged request cannot duplicate a PR.
+   - Read back the PR with explicit repository and number, verify its head matches
+     the recorded branch and repository, and report its URL. Return the PR URL immediately
+     after successful publication. Do not wait for human review. Never merge.
+     Suggest \`/spok-archive\` only after publication succeeds.
+   - On any publication failure, leave every completed checkbox checked, preserve
+     the execution record, and report the failed operation and concrete remedy.
+     Tell the user to retry \`/spok-apply <change>\` after fixing the blocker; this
+     re-enters publication through the all-checked path. Do not rerun completed chunks or roll back commits.
 
 **Guardrails**
 - Ship exactly **one** chunk per invocation. Do not loop through chunks.

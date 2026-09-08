@@ -1350,3 +1350,90 @@ After(async function (this: SkillArtifactWorld) {
     await fs.rm(this.flowWorkRoot, { recursive: true, force: true });
   }
 });
+
+Then('the implementation response records the Git baseline', function (this: SkillArtifactWorld) {
+  assert.ok(this.cliResult);
+  const response = JSON.parse(this.cliResult.stdout);
+  assert.equal(response.step.id, 'implement');
+  assert.ok(path.isAbsolute(response.execution.workRoot));
+  assert.ok(response.execution.branch);
+  assert.match(response.execution.baselineHead, /^[a-f0-9]{40,64}$/);
+  assert.ok(response.execution.baselineChanges);
+  assert.ok(response.step.prompt.includes(response.execution.workRoot));
+  this.flowWorkRoot = response.execution.workRoot;
+});
+
+When('I implement a new owned file in the recorded work root', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowWorkRoot);
+  await fs.writeFile(path.join(this.flowWorkRoot, 'owned.txt'), 'chunk implementation\n', 'utf-8');
+  this.cliResult = await runStagedFlowComplete(this, 'implement', ['--summary', 'Created owned.txt', '--changed-path', 'owned.txt']);
+  assert.equal(this.cliResult.exitCode, 0, this.cliResult.stdout + this.cliResult.stderr);
+});
+
+Then('the simplification prompt contains only the recorded owned paths', function (this: SkillArtifactWorld) {
+  assert.ok(this.cliResult);
+  const response = JSON.parse(this.cliResult.stdout);
+  assert.equal(response.step.id, 'simplify');
+  assert.deepEqual(response.execution.ownedPaths, ['owned.txt']);
+  assert.ok(response.step.prompt.includes('owned.txt'));
+  assert.ok(response.step.prompt.includes('Exact implementation allowlist'));
+});
+
+Then('the execution work root can discover the vendored skills', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowWorkRoot);
+  for (const tool of ['.agents', '.claude']) {
+    const skill = await fs.readFile(path.join(this.flowWorkRoot, tool, 'skills/spok-implement-plan/SKILL.md'), 'utf-8');
+    assert.ok(skill.includes('Implement each phase directly'));
+  }
+});
+
+When('I pause the design discussion using the packet spelling {string}', async function (
+  this: SkillArtifactWorld, spelling: string
+) {
+  assert.ok(this.projectDir);
+  assert.ok(this.flowTaskDir);
+  const original = path.join(this.flowTaskDir, 'design-discussion-questions.json');
+  let packet: string;
+  if (spelling === 'alias') {
+    const alias = path.join(this.projectDir, 'task-alias');
+    await fs.symlink(this.flowTaskDir, alias, 'junction');
+    packet = path.join(alias, path.basename(original));
+  } else {
+    packet = path.join(this.flowTaskDir, spelling);
+    await fs.copyFile(original, packet);
+  }
+  this.cliResult = await runCLI(
+    ['flow', 'pause', this.flowTaskDir, '--step', 'design-discussion', '--questions', packet, '--json'],
+    { cwd: this.projectDir }
+  );
+});
+
+Given('a future-dated design discussion output', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir);
+  const output = path.join(this.flowTaskDir, 'design-discussion.md');
+  await fs.writeFile(output, '# Stale design discussion\n');
+  const future = new Date(Date.now() + 86_400_000);
+  await fs.utimes(output, future, future);
+});
+
+When('I attempt to complete the staged design discussion', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir);
+  assert.ok(this.flowTaskDir);
+  this.cliResult = await runCLI(
+    ['flow', 'complete', this.flowTaskDir, '--step', 'design-discussion', '--json'],
+    { cwd: this.projectDir }
+  );
+});
+
+When('I recreate the design discussion with the answer timestamp', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir);
+  const state = JSON.parse(await fs.readFile(path.join(this.flowTaskDir, 'workflow-state.json'), 'utf8')) as {
+    steps: Array<{ id: string; interactions?: Array<{ resolvedAt?: string }> }>;
+  };
+  const timestamp = state.steps.find(step => step.id === 'design-discussion')?.interactions?.at(-1)?.resolvedAt;
+  assert.ok(timestamp);
+  const output = path.join(this.flowTaskDir, 'design-discussion.md');
+  await fs.writeFile(output, '# Answered design discussion\nUse webhook and retry.\n');
+  const answeredAt = new Date(timestamp);
+  await fs.utimes(output, answeredAt, answeredAt);
+});

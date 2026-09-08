@@ -44,7 +44,7 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
 - Every automated-verification command must come from the repository's manifest (`package.json` scripts, `Makefile` targets, or the equivalent) or from `research.md`. Never name a command from a toolchain guess — do not write `bunx <tool>` or `npx <tool>` for a tool you have not confirmed this repository configures.
 - If research did not establish the commands, say so plainly in the plan ("research did not establish the lint command; confirm before running"). Do not hedge with a conditional like "if configured" — a hedged command reads as approved and gets run anyway.
 - Manual verification should be specific, actionable steps
-- Pause for human confirmation between phases
+- Continue between phases autonomously after verification. Ask questions when useful through the flow protocol; do not require human confirmation.
 - If the research documented testing patterns for the components being changed, include test code in the plan (new test files or additions to existing test files). Follow the existing test patterns found in the research.
 
 ## Artifact Authority
@@ -53,7 +53,7 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
 - Structure outline owns decomposition only. It must conform to the design discussion.
 - Plan owns implementation detail only. It cannot override the reviewed design.
 
-Chronology does not determine authority. Unresolved or contradictory decisions block review and planning; surface them to the human and never silently override them.
+Chronology does not determine authority. Unresolved or contradictory decisions block review and planning until reconciled against artifact authority and explicit user intent. Record evidence-backed resolutions; ask through the flow question protocol when useful, without requiring human review. Never silently override the reviewed design.
 
 ## Output
 

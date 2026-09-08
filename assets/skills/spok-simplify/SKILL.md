@@ -21,12 +21,16 @@ still be true.
    - The argument is the absolute path to the task directory. Read `plan.md` and
      `ticket.md` there for the intended behavior and the automated verification
      commands the plan names.
-   - The chunk's changes are uncommitted working-tree edits — the `commit` step
-     has not run. Establish the chunk's footprint with `git status --short` and
-     `git diff` in the implementation repository.
+   - Use the execution work root and exact owned-path allowlist supplied by the
+     CLI in `step.prompt`. Run all source reads, edits, and commands there; the
+     task directory may live elsewhere. Do not discover another repository or
+     switch branches. Inspect `git status --short` and `git diff` for context,
+     never as authority to expand the allowlist.
 
 2. **Bound the pass to the chunk**:
-   - Edit only files the chunk already changed. Every edit must trace to a
+   - Edit only files the chunk already changed and the CLI explicitly allowlists.
+     An absent allowlist is a blocker, not permission to infer one from git status.
+     Preserve pre-existing edits and index entries. Every edit must trace to a
      specific finding from step 3.
    - Do not refactor, reformat, or "clean up" code the chunk did not touch, even
      when it is bad. If removing duplication would require changing code outside
@@ -65,7 +69,7 @@ still be true.
      to `repair` or a new chunk.
 
 6. **Stay in your lane**:
-   - Do not create commits.
+   - Do not stage, commit, or push. The CLI verifies the source boundary at completion.
    - Do not edit task artifacts (`ticket.md`, `plan.md`, research, design, or
      validation documents).
    - Do not add dependencies.
@@ -77,7 +81,7 @@ permanently:
 
 ```
 Behavior preserved:
-- <exact command> — <actual result>
+- <exact command> — <actual result and exact exit code>
 Changes made:
 - <finding → edit, with file paths> (or "None — implementation already minimal.")
 Structural impact:

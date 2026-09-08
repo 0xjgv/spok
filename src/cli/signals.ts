@@ -1,3 +1,4 @@
+import { Command, CommanderError } from 'commander';
 import type { TelemetryProperties } from '../telemetry/index.js';
 
 export interface CliSignal {
@@ -25,11 +26,40 @@ function isHelpFlag(token: string | undefined): boolean {
   return typeof token === 'string' && HELP_FLAGS.has(token);
 }
 
-function includesHelpFlag(args: string[]): boolean {
-  return args.some(isHelpFlag);
+interface FlowArguments {
+  operands: string[];
+  options: Record<string, unknown>;
+  unknown: string[];
+  missingValue?: string;
 }
 
-function helpTarget(args: string[]): string | undefined {
+function parseFlowArguments(subcommand: string, args: string[]): FlowArguments {
+  const command = new Command().exitOverride().configureOutput({ writeErr: () => {} });
+  command.option('-h, --help').option('--json');
+  for (const [flag] of REQUIRED_FLOW_OPTIONS[subcommand] ?? []) {
+    command.option(`${flag} <value>`);
+  }
+  if (subcommand === 'complete') {
+    for (const flag of ['--output', '--summary', '--commit', '--work-root']) {
+      command.option(`${flag} <value>`);
+    }
+    command.option('--changed-path <paths...>');
+  }
+
+  try {
+    return { ...command.parseOptions(args), options: command.opts() };
+  } catch (error) {
+    if (!(error instanceof CommanderError) || error.code !== 'commander.optionMissingArgument') throw error;
+    return { operands: [], unknown: [], options: command.opts(), missingValue: args.at(-1) };
+  }
+}
+
+function helpTarget(args: string[], flowArgs?: FlowArguments): string | undefined {
+  if (flowArgs) return !flowArgs.missingValue && flowArgs.options.help ? `flow ${args[1]}` : undefined;
+  return generalHelpTarget(args);
+}
+
+function generalHelpTarget(args: string[]): string | undefined {
   if (args.length === 0) return;
 
   if (args[0] === 'help') {
@@ -57,8 +87,9 @@ function helpInvocation(args: string[]): string {
   return 'help_option';
 }
 
-function missingFlowOptionSignal(subcommand: string, args: string[]): CliSignal | undefined {
-  const missing = REQUIRED_FLOW_OPTIONS[subcommand]?.find(([flag]) => !args.includes(flag));
+function missingFlowOptionSignal(subcommand: string, args: FlowArguments): CliSignal | undefined {
+  const missing = REQUIRED_FLOW_OPTIONS[subcommand]?.find(([flag]) =>
+    args.missingValue ? flag === args.missingValue : args.options[flag.slice(2)] === undefined);
   if (!missing) return;
   return {
     event: 'cli_invalid_invocation',
@@ -66,7 +97,7 @@ function missingFlowOptionSignal(subcommand: string, args: string[]): CliSignal 
   };
 }
 
-function flowInvalidSignal(args: string[]): CliSignal | undefined {
+function flowInvalidSignal(args: string[], flowArgs?: FlowArguments): CliSignal | undefined {
   if (args[0] !== 'flow') return;
 
   const subcommand = args[1];
@@ -92,10 +123,12 @@ function flowInvalidSignal(args: string[]): CliSignal | undefined {
     };
   }
 
-  if (includesHelpFlag(args)) return;
+  if (!flowArgs) return;
+  if (flowArgs.missingValue) return missingFlowOptionSignal(subcommand, flowArgs);
+  if (flowArgs.options.help) return;
+  if (flowArgs.unknown.length > 0) return;
 
-  const taskDir = args[2];
-  if (!taskDir || taskDir.startsWith('-')) {
+  if (flowArgs.operands.length === 0) {
     return {
       event: 'cli_invalid_invocation',
       properties: {
@@ -105,12 +138,15 @@ function flowInvalidSignal(args: string[]): CliSignal | undefined {
     };
   }
 
-  return missingFlowOptionSignal(subcommand, args);
+  return missingFlowOptionSignal(subcommand, flowArgs);
 }
 
 export function collectCliSignals(args: string[]): CliSignal[] {
   const signals: CliSignal[] = [];
-  const target = helpTarget(args);
+  const flowArgs = args[0] === 'flow' && FLOW_SUBCOMMANDS.has(args[1])
+    ? parseFlowArguments(args[1], args.slice(2))
+    : undefined;
+  const target = helpTarget(args, flowArgs);
   if (target) {
     signals.push({
       event: 'cli_help_checked',
@@ -121,7 +157,7 @@ export function collectCliSignals(args: string[]): CliSignal[] {
     });
   }
 
-  const invalidFlow = flowInvalidSignal(args);
+  const invalidFlow = flowInvalidSignal(args, flowArgs);
   if (invalidFlow) signals.push(invalidFlow);
 
   return signals;

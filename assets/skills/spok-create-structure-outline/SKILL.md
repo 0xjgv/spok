@@ -124,5 +124,5 @@ of the codebase and testing patterns, and be clear about which tests are manual 
 - Structure outline owns decomposition only. It must conform to the design discussion.
 - Plan owns implementation detail only. It cannot override the reviewed design.
 
-Chronology does not determine authority. Unresolved or contradictory decisions block review and planning; surface them to the human and never silently override them.
+Chronology does not determine authority. Unresolved or contradictory decisions block review and planning until reconciled against artifact authority and explicit user intent. Record evidence-backed resolutions; ask through the flow question protocol when useful, without requiring human review. Never silently override the reviewed design.
 </guidance>

@@ -32,6 +32,7 @@ Use the current host's native subagent mechanism to delegate research to these s
 ## Research Guidelines
 
 1. **Read all @-mentioned files immediately and FULLY**
+   - Read the ticket file supplied as the skill argument FULLY, including its context pointers and dependencies.
    - Any files mentioned with @ are auto-injected into your context
    - Review them carefully before creating questions
    - If `<task-dir>/problem-validation.md` exists next to the ticket, read it FULLY and use its evidence as context. Do not redo reproduction or root cause analysis.
@@ -47,6 +48,8 @@ Use the current host's native subagent mechanism to delegate research to these s
    - Relevant patterns or constraints
    - Potential complexities or edge cases
    - Architecture, dependencies, and implementation details
+   - Which existing controls, state, platform guarantees, or upstream mechanisms already govern the reported behavior, where their boundaries lie, and what evidence establishes the smallest viable scope. Research what exists; leave solution selection to design.
+   - For frontend or UI work, locate the design system, reusable components, tokens, and theming conventions, including their existing usage and verification patterns. Skip this question for work without a UI surface; combine related exploration to stay within the question limit.
 
    **MANDATORY — every run must include this question**: what are this repository's actual lint, typecheck, test, and format commands? The answer must be sourced from the repository's own manifest — `package.json` scripts, `Makefile` targets, or the equivalent for this stack — and never inferred from a toolchain name, a lockfile, or a config file's presence. Phrase it as codebase exploration like every other question, with path steering to the manifest.
 
@@ -56,7 +59,10 @@ Good questions will include some basic path steering, like "... in apps/wui ..."
 
 CRITICAL - DO NOT LEAK ANY IMPLEMENTATION DETAILS OR THE NATURE OF YOUR TASK INTO THE QUESTION LIST. NO "HOW WOULD WE XYZ" - ONLY "HOW DOES IT WORK"
 
-4. **Work iteratively with the user to refine questions**
+4. **Preserve key context and refine questions**
+   - Add `## Key Context Pointers` before the numbered questions. Preserve ticket URLs, repository identifiers, dependencies, and paths verbatim from the request and ticket, with a short label explaining each pointer's relevance. Do not shorten, normalize, or replace them with a generic description.
+   - Mark unavailable pointers as unknown rather than inventing them. These pointers do not count toward the question limit.
+   - Choose the research questions autonomously from the available evidence; ask when clarification would improve the result. When dispatched by an outer flow, use its supplied structured question packet and `NEEDS_INPUT` contract instead of asking the user directly.
 
 You are teaching the other agent how to do good research, so:
 

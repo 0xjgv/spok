@@ -208,13 +208,13 @@ Feature: Tool skill artifacts
   Scenario: Inner flow implementation overrides standalone orchestration
     Given a new project
     When I initialize Spok for the tools "claude"
-    Then the workflow skill "spok-implement-plan" under ".claude/skills" mentions "override every conflicting instruction anywhere in this skill"
-    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "In inner spok-flow mode, resume directly"
-    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Outside inner spok-flow mode, delegate each phase to a separate"
-    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Inside inner spok-flow mode, do not commit"
-    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "In inner spok-flow mode, implement and verify directly."
+    Then the workflow skill "spok-implement-plan" under ".claude/skills" mentions "the CLI establishes the execution work root, branch, and"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "starting at the first unchecked item"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Do not stage, commit, or push"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "The flow's later commit step owns committing."
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Implement each phase directly in this agent."
 
-  Scenario: Visual chunks preserve a browser-review design contract
+  Scenario: Visual chunks preserve verified evidence without required human review
     Given a new project
     When I initialize Spok for the tools "claude"
     Then the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "**Visual evidence:** required | not-applicable"
@@ -223,7 +223,7 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "open the generated `index.html`"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Print the absolute path"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "status back to `pending`"
-    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "explicit human approval"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "no mandatory human approval"
     And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Current"
     And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Target"
 
@@ -252,7 +252,7 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-create-research" under ".claude/skills" mentions "repaint the affected sections"
     And the workflow skill "spok-create-research" under ".claude/skills" mentions "Open Questions"
 
-  Scenario: Autonomous flow captures only consequential open questions
+  Scenario: Autonomous flow durably transports questions chosen by the agent
     Given a new project
     When I initialize Spok for the tools "claude"
     Then the workflow skill "spok-flow" under ".claude/skills" mentions "NEEDS_INPUT: <absolute-question-packet-path>"
@@ -267,7 +267,7 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "write the structured question packet"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Human answers to earlier open questions"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "never reuse an answered question id"
-    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "build and open the visual evidence packet before requesting approval"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "build and open the visual evidence packet"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Do not create or edit `<task-dir>/design-discussion.md` until every consequential decision is resolved"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Its existence marks this flow step complete."
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "System Design"
@@ -290,7 +290,7 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "/spok-apply <change-slug>"
     And the workflow skill resource "references/chunks_final_answer.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "/spok-apply <change-slug>"
     And the workflow skill resource "references/chunk_ticket_template.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "spok/changes/<change-slug>/tasks.md"
-    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "The final commit is owned by the `commit` step in `spok-flow`."
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "The flow's later commit step owns committing."
     And the workflow skill "spok-ci-commit" under ".claude/skills" mentions "Run **every** git command with `-C <work-root>`"
     And the workflow skill "spok-ci-commit" under ".claude/skills" mentions "Stage exactly the **intersection**"
     And Spok does not create ".claude/skills/spok-create-scoped-chunks/references/chunks_overview_template.md"
@@ -321,16 +321,16 @@ Feature: Tool skill artifacts
     Then the Spok CLI exits with code 1
     And the Spok CLI output contains "recorded a FAIL verdict"
 
-  Scenario: Flow records the implementation work root
+  Scenario: Legacy flow preserves its recorded implementation work root
     Given a new project
     And a separate flow work repository
     And a staged flow task
-    And the staged flow task is ready to implement
-    When I complete the staged flow implement step with the separate work root
+    And the staged flow task is completed through simplify
+    And the staged flow task has the separate work root recorded
+    When I run spok flow next as JSON for the staged task
     Then the Spok CLI exits with code 0
     And the staged flow state records the separate work root
-    And the Spok CLI output contains "\"id\": \"simplify\""
-    And the editing prompt directs work to the separate work root
+    And the Spok CLI output contains "\"id\": \"validate\""
 
   Scenario: Flow steers repair to the recorded work root
     Given a new project
@@ -353,11 +353,13 @@ Feature: Tool skill artifacts
 
   Scenario: Flow rejects a blank implementation work root
     Given a new project
-    And a staged flow task
+    And a staged flow task in a linked worktree
     And the staged flow task is ready to implement
+    When I run spok flow next as JSON for the staged task
+    Then the implementation response records the Git baseline
     When I attempt the staged flow implement step with a blank work root
     Then the Spok CLI exits with code 1
-    And the Spok CLI output contains "absolute --work-root"
+    And the Spok CLI output contains "Work root conflicts with recorded execution root"
 
   Scenario: Flow rejects a commit outside the recorded work root
     Given a new project
@@ -756,3 +758,73 @@ Feature: Tool skill artifacts
     Then setup guidance mentions "Missing Spok agents for Claude Code"
     And setup guidance mentions "Missing Spok agents for Codex"
     And project setup does not create global agent directories
+
+  Scenario: Planning preserves context and chooses the smallest viable control
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-create-research-questions" under ".claude/skills" mentions "Key Context Pointers"
+    And the workflow skill "spok-create-research-questions" under ".claude/skills" mentions "design system"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Smallest Viable Control"
+    And the workflow skill resource "references/research_questions_template.md" under "spok-create-research-questions" in ".claude/skills" contains "Key Context Pointers"
+    And the workflow skill resource "references/design_discussion_template.md" under "spok-create-design-discussion" in ".claude/skills" contains "Smallest Viable Control"
+
+  Scenario: Final change completion publishes one reusable PR
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-apply" under ".claude/skills" mentions "execution.workRoot"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "gh pr create"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "gh pr edit"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "--body-file"
+
+  Scenario: Implementation establishes ownership before editing and constrains simplification
+    Given a new project
+    And a staged flow task in a linked worktree
+    And the staged flow task is ready to implement
+    When I run spok flow next as JSON for the staged task
+    Then the implementation response records the Git baseline
+    And the execution work root can discover the vendored skills
+    When I implement a new owned file in the recorded work root
+    And I run spok flow next as JSON for the staged task
+    Then the simplification prompt contains only the recorded owned paths
+
+  Scenario: Design review resolves decisions without mandatory human signoff
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-review-design" under ".claude/skills" mentions "Resolve decisions autonomously"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "structured question packet"
+    And the workflow skill "spok-create-plan" under ".claude/skills" does not mention "Pause for human confirmation between phases"
+    And the workflow skill "spok-create-structure-outline" under ".claude/skills" does not mention "surface them to the human"
+
+  Scenario Outline: Question packets accept task aliases and dot-prefixed filenames
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through research
+    And a two-question design-discussion packet
+    When I pause the design discussion using the packet spelling "<spelling>"
+    Then the Spok CLI exits with code 0
+    And the Spok CLI output contains "needs-input"
+
+    Examples:
+      | spelling          |
+      | alias             |
+      | ..questions.json  |
+
+  Scenario: Final answers invalidate future-dated output before regeneration
+    Given a new project
+    And a staged flow task
+    And the staged flow task is completed through research
+    And a two-question design-discussion packet
+    And a future-dated design discussion output
+    When I pause the staged flow design-discussion step with the question packet
+    And I answer staged flow question "interface" with "webhook"
+    And I answer staged flow question "failure-policy" with "retry"
+    And I attempt to complete the staged design discussion
+    Then the Spok CLI exits with code 1
+    When I recreate the design discussion with the answer timestamp
+    And I attempt to complete the staged design discussion
+    Then the Spok CLI exits with code 0
+
+  Scenario: Answer examples pass human text as an argument value
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-flow" under ".claude/skills" mentions "shell: false"

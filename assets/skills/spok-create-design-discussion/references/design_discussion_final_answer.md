@@ -1,35 +1,13 @@
 ### Status
 
 - Document: `<task-dir>/design-discussion.md`
-- Ticket: [ENG-XXXX](ticket URL if known, otherwise omit link)
-- Open Design Questions: [count or "none - all resolved"]
+- Ticket: [ticket title](ticket URL if known, otherwise omit link)
+- Decisions: resolved, with rationale and rejected alternatives recorded in the document
 
-### Patterns to Follow
+### Design
 
-- [pattern 1]
-- [pattern 2]
-- ...
+- Smallest viable control: [selected existing mechanism or justified addition]
+- System and program changes: [concise description]
+- Visual evidence: [verified packet path and decision, or not applicable]
 
-### Design Questions
-
-#### [Question Title]
-
-[The design question]
-
-- Option A: [description]
-- Option B: [description]
-
-Recommendation: [recommendation with rationale]
-
-#### [Second Question Title]
-
-...
-
-
-### Next Steps
-
-Please let me know any feedback you want and I'll incorporate it, or, to continue to the next phase, use a prompt like
-
-```text
-use the spok-create-structure-outline skill for <task-dir>
-```
+Return the absolute document path to the flow. Do not introduce an approval gate or repeat resolved questions. If the agent elects to ask a question before completing the document, use the supplied question packet protocol instead of this completion template.

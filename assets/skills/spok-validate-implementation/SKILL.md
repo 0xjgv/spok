@@ -15,6 +15,10 @@ You are the adversary, not the author. Presume the implementation is wrong and t
 - Optionally, a task directory
 - Optionally, an ExecPlan path for additional validation context
 - Optionally, a ticket file containing feedback or review comments
+- Inside `spok-flow`, the authoritative execution work root and owned-path
+  allowlist supplied in `step.prompt`. Use that repository for all source reads
+  and checks, even when the task directory lives elsewhere. Do not discover a
+  different repository or switch branches.
 
 ## Initial Check
 
@@ -66,7 +70,10 @@ Then wait for the user's input.
 6. **Run validation checks**:
    - Execute the automated verification commands promised by the plan when they are available in the current environment
    - If the plan omits a command but names a concrete expected test or check, run the closest exact command that proves the behavior
-   - Record command results, failures, skipped checks, and environment blockers
+   - Record exact commands and exit codes, results, failures, skipped checks, and environment blockers
+   - Perform relevant UI/manual checks yourself and record actions and observed
+     evidence. Ask for input when useful or blocked through the injected question
+     protocol; no routine human signoff is required.
    - Treat a required automated check that cannot run or does not pass as a validation failure unless the plan explicitly marked it as manual-only
    - Run every applicable attack from step 3 as a real command or test and record command, input, and observed result under `## Attacks Tried`; an attack that was reasoned about but not run is `not run`, and a successful break is a blocking finding
 
@@ -94,7 +101,7 @@ Then wait for the user's input.
    - If an ExecPlan is present, compare its `Progress`, acceptance language, and required outcomes against observed reality without editing the ExecPlan
    - Use a binary verdict:
      - `PASS`: all required implemented behavior is present and required automated checks passed
-     - `FAIL`: any required behavior is missing, contradicted, unproven, blocked by failing or unrun required checks, or still waiting on required manual validation
+     - `FAIL`: any required behavior is missing, contradicted, unproven, blocked by failing or unrun required checks, or lacking evidence from required UI/manual checks
 
 ## Output Document
 
@@ -117,7 +124,7 @@ Then wait for the user's input.
 ## Validation Guidelines
 
 - Missing evidence counts as failure for required work
-- Required manual checks that have not been performed must be called out explicitly and keep the verdict at `FAIL`
+- Required UI/manual checks without evidence must be called out explicitly and keep the verdict at `FAIL`; agent-performed checks count, and human signoff is not required.
 - Do not mutate source files, task plans, or ExecPlans as part of validation; only the validation document should be written
 - Be transparent about which subagent reviewed the implementation and validate its output before relying on it
 - Prefer concrete evidence: file paths, line references, command results, failing tests, and observed gaps

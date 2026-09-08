@@ -26,6 +26,7 @@ import {
   getFlowStatus,
   pauseFlowStep,
   type FlowStep,
+  type FlowInteraction,
   WORKFLOW_STATE_FILE,
 } from '../../../src/commands/workflow/flow.js';
 
@@ -206,6 +207,32 @@ async function writeQuestionPacket(taskDir: string, packet: unknown = OPEN_QUEST
   return packetPath;
 }
 
+async function seedFlowRepository(root: string): Promise<void> {
+  if (await fs.stat(path.join(root, '.git')).catch(() => undefined)) return;
+  execFileSync('git', ['init', '-b', 'main', root]);
+  const git = (args: string[]) => execFileSync('git', ['-C', root, ...args]);
+  git(['config', 'user.email', 'flow@example.com']);
+  git(['config', 'user.name', 'Flow Test']);
+  await fs.writeFile(path.join(root, 'seed.txt'), 'seed\n', 'utf-8');
+  git(['add', 'seed.txt']);
+  git(['commit', '--no-gpg-sign', '-m', 'seed']);
+}
+
+async function seedLegacyImplementation(taskDir: string, workRoot?: string): Promise<void> {
+  const statePath = path.join(taskDir, WORKFLOW_STATE_FILE);
+  const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+  // Older completed implementations predate execution baselines and root freezing.
+  delete state.execution;
+  const implement = state.steps.find((step: FlowStep) => step.id === 'implement');
+  implement.status = 'completed';
+  implement.result = {
+    summary: 'Implemented the plan.',
+    completedAt: new Date().toISOString(),
+    workRoot,
+  };
+  await fs.writeFile(statePath, JSON.stringify(state), 'utf-8');
+}
+
 function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness {
   let tempDir: string;
   let taskDir: string;
@@ -225,15 +252,9 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
     if (options.linkedWorktree) {
       const primary = path.join(tempDir, 'primary');
       await fs.mkdir(primary, { recursive: true });
-      execFileSync('git', ['init', '-b', 'main', primary]);
-      const git = (args: string[]) => execFileSync('git', ['-C', primary, ...args]);
-      git(['config', 'user.email', 'flow@example.com']);
-      git(['config', 'user.name', 'Flow Test']);
-      await fs.writeFile(path.join(primary, 'seed.txt'), 'seed\n', 'utf-8');
-      git(['add', 'seed.txt']);
-      git(['commit', '--no-gpg-sign', '-m', 'seed']);
+      await seedFlowRepository(primary);
       routingRoot = path.join(tempDir, 'worktree');
-      git(['worktree', 'add', routingRoot]);
+      execFileSync('git', ['-C', primary, 'worktree', 'add', routingRoot]);
     }
     taskDir = path.join(routingRoot, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
     await fs.mkdir(taskDir, { recursive: true });
@@ -276,6 +297,7 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
   }
 
   async function completeFileStep(step: string, filename: string) {
+    if (step === 'plan') await seedFlowRepository(path.resolve(taskDir, '../../../../..'));
     await getFlowNext(taskDir);
     const output = path.join(taskDir, filename);
     await fs.writeFile(output, `# ${step}\n`, 'utf-8');
@@ -284,7 +306,9 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
   }
 
   async function completeSummaryStep(step: string, summary: string) {
-    await getFlowNext(taskDir);
+    const next = await getFlowNext(taskDir);
+    expect(next.state, next.reason).toBe('ready');
+    expect(next.step?.id).toBe(step);
     const result = await completeFlowStep(taskDir, { step, summary });
     expect(result.state).not.toBe('blocked');
   }
@@ -1354,29 +1378,30 @@ describe('design review gate', () => {
   });
 });
 
+const legacyStepOrder = [
+  'validate-problem',
+  'research-questions',
+  'research',
+  'design-discussion',
+  'structure-outline',
+  'plan',
+  'implement',
+  'simplify',
+  'validate',
+  'commit',
+];
+const legacyFileByStep: Record<string, string> = {
+  'validate-problem': 'problem-validation.md',
+  'research-questions': 'research-questions.md',
+  research: 'research.md',
+  'design-discussion': 'design-discussion.md',
+  'structure-outline': 'structure-outline.md',
+  plan: 'plan.md',
+  validate: 'validation.md',
+};
+
 describe('deterministic workflow state resumption', () => {
   const flow = useFlowHarness();
-  const legacyStepOrder = [
-    'validate-problem',
-    'research-questions',
-    'research',
-    'design-discussion',
-    'structure-outline',
-    'plan',
-    'implement',
-    'simplify',
-    'validate',
-    'commit',
-  ];
-  const legacyFileByStep: Record<string, string> = {
-    'validate-problem': 'problem-validation.md',
-    'research-questions': 'research-questions.md',
-    research: 'research.md',
-    'design-discussion': 'design-discussion.md',
-    'structure-outline': 'structure-outline.md',
-    plan: 'plan.md',
-    validate: 'validation.md',
-  };
 
   async function writeLegacyState(completedIds: string[], readyId?: string) {
     const completed = new Set(completedIds);
@@ -1616,6 +1641,7 @@ describe('deterministic workflow state resumption', () => {
   it('inserts a synthetic completed review when a legacy state completed plan', async () => {
     const completedThroughPlan = legacyStepOrder.slice(0, legacyStepOrder.indexOf('plan') + 1);
     await writeLegacyState(completedThroughPlan, 'implement');
+    await seedFlowRepository(flow.projectRoot);
 
     const result = await getFlowNext(flow.taskDir);
 
@@ -1775,7 +1801,7 @@ describe('deterministic workflow completion blockers', () => {
 
     const result = await completeFlowStep(flow.taskDir, {
       step: 'commit',
-      commit: 'abc123',
+      commit: 'HEAD',
       summary: 'Committed the chunk.',
     });
 
@@ -1797,7 +1823,7 @@ describe('deterministic workflow completion blockers', () => {
     await flow.completeThroughValidation();
     await completeFlowStep(flow.taskDir, {
       step: 'commit',
-      commit: 'abc123',
+      commit: 'HEAD',
     });
 
     const result = await completeFlowStep(flow.taskDir, { step: 'self-learn' });
@@ -1812,7 +1838,7 @@ describe('deterministic workflow completion blockers', () => {
     await flow.completeThroughValidation();
     await completeFlowStep(flow.taskDir, {
       step: 'commit',
-      commit: 'abc123',
+      commit: 'HEAD',
     });
     const output = path.join(flow.taskDir, 'self-learn.md');
     await fs.writeFile(output, '# Self Learn\n\nNo blocking findings.\n', 'utf-8');
@@ -2289,6 +2315,181 @@ describe('flow open questions', () => {
     expect(completed.completedStep?.id).toBe('design-discussion');
   });
 
+  it.each(['alias', '..questions.json'])('accepts a contained packet through %s', async (kind) => {
+    await advanceToDesignDiscussion();
+    const packet = await writeQuestionPacket(flow.taskDir);
+    let inputPath = path.join(flow.taskDir, '..questions.json');
+    if (kind === 'alias') {
+      const alias = path.join(flow.projectRoot, 'task-alias');
+      await fs.symlink(flow.taskDir, alias, process.platform === 'win32' ? 'junction' : 'dir');
+      inputPath = path.join(alias, path.basename(packet));
+    } else {
+      await fs.rename(packet, inputPath);
+    }
+
+    const result = await pauseFlowStep(flow.taskDir, {
+      step: 'design-discussion', questions: inputPath,
+    });
+    expect(result.state).toBe('needs-input');
+  });
+
+  async function pauseForFinalAnswer(): Promise<string> {
+    await advanceToDesignDiscussion();
+    const packet = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[0]] });
+    await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packet });
+    return path.join(flow.taskDir, 'design-discussion.md');
+  }
+
+  async function storedAnsweredInteraction(): Promise<FlowInteraction> {
+    const stored = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
+    return stored.steps.find((step: FlowStep) => step.id === 'design-discussion').interactions.at(-1);
+  }
+
+  it('archives a future-dated pre-answer output and names the draft in the resumed prompt', async () => {
+    const output = await pauseForFinalAnswer();
+    const draftContent = '# Prior design decisions\n';
+    await fs.writeFile(output, draftContent);
+    const future = new Date(Date.now() + 60_000);
+    await fs.utimes(output, future, future);
+
+    const answered = await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
+    const interaction = await storedAnsweredInteraction();
+    expect(answered.state).toBe('ready');
+    expect(interaction.outputInvalidated).toBe(true);
+    expect(await fs.readFile(interaction.outputDraft!, 'utf-8')).toBe(draftContent);
+    expect(answered.nextStep?.prompt).toContain(interaction.outputDraft);
+    await expect(fs.stat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    const completed = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
+    expect(completed.state).toBe('blocked');
+    expect(completed.reason).toContain('must regenerate its output after answering questions');
+  });
+
+  it('accepts identical regenerated bytes with mtime equal to the final answer', async () => {
+    const output = await pauseForFinalAnswer();
+    const content = '# Design with the selected interface\n';
+    await fs.writeFile(output, content);
+    await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
+    const interaction = await storedAnsweredInteraction();
+    await fs.writeFile(output, content);
+    const answeredAt = new Date(interaction.resolvedAt!);
+    await fs.utimes(output, answeredAt, answeredAt);
+
+    await getFlowStatus(flow.taskDir);
+    await getFlowNext(flow.taskDir);
+    await getFlowNext(flow.taskDir);
+    expect(await fs.readFile(output, 'utf-8')).toBe(content);
+    const completed = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
+    expect(completed.completedStep?.id).toBe('design-discussion');
+  });
+
+  it('recovers a final answer after draft rename but before the invalidation flag was saved', async () => {
+    const output = await pauseForFinalAnswer();
+    await fs.writeFile(output, '# Pre-answer draft\n');
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const writeFile = fs.writeFile.bind(fs);
+    let stateWrites = 0;
+    const writeSpy = vi.spyOn(fs, 'writeFile').mockImplementation(async (...args) => {
+      if (args[0] === statePath && ++stateWrites === 2) throw new Error('simulated state write failure');
+      return writeFile(...args);
+    });
+    const answered = await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
+    writeSpy.mockRestore();
+    expect(answered.state).toBe('blocked');
+    expect(answered.reason).toContain('Retry spok flow next');
+    expect((await storedAnsweredInteraction()).resolvedAt).toBeDefined();
+    expect((await storedAnsweredInteraction()).outputInvalidated).toBeUndefined();
+    await fs.writeFile(output, '# Regenerated design\n');
+    const pendingState = await fs.readFile(statePath, 'utf-8');
+    expect((await getFlowStatus(flow.taskDir)).state).toBe('ready');
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(pendingState);
+
+    expect((await getFlowNext(flow.taskDir)).state).toBe('ready');
+    const interaction = await storedAnsweredInteraction();
+    expect(interaction.outputInvalidated).toBe(true);
+    expect(await fs.readFile(interaction.outputDraft!, 'utf-8')).toBe('# Pre-answer draft\n');
+    expect(await fs.readFile(output, 'utf-8')).toBe('# Regenerated design\n');
+    expect((await completeFlowStep(flow.taskDir, { step: 'design-discussion', output })).completedStep?.id)
+      .toBe('design-discussion');
+  });
+
+  it('retains a final answer when archiving fails and retries through next', async () => {
+    const output = await pauseForFinalAnswer();
+    await fs.writeFile(output, '# Pre-answer draft\n');
+    const renameSpy = vi.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('simulated rename failure'));
+    const answered = await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
+    renameSpy.mockRestore();
+    expect(answered.state).toBe('blocked');
+    expect((await storedAnsweredInteraction()).answers[0].answer).toBe('webhook');
+    expect(await fs.readFile(output, 'utf-8')).toBe('# Pre-answer draft\n');
+
+    expect((await getFlowNext(flow.taskDir)).state).toBe('ready');
+    const interaction = await storedAnsweredInteraction();
+    expect(interaction.outputInvalidated).toBe(true);
+    expect(await fs.readFile(interaction.outputDraft!, 'utf-8')).toBe('# Pre-answer draft\n');
+    await expect(fs.stat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.each(['next', 'complete'])('safely upgrades legacy answered state through %s', async (command) => {
+    const output = await pauseForFinalAnswer();
+    await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const stored = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    delete stored.steps.find((step: FlowStep) => step.id === 'design-discussion').interactions[0].outputInvalidated;
+    await fs.writeFile(statePath, JSON.stringify(stored));
+    await fs.writeFile(output, '# Legacy pre-answer draft\n');
+    const stateBeforeStatus = await fs.readFile(statePath, 'utf-8');
+    expect((await getFlowStatus(flow.taskDir)).state).toBe('ready');
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(stateBeforeStatus);
+    expect(await fs.readFile(output, 'utf-8')).toBe('# Legacy pre-answer draft\n');
+
+    if (command === 'next') {
+      expect((await getFlowNext(flow.taskDir)).state).toBe('ready');
+    } else {
+      const result = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
+      expect(result.state).toBe('blocked');
+      expect(result.reason).toContain('must regenerate');
+    }
+    const interaction = await storedAnsweredInteraction();
+    expect(await fs.readFile(interaction.outputDraft!, 'utf-8')).toBe('# Legacy pre-answer draft\n');
+    await fs.writeFile(output, '# Regenerated legacy draft\n');
+    await getFlowNext(flow.taskDir);
+    expect(await fs.readFile(output, 'utf-8')).toBe('# Regenerated legacy draft\n');
+  });
+
+  it.each([1, 2])('regenerates shared validation output after questions on repair attempt %s', async (attempts) => {
+    await flow.advanceToValidate();
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await flow.completeValidate(FAIL_VALIDATION);
+      await flow.completeRepair();
+    }
+    const output = path.join(flow.taskDir, 'validation.md');
+    const packet = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[0]] });
+    expect((await pauseFlowStep(flow.taskDir, { step: 'validate', questions: packet })).state).toBe('needs-input');
+    const future = new Date(Date.now() + 60_000);
+    await fs.utimes(output, future, future);
+    const renameSpy = vi.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('simulated rename failure'));
+    expect((await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' })).state).toBe('blocked');
+    renameSpy.mockRestore();
+
+    expect((await getFlowStatus(flow.taskDir)).state).toBe('ready');
+    expect((await getFlowNext(flow.taskDir)).state).toBe('ready');
+    expect((await getFlowStatus(flow.taskDir)).state).toBe('ready');
+    const missing = await completeFlowStep(flow.taskDir, { step: 'validate', output });
+    expect(missing.reason).toContain('must regenerate');
+
+    const secondPacket = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[1]] });
+    expect((await pauseFlowStep(flow.taskDir, { step: 'validate', questions: secondPacket })).state).toBe('needs-input');
+    expect((await getFlowStatus(flow.taskDir)).state).toBe('needs-input');
+    expect((await answerFlowQuestion(flow.taskDir, { question: 'failure-policy', answer: 'retry' })).state).toBe('ready');
+    expect((await getFlowNext(flow.taskDir)).state).toBe('ready');
+    await fs.writeFile(output, PASS_VALIDATION);
+    const completed = await completeFlowStep(flow.taskDir, { step: 'validate', output });
+    expect(completed.completedStep?.id).toBe('validate');
+    expect(completed.nextStep?.id).toBe('commit');
+    await fs.unlink(output);
+    expect((await getFlowStatus(flow.taskDir)).reason).toContain('Missing completed artifact');
+  });
+
   it('rejects a task-local packet symlink that resolves outside the task directory', async () => {
     if (process.platform === 'win32') return;
     await advanceToDesignDiscussion();
@@ -2702,7 +2903,7 @@ describe('flow command output details', () => {
 
     await flowCompleteCommand(flow.taskDir, {
       step: 'commit',
-      commit: 'abc123',
+      commit: 'HEAD',
     });
 
     expect(logs).toEqual([`Flow complete: ${flow.taskDir}`]);
@@ -2791,17 +2992,14 @@ async function advanceToImplement(flow: FlowHarness): Promise<void> {
   const designReview = await flow.completeDesignReview();
   expect(designReview.state).not.toBe('blocked');
   await flow.completeFileStep('plan', 'plan.md');
-  await getFlowNext(flow.taskDir);
+  const next = await getFlowNext(flow.taskDir);
+  expect(next.state, next.reason).toBe('ready');
+  expect(next.step?.id).toBe('implement');
 }
 
-async function advanceToCommit(flow: FlowHarness, workRoot: string): Promise<void> {
+async function advanceLegacyToCommit(flow: FlowHarness, workRoot: string): Promise<void> {
   await advanceToImplement(flow);
-  const implemented = await completeFlowStep(flow.taskDir, {
-    step: 'implement',
-    summary: 'Implemented the plan.',
-    workRoot,
-  });
-  expect(implemented.state).not.toBe('blocked');
+  await seedLegacyImplementation(flow.taskDir, workRoot);
   await flow.completeSummaryStep('simplify', 'Simplified the implementation.');
   const validated = await flow.completeValidate(PASS_VALIDATION);
   expect(validated.state).not.toBe('blocked');
@@ -2822,8 +3020,8 @@ describe('work root attribution', () => {
     );
   });
 
-  it('persists the implement work root in workflow state', async () => {
-    await advanceToCommit(flow, repo.path);
+  it('preserves the implement work root in legacy workflow state', async () => {
+    await advanceLegacyToCommit(flow, repo.path);
 
     const state = JSON.parse(
       await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8')
@@ -2836,7 +3034,7 @@ describe('work root attribution', () => {
   });
 
   it('preserves an aliased work-root spelling while verifying its repository identity', async () => {
-    await advanceToCommit(flow, repo.aliasPath);
+    await advanceLegacyToCommit(flow, repo.aliasPath);
 
     const recordedRoot = (await getFlowStatus(flow.taskDir)).workRoot;
     expect(recordedRoot).toBe(repo.aliasPath);
@@ -2853,11 +3051,8 @@ describe('work root attribution', () => {
   it('names the recorded work root in the simplify step prompt', async () => {
     await advanceToImplement(flow);
 
-    const implemented = await completeFlowStep(flow.taskDir, {
-      step: 'implement',
-      summary: 'Implemented the plan.',
-      workRoot: repo.path,
-    });
+    await seedLegacyImplementation(flow.taskDir, repo.path);
+    const implemented = await getFlowStatus(flow.taskDir);
 
     expect(implemented.nextStep?.id).toBe('simplify');
     expect(implemented.nextStep?.prompt).toContain(
@@ -2867,11 +3062,8 @@ describe('work root attribution', () => {
 
   it('names the recorded work root in the repair step prompt', async () => {
     await advanceToImplement(flow);
-    const implemented = await completeFlowStep(flow.taskDir, {
-      step: 'implement',
-      summary: 'Implemented the plan.',
-      workRoot: repo.path,
-    });
+    await seedLegacyImplementation(flow.taskDir, repo.path);
+    const implemented = await getFlowStatus(flow.taskDir);
     expect(implemented.state).not.toBe('blocked');
     await flow.completeSummaryStep('simplify', 'Simplified the implementation.');
 
@@ -2884,17 +3076,17 @@ describe('work root attribution', () => {
   });
 
   it('names the work root in the commit step prompt', async () => {
-    await advanceToCommit(flow, repo.path);
+    await advanceLegacyToCommit(flow, repo.path);
 
     const next = await getFlowNext(flow.taskDir);
 
     expect(next.step?.id).toBe('commit');
     expect(next.step?.prompt).toContain(`Run every git command with \`-C ${repo.path}\``);
-    expect(next.step?.prompt).toContain('do not search other directories');
+    expect(next.step?.prompt).toContain('Do not search other directories');
     expect(next.workRootWarning).toBeUndefined();
   });
 
-  it('blocks a relative or missing work root at record time', async () => {
+  it('blocks supplied roots that differ from the prepared execution root', async () => {
     await advanceToImplement(flow);
 
     const blank = await completeFlowStep(flow.taskDir, {
@@ -2903,7 +3095,7 @@ describe('work root attribution', () => {
       workRoot: '   ',
     });
     expect(blank.state).toBe('blocked');
-    expect(blank.reason).toContain('absolute --work-root');
+    expect(blank.reason).toContain('conflicts with recorded execution root');
 
     const relative = await completeFlowStep(flow.taskDir, {
       step: 'implement',
@@ -2911,7 +3103,7 @@ describe('work root attribution', () => {
       workRoot: 'some/relative/path',
     });
     expect(relative.state).toBe('blocked');
-    expect(relative.reason).toContain('absolute --work-root');
+    expect(relative.reason).toContain('conflicts with recorded execution root');
 
     const missing = await completeFlowStep(flow.taskDir, {
       step: 'implement',
@@ -2919,7 +3111,7 @@ describe('work root attribution', () => {
       workRoot: path.join(repo.path, 'not-here'),
     });
     expect(missing.state).toBe('blocked');
-    expect(missing.reason).toContain('Work root directory does not exist');
+    expect(missing.reason).toContain('conflicts with recorded execution root');
   });
 });
 
@@ -2928,7 +3120,7 @@ describe('commit SHA verification', () => {
   const repo = useWorkRootRepo();
 
   it('accepts a commit reachable from HEAD in the recorded work root', async () => {
-    await advanceToCommit(flow, repo.path);
+    await advanceLegacyToCommit(flow, repo.path);
 
     const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: repo.headSha });
 
@@ -2940,7 +3132,7 @@ describe('commit SHA verification', () => {
   });
 
   it('resolves a revision expression before recording the commit', async () => {
-    await advanceToCommit(flow, repo.path);
+    await advanceLegacyToCommit(flow, repo.path);
 
     const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: 'HEAD' });
 
@@ -2949,7 +3141,7 @@ describe('commit SHA verification', () => {
   });
 
   it('blocks a SHA that names no commit object in the recorded work root', async () => {
-    await advanceToCommit(flow, repo.path);
+    await advanceLegacyToCommit(flow, repo.path);
 
     const result = await completeFlowStep(flow.taskDir, { step: 'commit', commit: 'abc123' });
 
@@ -2958,7 +3150,7 @@ describe('commit SHA verification', () => {
   });
 
   it('blocks a real commit that HEAD cannot reach', async () => {
-    await advanceToCommit(flow, repo.path);
+    await advanceLegacyToCommit(flow, repo.path);
 
     const result = await completeFlowStep(flow.taskDir, {
       step: 'commit',
@@ -2969,8 +3161,9 @@ describe('commit SHA verification', () => {
     expect(result.reason).toContain('is not reachable from HEAD in');
   });
 
-  it('warns and accepts any SHA when no work root was recorded', async () => {
+  it('warns and accepts any SHA when legacy state recorded no work root', async () => {
     await flow.completeThroughValidation();
+    await seedLegacyImplementation(flow.taskDir);
 
     const next = await getFlowNext(flow.taskDir);
     expect(next.step?.id).toBe('commit');
@@ -2983,6 +3176,7 @@ describe('commit SHA verification', () => {
 
   it('verifies and records an explicitly supplied work root for legacy state', async () => {
     await flow.completeThroughValidation();
+    await seedLegacyImplementation(flow.taskDir);
 
     const result = await completeFlowStep(flow.taskDir, {
       step: 'commit',
@@ -2998,7 +3192,7 @@ describe('commit SHA verification', () => {
   });
 
   it('blocks an explicitly supplied work root that conflicts with recorded state', async () => {
-    await advanceToCommit(flow, repo.path);
+    await advanceLegacyToCommit(flow, repo.path);
 
     const result = await completeFlowStep(flow.taskDir, {
       step: 'commit',

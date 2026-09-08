@@ -272,7 +272,7 @@ describe('spok-create-design-discussion visual evidence contract', () => {
     expect(body).not.toContain('Wait for the answer before asking the next question.');
   });
 
-  it('routes required evidence to an approved repository packet', async () => {
+  it('routes required evidence to a verified repository packet', async () => {
     const file = path.join(
       SKILLS_DIR,
       'spok-create-design-discussion',
@@ -284,8 +284,8 @@ describe('spok-create-design-discussion visual evidence contract', () => {
     expect(body).toContain('references/design_evidence_template.html');
     expect(body).toContain('"schemaVersion": 1');
     expect(body).toContain('"status": "pending"');
-    expect(body).toContain('"approvedBy": "<identity>"');
-    expect(body).toContain('build and open the visual evidence packet before requesting approval');
+    expect(body).toContain('"selectedBy": "agent"');
+    expect(body).toContain('build and open the visual evidence packet');
     expect(body).toContain('Missing either the current or target pane blocks completion');
   });
 

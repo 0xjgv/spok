@@ -18,6 +18,13 @@ import {
   type CapabilityReport,
 } from './harness-routing.js';
 
+import {
+  prepareExecution,
+  executionChanges,
+  validateExecutionScope,
+  type FlowExecution,
+} from './execution-context.js';
+
 const execFileAsync = promisify(execFile);
 
 export const WORKFLOW_STATE_FILE = 'workflow-state.json';
@@ -154,6 +161,14 @@ export interface FlowStepResult {
   workRoot?: string;
 }
 
+const FlowExecutionSchema = z.object({
+  workRoot: z.string().min(1).refine(path.isAbsolute),
+  branch: z.string().min(1),
+  baselineHead: z.string().regex(/^[a-f0-9]{40,64}$/),
+  baselineChanges: z.record(z.string(), z.string()),
+  ownedPaths: z.array(z.string().min(1)).optional(),
+}).strict();
+
 const FlowQuestionOptionSchema = z
   .object({
     id: z.string().trim().min(1),
@@ -218,6 +233,8 @@ const FlowInteractionSchema = z
     round: z.number().int().positive(),
     pausedAt: z.string().min(1),
     resolvedAt: z.string().min(1).optional(),
+    outputInvalidated: z.boolean().optional(),
+    outputDraft: z.string().min(1).optional(),
     questions: z.array(FlowQuestionSchema).min(1),
     answers: z.array(FlowQuestionAnswerSchema),
   })
@@ -255,6 +272,7 @@ export interface WorkflowState {
   status: FlowRunState;
   steps: FlowStep[];
   repairAttempts: number;
+  execution?: FlowExecution;
   createdAt: string;
   updatedAt: string;
 }
@@ -275,11 +293,13 @@ export interface FlowResponse {
   memoryWarning?: string;
   workRoot?: string;
   workRootWarning?: string;
+  execution?: FlowExecution;
   question?: FlowQuestion;
   questions?: FlowQuestion[];
 }
 
 export interface FlowCompleteInput {
+  changedPaths?: string[];
   step: string;
   output?: string;
   summary?: string;
@@ -291,7 +311,9 @@ export interface FlowCommandOptions {
   json?: boolean;
 }
 
-export interface FlowCompleteCommandOptions extends FlowCommandOptions, FlowCompleteInput {}
+export interface FlowCompleteCommandOptions extends FlowCommandOptions, FlowCompleteInput {
+  changedPath?: string[];
+}
 
 export interface FlowPauseInput {
   step: string;
@@ -561,6 +583,100 @@ function buildMemoryWarning(memory: MemoryRead | undefined): string | undefined 
   return `${memory.path}: ${problems.join('; ')}.`;
 }
 
+const EXECUTION_STEPS = new Set(['implement', 'simplify', 'validate', 'repair', 'commit']);
+
+function executionPrompt(step: string, execution: FlowExecution): string {
+  const lines = [
+    `Execution work root: ${JSON.stringify(execution.workRoot)}. All source reads, edits, tests, and Git commands must use this repository. Planning artifacts retain their supplied absolute paths.`,
+    `Execution branch: ${JSON.stringify(execution.branch)}. Baseline HEAD: ${execution.baselineHead}. Do not switch branches or move the work.`,
+    'Preserve pre-existing changes. Do not stage, commit, or push outside the commit stage.',
+  ];
+  if (step === 'implement' || step === 'repair') {
+    lines.push('Return every current chunk changed path relative to the work root, including new files and deletions, plus exact verification commands and exit codes. The caller must pass that list through --changed-path.');
+  }
+  if (step === 'commit') lines.push('If HEAD differs from the baseline, the CLI has verified an existing completed chunk commit. Report that HEAD SHA without creating another commit; this resumes an interrupted completion.');
+  if (execution.ownedPaths && step !== 'implement') {
+    lines.push(`Exact implementation allowlist: ${JSON.stringify(execution.ownedPaths)}.`);
+    lines.push(step === 'repair'
+      ? 'Repair may add paths needed for recorded blocking findings; report the entire updated chunk path list.'
+      : 'Do not change source paths outside this allowlist. A no-op is success.');
+  }
+  return lines.join('\n');
+}
+
+async function prepareStepExecution(state: WorkflowState): Promise<string | undefined> {
+  const step = getCurrentStep(state);
+  if (!step || !EXECUTION_STEPS.has(step.id)) return;
+  try {
+    if (!state.execution && step.id === 'implement') {
+      state.execution = await prepareExecution(state.taskDir);
+    }
+    if (!state.execution) return; // Legacy flows already past implementation.
+    if (step.id === 'commit') {
+      const head = (await runGit(state.execution.workRoot, ['rev-parse', 'HEAD']))?.trim();
+      if (head && head !== state.execution.baselineHead) {
+        return await checkExecutionCommit(state, { step: 'commit', commit: head });
+      }
+    }
+    if (step.id === 'implement' || step.id === 'repair') {
+      await executionChanges(state.execution, state.taskDir);
+    } else {
+      await validateExecutionScope(state.execution, state.taskDir, state.execution.ownedPaths ?? []);
+    }
+  } catch (error) {
+    return (error as Error).message;
+  }
+}
+
+async function checkExecutionCompletion(
+  state: WorkflowState,
+  input: FlowCompleteInput
+): Promise<string | undefined> {
+  const execution = state.execution;
+  if (!execution && input.step === 'implement') return 'Run spok flow next before implementation to establish its execution baseline.';
+  if (!execution || !EXECUTION_STEPS.has(input.step)) return;
+  if (input.workRoot && path.resolve(input.workRoot) !== path.resolve(execution.workRoot)) {
+    return `Work root conflicts with recorded execution root: ${execution.workRoot}`;
+  }
+  try {
+    if (input.step === 'commit') return await checkExecutionCommit(state, input);
+    const changed = await executionChanges(execution, state.taskDir);
+    if (input.step === 'implement' || input.step === 'repair') {
+      const reported = [...new Set(input.changedPaths ?? [])].sort();
+      if (JSON.stringify(reported) !== JSON.stringify([...changed].sort())) {
+        return `Reported --changed-path paths must match chunk changes: ${JSON.stringify(changed)}`;
+      }
+      execution.ownedPaths = changed;
+    } else {
+      await validateExecutionScope(execution, state.taskDir, execution.ownedPaths ?? []);
+    }
+  } catch (error) {
+    return (error as Error).message;
+  }
+}
+
+async function checkExecutionCommit(
+  state: WorkflowState,
+  input: FlowCompleteInput
+): Promise<string | undefined> {
+  const execution = state.execution!;
+  const head = (await runGit(execution.workRoot, ['rev-parse', 'HEAD']))?.trim();
+  const supplied = input.commit?.trim();
+  if (!supplied || !head) return; // Existing completion validation owns missing SHA errors.
+  const commit = (await runGit(execution.workRoot, ['rev-parse', '--verify', '--end-of-options', `${supplied}^{commit}`]))?.trim();
+  if (commit !== head) return `Commit must equal execution HEAD in ${execution.workRoot}.`;
+  if ((await runGit(execution.workRoot, ['merge-base', '--is-ancestor', execution.baselineHead, head])) === undefined) {
+    return 'Execution commit must descend from the recorded baseline HEAD.';
+  }
+  const diff = await runGit(execution.workRoot, ['diff', '--no-renames', '--name-only', '-z', execution.baselineHead, head]);
+  if (diff === undefined) return 'Cannot inspect execution commit paths.';
+  const committed = diff.split('\0').filter(Boolean);
+  const owned = new Set(execution.ownedPaths ?? []);
+  if (committed.some((file) => !owned.has(file))) return 'Execution commit includes paths outside the implementation allowlist.';
+  const remaining = await executionChanges({ ...execution, baselineHead: head }, state.taskDir);
+  if (remaining.length) return `Execution still has uncommitted chunk changes: ${JSON.stringify(remaining)}`;
+}
+
 function interactionAnswers(interactions: FlowInteraction[] | undefined): FlowQuestionAnswer[] {
   return interactions?.flatMap((interaction) => interaction.answers) ?? [];
 }
@@ -580,7 +696,14 @@ function answeredQuestionsClause(interactions: FlowInteraction[] | undefined): s
   if (answers.length === 0) return;
   return [
     'Human answers to earlier open questions. Treat these as authoritative:',
-    ...answers.map((answer) => `- ${answer.questionId}: ${answer.answer}`),
+    ...answers.map((answer) => {
+      const question = interactions?.flatMap((round) => round.questions)
+        .find((item) => item.id === answer.questionId);
+      return [`Question: ${JSON.stringify(question)}`, `- ${answer.questionId}: ${answer.answer}`].join('\n');
+    }),
+    ...interactions?.filter((round) => round.outputDraft).map((round) =>
+      `Review the preserved pre-answer draft at ${round.outputDraft} while applying these answers.`
+    ) ?? [],
     'Regenerate the stage output after applying these answers. Do not treat an output created before this resumed attempt as complete.',
   ].join('\n');
 }
@@ -595,7 +718,7 @@ function openQuestionClause(
   return [
     'Work autonomously. Resolve code-answerable uncertainty from the repository and supplied artifacts. ' +
       'Do not ask the user directly and do not ask for approval between stages.',
-    'Only when consequential human intent is missing and choosing would materially change behavior, ' +
+    'Use your judgment to ask questions when the answer would help. Resolve decisions autonomously when evidence is sufficient; do not require human review. If you choose to ask, ' +
       `create or overwrite this exact packet path: \`${packetPath}\`. Create its parent directory when needed.`,
     'The packet must be strict JSON with a non-empty `questions` array. Every question needs unique, ' +
       'stable `id` and non-empty `prompt` fields. An `input` question has `kind: "input"`. A `choice` ' +
@@ -605,7 +728,7 @@ function openQuestionClause(
     'For that outcome, do not create the stage completion artifact or return a completion summary. End ' +
       'your reply with a final line exactly `NEEDS_INPUT: <absolute-question-packet-path>`, replacing the ' +
       `placeholder with \`${packetPath}\`. The NEEDS_INPUT outcome and normal completion are mutually exclusive.`,
-    'If no consequential human intent is missing, do not create a question packet and complete the stage normally.',
+    'If you choose not to ask a question, do not create a question packet and complete the stage normally.',
   ].join('\n');
 }
 
@@ -613,7 +736,7 @@ const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
   implement:
     'You are running inside spok-flow. Implement and verify the plan, return a ' +
     'summary of what you did, and do NOT create any commits — the commit step owns that. ' +
-    'End your reply with a final line reading `Work root: <absolute path>`, naming the ' +
+    'Only on successful completion, end your reply with a final line reading `Work root: <absolute path>`, naming the ' +
     'absolute path of the repository working tree you edited (the git worktree root that ' +
     'holds the changed files, which may differ from the task directory). Report the path ' +
     '`git -C <directory containing an edited file> rev-parse --show-toplevel` prints, not a guess.',
@@ -632,7 +755,7 @@ const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
 function workRootClause(workRoot: string): string {
   return (
     `The changes to commit are in \`${workRoot}\`. Run every git command with ` +
-    `\`-C ${workRoot}\`. If that repository has no changes, stop and report — do not ` +
+    `\`-C ${workRoot}\`. If that repository has no chunk changes, report the existing HEAD as a successful no-op. Do not ` +
     'search other directories, and never commit from a repository you were not given.'
   );
 }
@@ -652,7 +775,8 @@ function buildStepPrompt(
   definition: StepDefinition,
   rules: string[],
   interactions?: FlowInteraction[],
-  workRoot?: string
+  workRoot?: string,
+  execution?: FlowExecution
 ): string {
   const sections: string[] = [];
 
@@ -681,6 +805,8 @@ function buildStepPrompt(
 
   const answers = answeredQuestionsClause(interactions);
   if (answers) sections.push(answers);
+
+  if (execution) sections.push(executionPrompt(definition.id, execution));
 
   if (workRoot) {
     if (definition.completionKind === 'commit') sections.push(workRootClause(workRoot));
@@ -965,6 +1091,7 @@ function normalizeState(
     status: 'ready',
     steps,
     repairAttempts,
+    execution: candidate.execution,
     createdAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
     updatedAt: initial.updatedAt,
   };
@@ -1151,6 +1278,10 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
   try {
     const raw = await fs.readFile(statePath, 'utf-8');
     const stored: unknown = JSON.parse(raw);
+    if (stored && typeof stored === 'object' && 'execution' in stored &&
+        !FlowExecutionSchema.safeParse(stored.execution).success) {
+      return { taskDir, statePath, reason: `Invalid execution context in workflow state: ${statePath}` };
+    }
     const resolved = resolveStateProfile(stored, requested.profile);
     if (!resolved.profile) {
       return { taskDir, statePath, reason: resolved.reason! };
@@ -1206,7 +1337,8 @@ function withStepPrompt(
   rules: string[],
   repairAttempts: number,
   profile: FlowProfile,
-  workRoot?: string
+  workRoot?: string,
+  execution?: FlowExecution
 ): FlowStep | undefined {
   if (!step) return step;
 
@@ -1215,7 +1347,7 @@ function withStepPrompt(
 
   return {
     ...step,
-    prompt: buildStepPrompt(taskDir, definition, rules, step.interactions, workRoot),
+    prompt: buildStepPrompt(taskDir, definition, rules, step.interactions, workRoot, execution),
   };
 }
 
@@ -1243,14 +1375,15 @@ function buildResponse(
   extra: Pick<FlowResponse, 'step' | 'completedStep' | 'reason'> = {}
 ): FlowResponse {
   const memory = readMemory(state.taskDir);
-  const workRoot = recordedWorkRoot(state);
+  const workRoot = state.execution?.workRoot ?? recordedWorkRoot(state);
   const nextStep = withStepPrompt(
     state.taskDir,
     getCurrentStep(state),
     memory?.rules ?? [],
     state.repairAttempts,
     state.profile,
-    workRoot
+    workRoot,
+    state.execution
   );
   const questions = unansweredQuestions(nextStep);
   return {
@@ -1269,6 +1402,7 @@ function buildResponse(
     memoryWarning: buildMemoryWarning(memory),
     workRoot,
     workRootWarning: buildWorkRootWarning(state, workRoot),
+    execution: state.execution,
     question: questions[0],
     questions: questions.length > 0 ? questions : undefined,
   };
@@ -1284,6 +1418,26 @@ function buildBlockedResponse(taskDir: string, statePath: string, reason: string
   };
 }
 
+function answeredOutputDraftPath(
+  state: WorkflowState,
+  step: FlowStep,
+  interaction: FlowInteraction,
+  output: string
+): string {
+  return `${output}.before-answers-step-${state.steps.indexOf(step) + 1}-round-${interaction.round}.draft`;
+}
+
+async function completedArtifactExists(state: WorkflowState, step: FlowStep, output: string): Promise<boolean> {
+  if (await pathIsNonEmptyFile(output)) return true;
+  const current = getCurrentStep(state);
+  if (step.id !== VALIDATE_STEP_ID || current?.id !== VALIDATE_STEP_ID) return false;
+  // Repeated validation shares one output; an earlier question round can hold its evidence.
+  for (const interaction of current.interactions ?? []) {
+    if (interaction.resolvedAt && await pathIsNonEmptyFile(answeredOutputDraftPath(state, current, interaction, output))) return true;
+  }
+  return false;
+}
+
 async function validateCompletedArtifacts(state: WorkflowState): Promise<string | undefined> {
   const definitions = buildStepDefinitions(state.taskDir, state.repairAttempts, state.profile);
   const finalValidateIndex = state.steps.map((step) => step.id).lastIndexOf(VALIDATE_STEP_ID);
@@ -1295,7 +1449,7 @@ async function validateCompletedArtifacts(state: WorkflowState): Promise<string 
     if (definition?.completionKind !== 'file' || !definition.expectedOutput) continue;
     if (!step.result?.output) continue;
 
-    if (!(await pathIsNonEmptyFile(definition.expectedOutput))) {
+    if (!(await completedArtifactExists(state, step, definition.expectedOutput))) {
       return `Missing completed artifact for step ${step.id}: ${definition.expectedOutput}`;
     }
 
@@ -1416,23 +1570,51 @@ function validateFileCompletion(
   }
 }
 
+/** An existing draft proves the rename finished even if persisting its flag failed. */
+async function preserveAnsweredDraft(output: string, draft: string): Promise<boolean> {
+  try {
+    await fs.lstat(draft);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  try {
+    await fs.rename(output, draft);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return false;
+  }
+}
+
+/** Resolve old and interrupted answers before dispatch; status never calls this. */
+async function invalidateAnsweredOutput(state: WorkflowState): Promise<string | undefined> {
+  const step = getCurrentStep(state);
+  const interaction = step?.interactions?.at(-1);
+  if (!step || !interaction?.resolvedAt || interaction.outputInvalidated) return;
+  const definition = getDefinitionById(state.taskDir, step.id, state.repairAttempts, state.profile);
+  if (definition?.completionKind !== 'file' || !definition.expectedOutput) return;
+
+  const output = definition.expectedOutput;
+  const draft = answeredOutputDraftPath(state, step, interaction, output);
+  try {
+    if (await preserveAnsweredDraft(output, draft)) interaction.outputDraft = draft;
+    interaction.outputInvalidated = true;
+    await writeState(state);
+  } catch (error) {
+    return `Cannot preserve the pre-answer output for step ${step.id}: ${String(error)}. Retry spok flow next ${state.taskDir}.`;
+  }
+}
+
 async function answeredArtifactFreshnessError(
-  step: FlowStep,
+  state: WorkflowState,
   definition: StepDefinition
 ): Promise<string | undefined> {
+  const invalidationError = await invalidateAnsweredOutput(state);
+  if (invalidationError) return invalidationError;
   if (definition.completionKind !== 'file' || !definition.expectedOutput) return;
-  const resolvedAt = step.interactions?.at(-1)?.resolvedAt;
-  if (!resolvedAt) return;
-
-  let modifiedAt: number;
-  try {
-    modifiedAt = (await fs.stat(definition.expectedOutput)).mtimeMs;
-  } catch {
-    return;
-  }
-
-  const answeredAt = Date.parse(resolvedAt);
-  if (Number.isNaN(answeredAt) || modifiedAt > answeredAt) return;
+  if (!getCurrentStep(state)?.interactions?.at(-1)?.resolvedAt) return;
+  if (await pathIsNonEmptyFile(definition.expectedOutput)) return;
   return `Step ${definition.id} must regenerate its output after answering questions: ${definition.expectedOutput}`;
 }
 
@@ -1546,7 +1728,9 @@ async function runGit(
   env: NodeJS.ProcessEnv = process.env
 ): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync('git', ['-C', workRoot, ...args], { env });
+    const gitEnv = { ...env };
+    for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']) delete gitEnv[key];
+    const { stdout } = await execFileAsync('git', ['-C', workRoot, ...args], { env: gitEnv });
     return stdout;
   } catch {
     return;
@@ -1757,6 +1941,8 @@ async function exhaustedRepairBlockReason(state: WorkflowState): Promise<string 
 
   const current = getCurrentStep(state);
   if (current?.id !== VALIDATE_STEP_ID) return;
+  const interaction = current.interactions?.at(-1);
+  if (unansweredQuestions(current).length > 0 || (interaction?.resolvedAt && !interaction.outputInvalidated)) return;
 
   const repairCompletedAt = lastRepairCompletedAt(state);
   if (repairCompletedAt === undefined) return;
@@ -1778,7 +1964,8 @@ async function exhaustedRepairBlockReason(state: WorkflowState): Promise<string 
 
 function questionPacketPathError(taskDir: string, packetPath: string): string | undefined {
   const relative = path.relative(taskDir, packetPath);
-  if (!relative || (!relative.startsWith('..') && !path.isAbsolute(relative))) return;
+  const outside = relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+  if (!relative || !outside) return;
   return `Questions packet must be inside the task directory ${taskDir}: ${packetPath}`;
 }
 
@@ -1787,9 +1974,6 @@ async function readQuestionPacket(
   inputPath: string
 ): Promise<FlowQuestion[] | string> {
   const packetPath = path.resolve(inputPath);
-  const locationError = questionPacketPathError(taskDir, packetPath);
-  if (locationError) return locationError;
-
   let canonicalTaskDir: string;
   let canonicalPacketPath: string;
   try {
@@ -1965,7 +2149,10 @@ export async function answerFlowQuestion(
   }
   markNextStepReady(loaded.state);
   await writeState(loaded.state);
-  const response = buildResponse(loaded.state);
+  const invalidationError = await invalidateAnsweredOutput(loaded.state);
+  const response = invalidationError
+    ? blockedResponse(loaded.state, invalidationError)
+    : buildResponse(loaded.state);
   await recordFlowResponse(response, 'flow_answer');
   return response;
 }
@@ -2017,6 +2204,20 @@ export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
   const exhausted = await exhaustedRepairBlockReason(loaded.state);
   if (exhausted) {
     const response = blockedResponse(loaded.state, exhausted);
+    await recordFlowResponse(response, 'flow_next');
+    return response;
+  }
+
+  const invalidationError = await invalidateAnsweredOutput(loaded.state);
+  if (invalidationError) {
+    const response = blockedResponse(loaded.state, invalidationError);
+    await recordFlowResponse(response, 'flow_next');
+    return response;
+  }
+
+  const executionError = await prepareStepExecution(loaded.state);
+  if (executionError) {
+    const response = blockedResponse(loaded.state, executionError);
     await recordFlowResponse(response, 'flow_next');
     return response;
   }
@@ -2087,14 +2288,21 @@ export async function completeFlowStep(
     return response;
   }
 
-  const staleArtifactError = await answeredArtifactFreshnessError(currentStep, definition);
+  const executionError = await checkExecutionCompletion(loaded.state, input);
+  if (executionError) {
+    const response = blockedResponse(loaded.state, executionError);
+    await recordFlowResponse(response, 'flow_complete');
+    return response;
+  }
+
+  const staleArtifactError = await answeredArtifactFreshnessError(loaded.state, definition);
   if (staleArtifactError) {
     const response = blockedResponse(loaded.state, staleArtifactError);
     await recordFlowResponse(response, 'flow_complete');
     return response;
   }
 
-  const result = await completeStepResult(definition, input, recordedWorkRoot(loaded.state));
+  const result = await completeStepResult(definition, input, loaded.state.execution?.workRoot ?? recordedWorkRoot(loaded.state));
   if (typeof result === 'string') {
     // Only the validate step can produce this code, so expectedOutput is set.
     const isValidationFail =
