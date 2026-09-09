@@ -6,6 +6,10 @@ branch: [current branch name]
 sha: [result of git rev-parse HEAD]
 ---
 
+# Design Discussion
+
+## Context
+
 ### Summary of change request
 
 [summary of what the user wants to build based on their request and the ticket]
@@ -67,9 +71,9 @@ sha: [result of git rev-parse HEAD]
 - Alternatives compared: [reuse existing mechanisms versus adding a control; rejected tradeoffs]
 - Added cost: [justify added state, flags, or cross-service controls by the failure existing mechanisms cannot prevent, or state that none is needed]
 
-### Resolved Design Decisions
+## Resolved Design Decisions
 
-#### [decision title]
+### [decision title]
 
 - Selected option: [resolved behavior, scope, API, UX, or tradeoff]
 - Basis: [autonomous choice or explicit user input, with evidence]

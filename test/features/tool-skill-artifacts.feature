@@ -361,6 +361,33 @@ Feature: Tool skill artifacts
     Then the Spok CLI exits with code 1
     And the Spok CLI output contains "Work root conflicts with recorded execution root"
 
+  Scenario Outline: Flow accepts equivalent execution work-root spellings
+    Given a new project
+    And a staged flow task in a linked worktree
+    And the staged flow task is ready to implement
+    When I run spok flow next as JSON for the staged task
+    Then the implementation response records the Git baseline
+    When I complete implementation using the work-root spelling "<spelling>"
+    Then the Spok CLI exits with code 0
+    And the Spok CLI output contains "\"id\": \"simplify\""
+    And the recorded execution root is unchanged
+
+    Examples:
+      | spelling |
+      | alias    |
+      | padded   |
+
+  Scenario: Successive chunks reuse the execution worktree across task aliases
+    Given a new project
+    And a staged flow task in a primary checkout reached through an alias
+    And the staged flow task is ready to implement
+    When I run spok flow next as JSON for the staged task
+    Then the implementation response records the Git baseline
+    When I commit an owned file and stage a sibling chunk through its canonical path
+    And the staged flow task is ready to implement
+    And I run spok flow next as JSON for the staged task
+    Then the sibling execution retains the original worktree and commit
+
   Scenario: Flow rejects a commit outside the recorded work root
     Given a new project
     And a separate flow work repository

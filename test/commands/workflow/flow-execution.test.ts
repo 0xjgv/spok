@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { promises as fs } from 'node:fs';
+import { promises as fs, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,7 +17,11 @@ const PASS_DESIGN = '---\ntype: design-review\nverdict: PASS\n---\n# Design Revi
 const PASS_VALIDATION = '---\nverdict: PASS\n---\n# Validation\n';
 
 function git(root: string, ...args: string[]): string {
-  return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+  const env = { ...process.env };
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']) {
+    delete env[key];
+  }
+  return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', env }).trim();
 }
 
 async function write(root: string, name: string, content: string): Promise<void> {
@@ -204,6 +208,37 @@ describe('flow execution ownership', () => {
     expect((await readState(taskDir)).execution).toEqual(next.execution);
   });
 
+});
+
+describe('flow execution work-root identity', () => {
+  it.each(['alias', 'padded'])('accepts the %s spelling of the recorded work root', async (spelling) => {
+    await reachImplementation(taskDir);
+    const next = await getFlowNext(taskDir);
+    const workRoot = next.execution!.workRoot;
+    const alias = path.join(tempDir, 'execution-alias');
+    await fs.symlink(workRoot, alias, 'junction');
+    const suppliedRoot = spelling === 'alias' ? alias : `  ${workRoot}\t`;
+    expect(realpathSync.native(suppliedRoot.trim())).toBe(realpathSync.native(workRoot));
+    const result = await completeFlowStep(taskDir, {
+      step: 'implement', summary: 'No changes needed.', changedPaths: [], workRoot: suppliedRoot,
+    });
+    expect(result.state, result.reason).toBe('ready');
+    expect(realpathSync.native(result.execution!.workRoot)).toBe(realpathSync.native(workRoot));
+    expect((await readState(taskDir)).execution).toEqual({
+      ...next.execution, ownedPaths: [],
+    });
+  });
+
+  it.each(['', ' \t ', 'missing'])('rejects the invalid supplied work root %j', async (value) => {
+    await reachImplementation(taskDir);
+    const next = await getFlowNext(taskDir);
+    const suppliedRoot = value === 'missing' ? path.join(tempDir, 'missing') : value;
+    const result = await completeFlowStep(taskDir, {
+      step: 'implement', summary: 'No changes needed.', changedPaths: [], workRoot: suppliedRoot,
+    });
+    expect(result.state).toBe('blocked');
+    expect((await readState(taskDir)).execution).toEqual(next.execution);
+  });
 });
 
 describe('flow execution scope', () => {

@@ -635,10 +635,13 @@ async function checkExecutionCompletion(
   const execution = state.execution;
   if (!execution && input.step === 'implement') return 'Run spok flow next before implementation to establish its execution baseline.';
   if (!execution || !EXECUTION_STEPS.has(input.step)) return;
-  if (input.workRoot && path.resolve(input.workRoot) !== path.resolve(execution.workRoot)) {
-    return `Work root conflicts with recorded execution root: ${execution.workRoot}`;
-  }
   try {
+    const suppliedRoot = input.workRoot?.trim();
+    if (suppliedRoot !== undefined && (!suppliedRoot ||
+        FileSystemUtils.canonicalizeExistingPath(suppliedRoot) !==
+        FileSystemUtils.canonicalizeExistingPath(execution.workRoot))) {
+      return `Work root conflicts with recorded execution root: ${execution.workRoot}`;
+    }
     if (input.step === 'commit') return await checkExecutionCommit(state, input);
     const changed = await executionChanges(execution, state.taskDir);
     if (input.step === 'implement' || input.step === 'repair') {

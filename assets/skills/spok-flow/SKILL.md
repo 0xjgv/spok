@@ -187,8 +187,10 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    repository from a child reply or change the recorded root. For earlier planning
    steps without execution metadata, resolve `<project-root>` with
    `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "<task-dir>" rev-parse --show-toplevel`.
-   The additional task directory grants artifact write access when it lies outside
-   the execution work root; source edits remain scoped to the execution work root.
+   For Claude and Codex, `--add-dir` grants access to task artifacts outside the
+   execution work root. OMP uses the supplied absolute task-directory paths for
+   artifact writes; its working directory does not confine filesystem access.
+   Source edits remain scoped to the execution work root for every runner.
    Pass paths as process arguments. Keep native dispatch and its prompt verbatim.
    Run both Git commands with `GIT_DIR`, `GIT_COMMON_DIR`, and `GIT_WORK_TREE`
    removed from the child environment through the process API. Remove

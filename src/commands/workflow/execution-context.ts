@@ -116,9 +116,10 @@ async function provisionExecutionSkills(workRoot: string): Promise<void> {
 
 /** Reuse an explicit linked checkout; otherwise isolate this change from the main checkout. */
 export async function prepareExecution(taskDir: string): Promise<FlowExecution> {
-  const source = await repository(taskDir);
+  const canonicalTaskDir = await fs.realpath(taskDir);
+  const source = await repository(canonicalTaskDir);
   const workRoot = source.gitDir === source.commonDir
-    ? await dedicatedWorktree(source.workRoot, source.commonDir, changeKey(taskDir, source.workRoot))
+    ? await dedicatedWorktree(source.workRoot, source.commonDir, changeKey(canonicalTaskDir, source.workRoot))
     : source.workRoot;
   await provisionExecutionSkills(workRoot);
   return captureExecution(workRoot, taskDir);

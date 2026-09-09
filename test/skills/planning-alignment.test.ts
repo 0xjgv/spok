@@ -43,7 +43,10 @@ describe('planning artifact alignment', () => {
       expect(body).toContain(heading);
     }
     expect(body).toContain('added state, flags, or cross-service controls');
-    expect(template).toContain('### Resolved Design Decisions');
+    expect(template).toMatch(/^# Design Discussion$/m);
+    expect(template).toMatch(/^## Context$/m);
+    expect(template).toMatch(/^### Scale$/m);
+    expect(template).toMatch(/^## Resolved Design Decisions$/m);
     expect(template).not.toContain('### Design Questions');
   });
 

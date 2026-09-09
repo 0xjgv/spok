@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { promises as fs } from 'node:fs';
+import { promises as fs, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -171,6 +171,30 @@ describe('execution worktrees', () => {
     const execution = await prepareExecution(taskDir);
     expect(await executionChanges(execution, taskDir)).toEqual([]);
     expect(await fs.readFile(path.join(execution.workRoot, 'tracked.txt'), 'utf8')).toBe('original\n');
+  });
+});
+
+describe('execution task aliases', () => {
+  it.each(['repository', 'task'])('reuses committed work across a %s alias and a canonical sibling chunk', async (target) => {
+    const alias = path.join(root, '.git', 'source-alias');
+    await fs.symlink(target === 'repository' ? root : taskDir, alias, 'junction');
+    const aliasedTask = target === 'repository' ? path.join(alias, path.relative(root, taskDir)) : alias;
+    expect(realpathSync.native(aliasedTask)).toBe(realpathSync.native(taskDir));
+    const sourceHead = git('rev-parse', 'HEAD');
+    const first = await prepareExecution(aliasedTask);
+    await fs.writeFile(path.join(first.workRoot, 'chunk-one.txt'), 'first chunk\n');
+    git('-C', first.workRoot, 'add', 'chunk-one.txt');
+    git('-C', first.workRoot, 'commit', '-m', 'First chunk');
+    const firstHead = git('-C', first.workRoot, 'rev-parse', 'HEAD');
+    const sibling = path.join(path.dirname(taskDir), '02-next');
+    await fs.mkdir(sibling);
+    const next = await prepareExecution(sibling);
+    expect(realpathSync.native(next.workRoot)).toBe(realpathSync.native(first.workRoot));
+    expect(next.branch).toBe(first.branch);
+    expect(next.baselineHead).toBe(firstHead);
+    expect(await fs.readFile(path.join(next.workRoot, 'chunk-one.txt'), 'utf8')).toBe('first chunk\n');
+    expect(await executionChanges(next, sibling)).toEqual([]);
+    expect(git('rev-parse', 'HEAD')).toBe(sourceHead);
   });
 });
 

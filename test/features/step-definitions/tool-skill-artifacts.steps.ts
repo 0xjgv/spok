@@ -48,6 +48,14 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
+function fixtureGit(root: string, ...args: string[]): string {
+  const env = { ...process.env };
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']) {
+    delete env[key];
+  }
+  return execFileSync('git', ['-C', root, ...args], { encoding: 'utf-8', env }).trim();
+}
+
 async function captureConsoleLog(run: () => Promise<void>): Promise<string> {
   const originalLog = console.log;
   const lines: string[] = [];
@@ -197,6 +205,23 @@ Given('a staged flow task in a linked worktree', async function (this: SkillArti
   this.flowTaskDir = path.join(worktree, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
   await fs.mkdir(this.flowTaskDir, { recursive: true });
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
+});
+
+Given('a staged flow task in a primary checkout reached through an alias', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.projectDir);
+  fixtureGit(this.projectDir, 'init', '-b', 'main');
+  fixtureGit(this.projectDir, 'config', 'user.email', 'flow@example.com');
+  fixtureGit(this.projectDir, 'config', 'user.name', 'Flow Test');
+  await fs.writeFile(path.join(this.projectDir, 'seed.txt'), 'seed\n');
+  fixtureGit(this.projectDir, 'add', 'seed.txt');
+  fixtureGit(this.projectDir, 'commit', '--no-gpg-sign', '-m', 'seed');
+  const alias = path.join(this.projectDir, 'checkout-alias');
+  await fs.symlink(this.projectDir, alias, 'junction');
+  this.flowTaskDir = path.join(alias, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
+  await fs.mkdir(this.flowTaskDir, { recursive: true });
+  await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n');
 });
 
 Given('the staged flow task is completed through problem validation', async function (
@@ -1361,6 +1386,56 @@ Then('the implementation response records the Git baseline', function (this: Ski
   assert.ok(response.execution.baselineChanges);
   assert.ok(response.step.prompt.includes(response.execution.workRoot));
   this.flowWorkRoot = response.execution.workRoot;
+});
+
+When('I complete implementation using the work-root spelling {string}', async function (
+  this: SkillArtifactWorld, spelling: string
+) {
+  assert.ok(this.projectDir);
+  assert.ok(this.flowWorkRoot);
+  let workRoot: string;
+  if (spelling === 'alias') {
+    workRoot = path.join(this.projectDir, 'execution-alias');
+    await fs.symlink(this.flowWorkRoot, workRoot, 'junction');
+  } else {
+    assert.equal(spelling, 'padded');
+    workRoot = `  ${this.flowWorkRoot}  `;
+  }
+  this.cliResult = await runStagedFlowComplete(this, 'implement', [
+    '--summary', 'No source changes needed.', '--work-root', workRoot,
+  ]);
+});
+
+Then('the recorded execution root is unchanged', function (this: SkillArtifactWorld) {
+  assert.ok(this.cliResult);
+  assert.equal(JSON.parse(this.cliResult.stdout).execution.workRoot, this.flowWorkRoot);
+});
+
+When('I commit an owned file and stage a sibling chunk through its canonical path', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.flowWorkRoot);
+  assert.ok(this.flowTaskDir);
+  await fs.writeFile(path.join(this.flowWorkRoot, 'owned.txt'), 'first chunk\n');
+  fixtureGit(this.flowWorkRoot, 'add', 'owned.txt');
+  fixtureGit(this.flowWorkRoot, 'commit', '--no-gpg-sign', '-m', 'first chunk');
+  this.flowHeadCommit = fixtureGit(this.flowWorkRoot, 'rev-parse', 'HEAD');
+  this.flowTaskDir = path.join(path.dirname(await fs.realpath(this.flowTaskDir)), 'chunk-two');
+  await fs.mkdir(this.flowTaskDir);
+  await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk Two\n');
+});
+
+Then('the sibling execution retains the original worktree and commit', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.cliResult);
+  assert.ok(this.flowWorkRoot);
+  assert.ok(this.flowHeadCommit);
+  const response = JSON.parse(this.cliResult.stdout);
+  assert.equal(response.step.id, 'implement');
+  assert.equal(await fs.realpath(response.execution.workRoot), await fs.realpath(this.flowWorkRoot));
+  assert.equal(response.execution.baselineHead, this.flowHeadCommit);
+  assert.equal(await fs.readFile(path.join(response.execution.workRoot, 'owned.txt'), 'utf-8'), 'first chunk\n');
 });
 
 When('I implement a new owned file in the recorded work root', async function (this: SkillArtifactWorld) {
