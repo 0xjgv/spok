@@ -5,8 +5,10 @@ import path from 'node:path';
 
 const cliMocks = vi.hoisted(() => ({
   applyInstructionsCommand: vi.fn(async () => {}),
+  flowAnswerCommand: vi.fn(async () => {}),
   flowCompleteCommand: vi.fn(async () => {}),
   flowNextCommand: vi.fn(async () => {}),
+  flowPauseCommand: vi.fn(async () => {}),
   flowStatusCommand: vi.fn(async () => {}),
   initExecute: vi.fn(async () => {}),
   initOptions: vi.fn(),
@@ -17,6 +19,11 @@ const cliMocks = vi.hoisted(() => ({
   statusCommand: vi.fn(async () => {}),
   trackCommand: vi.fn(async () => {}),
   trackTelemetryEvent: vi.fn(async () => {}),
+}));
+
+vi.mock('../../src/commands/workflow/flow.js', () => ({
+  flowAnswerCommand: cliMocks.flowAnswerCommand,
+  flowPauseCommand: cliMocks.flowPauseCommand,
 }));
 
 vi.mock('../../src/commands/workflow/index.js', () => ({
@@ -52,31 +59,31 @@ async function importCliWithArgs(args: string[]): Promise<void> {
   await import('../../src/cli/index.js');
 }
 
+let originalArgv: string[];
+let originalCwd: string;
+let tempDir: string;
+
+beforeEach(() => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  originalArgv = [...process.argv];
+  originalCwd = process.cwd();
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spok-cli-index-'));
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+    throw new Error(`process.exit(${String(code)})`);
+  }) as typeof process.exit);
+});
+
+afterEach(() => {
+  process.argv = originalArgv;
+  process.chdir(originalCwd);
+  fs.rmSync(tempDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
+});
+
 describe('CLI entrypoint', () => {
-  let originalArgv: string[];
-  let originalCwd: string;
-  let tempDir: string;
-
-  beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
-    originalArgv = [...process.argv];
-    originalCwd = process.cwd();
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spok-cli-index-'));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
-      throw new Error(`process.exit(${String(code)})`);
-    }) as typeof process.exit);
-  });
-
-  afterEach(() => {
-    process.argv = originalArgv;
-    process.chdir(originalCwd);
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    vi.restoreAllMocks();
-  });
-
   it('warns about invalid project config before non-json workflow commands run', async () => {
     const spokDir = path.join(tempDir, 'spok');
     fs.mkdirSync(spokDir, { recursive: true });
@@ -115,5 +122,43 @@ flow:
       tools: 'none',
     });
     expect(console.log).toHaveBeenCalledWith(`Directory "${targetPath}" doesn't exist, it will be created.`);
+  });
+
+  it.each([
+    {
+      args: [
+        'flow', 'pause', '/tmp/task', '--step', 'design-discussion',
+        '--questions', '/tmp/task/questions.json', '--json',
+      ],
+      command: cliMocks.flowPauseCommand,
+      options: { step: 'design-discussion', questions: '/tmp/task/questions.json', json: true },
+    },
+    {
+      args: [
+        'flow', 'answer', '/tmp/task', '--question', 'interface', '--answer', 'webhook', '--json',
+      ],
+      command: cliMocks.flowAnswerCommand,
+      options: { question: 'interface', answer: 'webhook', json: true },
+    },
+  ])('registers the internal flow question command', async ({ args, command, options }) => {
+    await importCliWithArgs(args);
+
+    await vi.waitFor(() => {
+      expect(command).toHaveBeenCalledWith('/tmp/task', options);
+    });
+  });
+});
+
+describe('Flow completion CLI', () => {
+  it('passes exact changed paths to flow completion', async () => {
+    await importCliWithArgs([
+      'flow', 'complete', '/tmp/task', '--step', 'implement', '--summary', 'Done',
+      '--changed-path', 'src/a file.ts', 'test/a.test.ts', '--json',
+    ]);
+    await vi.waitFor(() => {
+      expect(cliMocks.flowCompleteCommand).toHaveBeenCalledWith('/tmp/task', expect.objectContaining({
+        changedPaths: ['src/a file.ts', 'test/a.test.ts'],
+      }));
+    });
   });
 });

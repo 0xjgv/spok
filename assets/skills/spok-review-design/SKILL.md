@@ -6,7 +6,7 @@ description: Review and reconcile a Spok task's design discussion and structure 
 # Review Design
 
 Review the proposed design after the structure outline exists and before planning begins.
-Revise objective inconsistencies, preserve human decision authority, and emit the
+Resolve inconsistencies autonomously, preserve explicit user intent, and emit the
 machine-readable verdict consumed by `spok flow complete`.
 
 ## Input
@@ -21,7 +21,7 @@ The directory already exists. Do not create it or search for another task direct
 
 - Design discussion owns behavior, scope, APIs, UX, and tradeoffs.
 - Structure outline owns phase decomposition and must conform to the design discussion.
-- Design review owns the final reconciliation of those two artifacts, not new design decisions.
+- Design review owns the final reconciliation of those two artifacts, including evidence-backed decisions recorded in the design discussion.
 - The later plan may add step-level implementation detail only. It cannot override the reviewed design.
 
 Chronology does not determine authority. Never treat the newer outline as permission to
@@ -54,15 +54,15 @@ silently change a design decision.
    - Record the rationale and evidence in the design discussion.
    - Only then reconcile `<task-dir>/structure-outline.md` with the revised design.
    - If the design is already correct, leave it unchanged and repair only the outline.
-   - Limit autonomous edits to objective factual errors that leave the decision set
-     intact. If a correction would overturn, narrow, or replace a decision, option, or
-     tradeoff already recorded in `design-discussion.md`, do not apply it. Record it
-     under `## Human Decisions Required` and return `FAIL`.
+   - Resolve decisions autonomously using repository evidence and explicit user intent.
+     Record the rationale for revising an earlier agent decision; do not override an
+     explicit user requirement. There is no mandatory human signoff gate.
 7. Re-read both artifacts after editing and repeat the consistency check.
-8. Do not choose between consequential product, API, UX, behavior, or scope options.
-   Record each unresolved choice under `## Human Decisions Required` and return `FAIL`.
-9. Never infer or rewrite human visual-evidence approval. If a correction would alter an
-   approved visual target, record it as a human decision instead.
+8. Ask questions when useful through the supplied structured question packet protocol.
+   A question response ends with its NEEDS_INPUT marker and does not produce a completed
+   review artifact. Consume durable answers on redispatch, then finish the review.
+9. If a correction changes a visual target, rebuild and verify its evidence using the
+   design skill's contract. Never claim human approval that was not supplied.
 
 ## Verdict
 
@@ -71,10 +71,11 @@ Return `PASS` only when:
 - every consequential decision is resolved in `design-discussion.md`
 - the outline conforms to the design discussion
 - every required behavior has a viable phase
-- no human decision remains
+- no unresolved decision or required evidence gap remains
 
-Return `FAIL` when a consequential choice or material design gap still requires human
-judgment. A `FAIL` blocks planning; do not invoke a repair cycle or guess an answer.
+Return `FAIL` when a material design gap cannot be resolved or required evidence cannot
+be obtained. A `FAIL` blocks planning. Do not use it as a routine human approval gate.
+Questions chosen by the agent use the structured question packet before a final verdict.
 
 ## Output
 
@@ -134,5 +135,5 @@ After writing, confirm the file exists and is non-empty with
 - Do not read, create, or edit `<task-dir>/plan.md`.
 - Do not edit source code, tests, configuration, or task scope outside the two design artifacts.
 - Do not implement the design.
-- Do not change `ticket.md`, research artifacts, or visual-evidence approval records.
+- Do not change `ticket.md`, research artifacts, or explicit user requirements. Preserve any historical human approval as history, without treating it as a mandatory gate.
 - Cite evidence for every autonomous correction.

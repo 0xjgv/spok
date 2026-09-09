@@ -48,6 +48,14 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
+function fixtureGit(root: string, ...args: string[]): string {
+  const env = { ...process.env };
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']) {
+    delete env[key];
+  }
+  return execFileSync('git', ['-C', root, ...args], { encoding: 'utf-8', env }).trim();
+}
+
 async function captureConsoleLog(run: () => Promise<void>): Promise<string> {
   const originalLog = console.log;
   const lines: string[] = [];
@@ -199,6 +207,23 @@ Given('a staged flow task in a linked worktree', async function (this: SkillArti
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n', 'utf-8');
 });
 
+Given('a staged flow task in a primary checkout reached through an alias', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.projectDir);
+  fixtureGit(this.projectDir, 'init', '-b', 'main');
+  fixtureGit(this.projectDir, 'config', 'user.email', 'flow@example.com');
+  fixtureGit(this.projectDir, 'config', 'user.name', 'Flow Test');
+  await fs.writeFile(path.join(this.projectDir, 'seed.txt'), 'seed\n');
+  fixtureGit(this.projectDir, 'add', 'seed.txt');
+  fixtureGit(this.projectDir, 'commit', '--no-gpg-sign', '-m', 'seed');
+  const alias = path.join(this.projectDir, 'checkout-alias');
+  await fs.symlink(this.projectDir, alias, 'junction');
+  this.flowTaskDir = path.join(alias, 'spok', 'changes', 'demo', '.flow', 'chunk-one');
+  await fs.mkdir(this.flowTaskDir, { recursive: true });
+  await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n');
+});
+
 Given('the staged flow task is completed through problem validation', async function (
   this: SkillArtifactWorld
 ) {
@@ -234,6 +259,55 @@ Given('the staged flow task is completed through research', async function (
     );
     assert.equal(result.exitCode, 0, result.stderr);
   }
+});
+
+Given('a two-question design-discussion packet', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  const packet = {
+    questions: [
+      {
+        id: 'interface',
+        prompt: 'Choose the public interface',
+        kind: 'choice',
+        options: [
+          {
+            id: 'webhook',
+            label: 'Webhook',
+            consequence: 'Callers receive asynchronous updates.',
+          },
+          {
+            id: 'polling',
+            label: 'Polling',
+            consequence: 'Callers request updates on demand.',
+          },
+        ],
+        recommendedOptionId: 'webhook',
+      },
+      {
+        id: 'failure-policy',
+        prompt: 'Choose the failure policy',
+        kind: 'choice',
+        options: [
+          {
+            id: 'retry',
+            label: 'Retry',
+            consequence: 'Transient failures are attempted again.',
+          },
+          {
+            id: 'fail-fast',
+            label: 'Fail fast',
+            consequence: 'The first failure ends the operation.',
+          },
+        ],
+        recommendedOptionId: 'retry',
+      },
+    ],
+  };
+  await fs.writeFile(
+    path.join(this.flowTaskDir, 'design-discussion-questions.json'),
+    `${JSON.stringify(packet, null, 2)}\n`,
+    'utf-8'
+  );
 });
 
 Given('the staged flow task is completed through structure outline', async function (
@@ -698,6 +772,48 @@ When('I run spok flow next as JSON for the staged task', async function (this: S
   });
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
 });
+
+When(
+  'I pause the staged flow design-discussion step with the question packet',
+  async function (this: SkillArtifactWorld) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+    this.cliResult = await runCLI(
+      [
+        'flow',
+        'pause',
+        this.flowTaskDir,
+        '--step',
+        'design-discussion',
+        '--questions',
+        path.join(this.flowTaskDir, 'design-discussion-questions.json'),
+        '--json',
+      ],
+      { cwd: this.projectDir }
+    );
+  }
+);
+
+When(
+  'I answer staged flow question {string} with {string}',
+  async function (this: SkillArtifactWorld, question: string, answer: string) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+    this.cliResult = await runCLI(
+      [
+        'flow',
+        'answer',
+        this.flowTaskDir,
+        '--question',
+        question,
+        '--answer',
+        answer,
+        '--json',
+      ],
+      { cwd: this.projectDir }
+    );
+  }
+);
 
 When('I run spok flow status for the staged task', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
@@ -1258,4 +1374,141 @@ After(async function (this: SkillArtifactWorld) {
   if (this.flowWorkRoot) {
     await fs.rm(this.flowWorkRoot, { recursive: true, force: true });
   }
+});
+
+Then('the implementation response records the Git baseline', function (this: SkillArtifactWorld) {
+  assert.ok(this.cliResult);
+  const response = JSON.parse(this.cliResult.stdout);
+  assert.equal(response.step.id, 'implement');
+  assert.ok(path.isAbsolute(response.execution.workRoot));
+  assert.ok(response.execution.branch);
+  assert.match(response.execution.baselineHead, /^[a-f0-9]{40,64}$/);
+  assert.ok(response.execution.baselineChanges);
+  assert.ok(response.step.prompt.includes(response.execution.workRoot));
+  this.flowWorkRoot = response.execution.workRoot;
+});
+
+When('I complete implementation using the work-root spelling {string}', async function (
+  this: SkillArtifactWorld, spelling: string
+) {
+  assert.ok(this.projectDir);
+  assert.ok(this.flowWorkRoot);
+  let workRoot: string;
+  if (spelling === 'alias') {
+    workRoot = path.join(this.projectDir, 'execution-alias');
+    await fs.symlink(this.flowWorkRoot, workRoot, 'junction');
+  } else {
+    assert.equal(spelling, 'padded');
+    workRoot = `  ${this.flowWorkRoot}  `;
+  }
+  this.cliResult = await runStagedFlowComplete(this, 'implement', [
+    '--summary', 'No source changes needed.', '--work-root', workRoot,
+  ]);
+});
+
+Then('the recorded execution root is unchanged', function (this: SkillArtifactWorld) {
+  assert.ok(this.cliResult);
+  assert.equal(JSON.parse(this.cliResult.stdout).execution.workRoot, this.flowWorkRoot);
+});
+
+When('I commit an owned file and stage a sibling chunk through its canonical path', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.flowWorkRoot);
+  assert.ok(this.flowTaskDir);
+  await fs.writeFile(path.join(this.flowWorkRoot, 'owned.txt'), 'first chunk\n');
+  fixtureGit(this.flowWorkRoot, 'add', 'owned.txt');
+  fixtureGit(this.flowWorkRoot, 'commit', '--no-gpg-sign', '-m', 'first chunk');
+  this.flowHeadCommit = fixtureGit(this.flowWorkRoot, 'rev-parse', 'HEAD');
+  this.flowTaskDir = path.join(path.dirname(await fs.realpath(this.flowTaskDir)), 'chunk-two');
+  await fs.mkdir(this.flowTaskDir);
+  await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk Two\n');
+});
+
+Then('the sibling execution retains the original worktree and commit', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.cliResult);
+  assert.ok(this.flowWorkRoot);
+  assert.ok(this.flowHeadCommit);
+  const response = JSON.parse(this.cliResult.stdout);
+  assert.equal(response.step.id, 'implement');
+  assert.equal(await fs.realpath(response.execution.workRoot), await fs.realpath(this.flowWorkRoot));
+  assert.equal(response.execution.baselineHead, this.flowHeadCommit);
+  assert.equal(await fs.readFile(path.join(response.execution.workRoot, 'owned.txt'), 'utf-8'), 'first chunk\n');
+});
+
+When('I implement a new owned file in the recorded work root', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowWorkRoot);
+  await fs.writeFile(path.join(this.flowWorkRoot, 'owned.txt'), 'chunk implementation\n', 'utf-8');
+  this.cliResult = await runStagedFlowComplete(this, 'implement', ['--summary', 'Created owned.txt', '--changed-path', 'owned.txt']);
+  assert.equal(this.cliResult.exitCode, 0, this.cliResult.stdout + this.cliResult.stderr);
+});
+
+Then('the simplification prompt contains only the recorded owned paths', function (this: SkillArtifactWorld) {
+  assert.ok(this.cliResult);
+  const response = JSON.parse(this.cliResult.stdout);
+  assert.equal(response.step.id, 'simplify');
+  assert.deepEqual(response.execution.ownedPaths, ['owned.txt']);
+  assert.ok(response.step.prompt.includes('owned.txt'));
+  assert.ok(response.step.prompt.includes('Exact implementation allowlist'));
+});
+
+Then('the execution work root can discover the vendored skills', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowWorkRoot);
+  for (const tool of ['.agents', '.claude']) {
+    const skill = await fs.readFile(path.join(this.flowWorkRoot, tool, 'skills/spok-implement-plan/SKILL.md'), 'utf-8');
+    assert.ok(skill.includes('Implement each phase directly'));
+  }
+});
+
+When('I pause the design discussion using the packet spelling {string}', async function (
+  this: SkillArtifactWorld, spelling: string
+) {
+  assert.ok(this.projectDir);
+  assert.ok(this.flowTaskDir);
+  const original = path.join(this.flowTaskDir, 'design-discussion-questions.json');
+  let packet: string;
+  if (spelling === 'alias') {
+    const alias = path.join(this.projectDir, 'task-alias');
+    await fs.symlink(this.flowTaskDir, alias, 'junction');
+    packet = path.join(alias, path.basename(original));
+  } else {
+    packet = path.join(this.flowTaskDir, spelling);
+    await fs.copyFile(original, packet);
+  }
+  this.cliResult = await runCLI(
+    ['flow', 'pause', this.flowTaskDir, '--step', 'design-discussion', '--questions', packet, '--json'],
+    { cwd: this.projectDir }
+  );
+});
+
+Given('a future-dated design discussion output', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir);
+  const output = path.join(this.flowTaskDir, 'design-discussion.md');
+  await fs.writeFile(output, '# Stale design discussion\n');
+  const future = new Date(Date.now() + 86_400_000);
+  await fs.utimes(output, future, future);
+});
+
+When('I attempt to complete the staged design discussion', async function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir);
+  assert.ok(this.flowTaskDir);
+  this.cliResult = await runCLI(
+    ['flow', 'complete', this.flowTaskDir, '--step', 'design-discussion', '--json'],
+    { cwd: this.projectDir }
+  );
+});
+
+When('I recreate the design discussion with the answer timestamp', async function (this: SkillArtifactWorld) {
+  assert.ok(this.flowTaskDir);
+  const state = JSON.parse(await fs.readFile(path.join(this.flowTaskDir, 'workflow-state.json'), 'utf8')) as {
+    steps: Array<{ id: string; interactions?: Array<{ resolvedAt?: string }> }>;
+  };
+  const timestamp = state.steps.find(step => step.id === 'design-discussion')?.interactions?.at(-1)?.resolvedAt;
+  assert.ok(timestamp);
+  const output = path.join(this.flowTaskDir, 'design-discussion.md');
+  await fs.writeFile(output, '# Answered design discussion\nUse webhook and retry.\n');
+  const answeredAt = new Date(timestamp);
+  await fs.utimes(output, answeredAt, answeredAt);
 });

@@ -6,6 +6,10 @@ branch: [current branch name]
 sha: [result of git rev-parse HEAD]
 ---
 
+# Design Discussion
+
+## Context
+
 ### Summary of change request
 
 [summary of what the user wants to build based on their request and the ticket]
@@ -60,32 +64,41 @@ sha: [result of git rev-parse HEAD]
 
 ...
 
-### Design Questions
+## Smallest Viable Control
 
-#### [title first question]
+- Existing mechanisms: [relevant controls, state, platform or upstream guarantees, with evidence]
+- Smallest viable scope: [the bounded change and why it meets the behavior contract]
+- Alternatives compared: [reuse existing mechanisms versus adding a control; rejected tradeoffs]
+- Added cost: [justify added state, flags, or cross-service controls by the failure existing mechanisms cannot prevent, or state that none is needed]
 
-[the design question]
+## Resolved Design Decisions
 
-- Option A: ...
-[optional: short code snippet]
-- Option B: ...
-[optional: short code snippet]
-- ..
+### [decision title]
 
-Reccomendation: [....]
+- Selected option: [resolved behavior, scope, API, UX, or tradeoff]
+- Basis: [autonomous choice or explicit user input, with evidence]
+- Rationale: [why this option fits the request and existing patterns]
+- Alternatives rejected: [options and their tradeoffs]
+- Boundaries and assumptions: [what this decision excludes and any remaining uncertainty]
 
-#### [title second design question]
+[Repeat for each consequential decision. Resolve decisions before finalizing; do not leave an unanswered question list or a recommendation awaiting approval.]
 
-...
+## System Design
 
+- Components and boundaries: [which components change and why]
+- Contracts and data flow: [cross-component interfaces, compatibility, and failure behavior]
+- Unchanged boundaries: [where existing mechanisms remain sufficient]
 
-### Resolved Design Questions
+## Program Design
 
-#### [title resolved question]
+- In-code shape: [modules, functions, types, and responsibilities grounded in research]
+- Patterns reused: [existing implementation patterns and locations]
+- Verification approach: [behavior to verify and established testing patterns]
 
-[option chosen] - [rationale] - [patternt to follow]
+## Visual Evidence
 
-
-#### [ title second resolved question]
-
-...
+- Classification: [required or not-applicable, from the ticket]
+- Result: [for not-applicable, explain that no packet is needed; for required, record verified status]
+- Packet: [for required, repository-relative path and relative Markdown link to index.html]
+- Design decision: [for required, the autonomous target choice, rationale, and any explicit user input]
+- Verification: [for required, states and viewports rendered and inspected, plus results]

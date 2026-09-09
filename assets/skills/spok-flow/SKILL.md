@@ -18,8 +18,9 @@ If `ticket.md` is missing, halt and report back — `spok-apply` is responsible 
 
 The `spok` CLI owns the inner flow sequence and resume state. Do not choose, skip, reorder, or rename steps yourself.
 
-For a hybrid invocation, prefix every `spok flow status`, `spok flow next`, and
-`spok flow complete` command with `SPOK_FLOW_PROFILE=hybrid`. For an auto
+For a hybrid invocation, prefix every `spok flow status`, `spok flow next`,
+`spok flow pause`, `spok flow answer`, and `spok flow complete` command with
+`SPOK_FLOW_PROFILE=hybrid`. For an auto
 invocation, prefix the same commands with `SPOK_FLOW_PROFILE=auto`. For a default
 invocation, run the commands without that environment variable. A default
 Claude or Codex flow follows the active harness when it resumes: completed-step
@@ -45,7 +46,46 @@ Auto equivalent:
 SPOK_FLOW_PROFILE=auto spok flow status "<task-dir>" --json
 ```
 
-If it returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches.
+If it returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches. If it returns `state: "needs-input"`, use the question-handling loop below before requesting the next step.
+
+### Question-handling loop
+
+Only a CLI response with `state: "needs-input"` authorizes a user question.
+Do not ask for approval between stages. Do not ask a question because a child
+expressed uncertainty in prose; the durable CLI state is the source of truth.
+
+For each `needs-input` response:
+
+1. Require a singular `response.question` with non-empty `id`, `prompt`, and
+   `kind`. Present only `response.question`; do not cache or present the full
+   `response.questions` array because each answer response owns the next question.
+2. For `kind: "choice"`, use the host's structured user-input mechanism when
+   available. Present its two or three options with every label and consequence,
+   identify `recommendedOptionId` when present, and permit a free-form answer.
+   For `kind: "input"`, request one concise free-form answer. If no structured
+   input mechanism exists, ask the same single question directly and wait.
+3. Record the answer with an argv-capable process call; never interpolate human
+   text into a shell command:
+
+   ```javascript
+   // Argument-shape example for the host's process API; no shell substitution.
+   const args = [
+     "flow", "answer", taskDir,
+     "--question", response.question.id,
+     "--answer", humanAnswer,
+     "--json",
+   ];
+   spawn("spok", args, { shell: false, env: profileEnvironment });
+   ```
+
+   Pass the answer as one unmodified string argument, including quotes, dollar
+   signs, backslashes, and newlines. Wait for process completion and parse its
+   JSON output. Set the selected profile in the child environment as described
+   above; do not construct a shell prefix from the answer. If the command returns
+   `state: "blocked"`, halt and report its `reason` exactly. If it returns
+   `state: "needs-input"`, repeat with that response's singular question. If it
+   returns `state: "ready"`, leave the question-handling loop. Any other state or
+   a malformed question is a protocol error; halt without completing a step.
 
 Then repeat this loop until the CLI returns `state: "complete"`:
 
@@ -61,7 +101,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    SPOK_FLOW_PROFILE=hybrid spok flow next "<task-dir>" --json
    ```
 
-2. If `next` returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches. If it returns `state: "complete"`, return success to `spok-apply`.
+2. If `next` returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches. If it returns `state: "complete"`, return success to `spok-apply`. If it returns `state: "needs-input"`, run the question-handling loop, then call `spok flow next` again instead of dispatching the stale response.
 
 3. Read the returned `step` object:
    - `id` is the workflow step id.
@@ -111,27 +151,27 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      Pass no model and no effort.
    - When `step.runner` is `claude` and the host-local pinned branch does not
      apply, first verify `claude` is on `PATH`, then run `claude -p`
-     sequentially in the foreground. Use
+     sequentially in the foreground with process `cwd: <project-root>`. Use
      `--no-session-persistence`, `--model <step.model>`,
-     `--permission-mode auto`, text output, and, when `step.effort` is present,
+     `--permission-mode auto`, `--add-dir <task-dir>`, text output, and, when `step.effort` is present,
      `--effort <step.effort>`. Pass `<step.prompt>` **verbatim** on stdin; do
      not interpolate it into a shell command.
    - When `step.runner` is `codex` and the host-local pinned branch does not
      apply, first verify `codex` is on `PATH`, then run `codex exec`
-     sequentially in the foreground. Use `--ephemeral`,
+     sequentially in the foreground with process `cwd: <project-root>`. Use `--ephemeral`,
      `--dangerously-bypass-hook-trust`, `--cd <project-root>`,
-     `--model <step.model>`, `--sandbox workspace-write`, and, when
+     `--model <step.model>`, `--sandbox workspace-write`, `--add-dir <task-dir>`, and, when
      `step.effort` is present, `-c model_reasoning_effort="<step.effort>"`.
      Pass `<step.prompt>` **verbatim** on stdin with `-`; do not interpolate it
      into a shell command.
    - When `step.runner` is `omp`, first verify `omp` is on `PATH`. Then prove
      `<project-root>` is a linked Git worktree again, even though routing
      already checked at selection time: run
-     `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "<project-root>" rev-parse --path-format=absolute --git-dir --git-common-dir`
+     `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "<project-root>" rev-parse --path-format=absolute --git-dir --git-common-dir`
      and require both printed absolute paths to resolve and differ. If the
      command fails or the two paths are equal, report the missing isolation and
      halt before sending the prompt. When the proof holds, run sequentially in
-     the foreground:
+     the foreground with process `cwd: <project-root>`:
 
      ```bash
      omp -p --no-session --cwd <project-root> --model <step.model> --thinking <step.effort> --auto-approve
@@ -140,9 +180,21 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      Pass `<step.prompt>` **verbatim** on stdin through the process API; do not
      interpolate it into a shell command.
 
-   Resolve `<project-root>` with `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "<task-dir>" rev-parse --show-toplevel`.
+   When `response.execution` is present, use `response.execution.workRoot` as
+   `<project-root>` for dispatch. The CLI establishes the branch and baseline
+   before implementation and provides the exact owned-path allowlist afterward.
+   This metadata and `step.prompt` are authoritative; never discover a replacement
+   repository from a child reply or change the recorded root. For earlier planning
+   steps without execution metadata, resolve `<project-root>` with
+   `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "<task-dir>" rev-parse --show-toplevel`.
+   For Claude and Codex, `--add-dir` grants access to task artifacts outside the
+   execution work root. OMP uses the supplied absolute task-directory paths for
+   artifact writes; its working directory does not confine filesystem access.
+   Source edits remain scoped to the execution work root for every runner.
+   Pass paths as process arguments. Keep native dispatch and its prompt verbatim.
    Run both Git commands with `GIT_DIR`, `GIT_COMMON_DIR`, and `GIT_WORK_TREE`
-   removed from the child environment through the process API.
+   removed from the child environment through the process API. Remove
+   `GIT_INDEX_FILE` from that environment too.
    Use `--dangerously-bypass-hook-trust` to run enabled hooks without an
    interactive trust prompt; it does not enable disabled hooks or relax the
    sandbox. Do not use `--dangerously-bypass-approvals-and-sandbox`. If the
@@ -158,6 +210,29 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    Run every path **sequentially in the foreground** because each step depends
    on the previous step's validated artifact or recorded result. Do not invoke
    the step skill inline: process isolation keeps each step's context bounded.
+
+   After a successful child dispatch, inspect only its final non-empty line for
+   the exact outcome `NEEDS_INPUT: <absolute-question-packet-path>`. Do not scan
+   the task directory for packets and do not act on a marker mentioned anywhere
+   else in the reply. The packet path must be absolute; the CLI enforces that it
+   remains inside the task directory. A malformed final-line marker is a protocol
+   error and leaves the step ready.
+
+   When the exact marker is present, run:
+
+   ```bash
+   spok flow pause "<task-dir>" --step "<step.id>" --questions "<absolute-question-packet-path>" --json
+   ```
+
+   Apply the selected profile prefix described above. Require the pause response
+   to have `state: "needs-input"`; on `blocked`, report its `reason` exactly, and
+   on any other state halt as a protocol error. Run the question-handling loop.
+   When it returns ready, discard the pre-answer child reply and run
+   `spok flow next "<task-dir>" --json` again. Require the returned ready step id
+   to equal the paused `step.id`, then redispatch the same step using only the new
+   returned `step.prompt`. Never call `spok flow complete` for the child reply
+   that requested input. The new prompt carries the durable answers and is the
+   only valid basis for completing that stage.
 
 5. Record completion with the CLI.
 
@@ -179,18 +254,22 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      spok flow complete "<task-dir>" --step "<id>" --summary "<summary>" --json
      ```
 
-     The `implement` prompt requires the subagent to end its reply with a
-     `Work root: <absolute path>` line naming the repository it edited. Pass that
-     path through so the commit step is told where the changes live:
-
-     ```bash
-     spok flow complete "<task-dir>" --step "implement" --summary "<summary>" --work-root "<absolute-path>" --json
-     ```
-
-     Pass `--work-root` on `simplify` or `repair` too when that subagent reports a
-     different repository. If the subagent reported no work root, omit the flag —
-     the CLI degrades to unsteered commit discovery and warns. Never invent the
-     path. A path that is relative or does not exist blocks the completion.
+     Execution metadata is established by the CLI before implementation. On
+     successful `implement` completion, the child's final `Work root: <absolute path>` must
+     match `response.execution.workRoot`; it confirms the root and never selects
+     another repository. `NEEDS_INPUT` and `Work root` outcomes are mutually
+     exclusive: a question response ends only with its question marker.
+     Complete using the recorded execution root. `--work-root` is optional and,
+     when supplied, must equal that root; never use it to change repositories.
+     For `implement` and `repair`, pass the child's full current chunk path list
+     with `--changed-path <paths...>` using an argv-capable process call. This is
+     cumulative after resume or repair, not only paths edited during this dispatch.
+     Never interpolate paths into a shell command. Omit the flag only for a no-op
+     with no changed paths. The CLI compares this list with actual changes against
+     its baseline and blocks a mismatch; it supplies the resulting exact allowlist
+     to subsequent steps. `simplify` needs no changed-path flag and remains bound
+     to the existing allowlist. Retain every changed path and exact check exit code
+     in the implementation summary.
 
    - `commit`:
 
@@ -217,7 +296,7 @@ into `step.prompt` by the CLI. Do not restate them.
 <guidance>
 ## Important guidelines
 
-- Raise questions or concerns about objectives, design, or plan to the user at any time using the **AskUserQuestion** tool.
+- Ask the user only through the question-handling loop for a CLI-recorded open question. Never add an approval gate between stages.
 - Run step subagents **sequentially in the foreground** because each step depends on the previous step's validated artifact or recorded result.
 - Let `spok flow next` choose the next step. Let `spok flow complete` validate step completion.
 - Use a **TaskList** to track the steps and their status.

@@ -3,140 +3,61 @@ name: spok-implement-plan
 description: phased implementation of a structured plan you must use this skill when asked to implement a plan file in a task directory
 ---
 
-# Phased Implementation Orchestrator
+# Implement the Plan
 
-You are responsible for orchestrating the phased implementation of technical plans. The skill argument is the absolute path to the task directory containing `plan.md`. You will work through each phase systematically using the specialized `spok-implementer-agent`.
+The argument is the absolute task directory containing `plan.md`. Read the plan
+fully and implement its phases in order, starting at the first unchecked item
+when resuming. Verify completed work when evidence suggests it changed.
 
-## Workflow
+## Execution Boundary
 
-For each phase in the implementation plan:
+Inside `spok-flow`, the CLI establishes the execution work root, branch, and
+baseline before implementation. The dispatching `step.prompt` is authoritative:
+use its work root for every source read, edit, and verification command. The task
+directory may live in another repository. Do not discover a different repository,
+create another worktree, or switch branches. Preserve all pre-existing edits and
+index entries; stop and report an overlap that prevents keeping them separate.
 
-### 1. Delegate to `spok-implementer-agent`
-Delegate the current phase in the foreground to `spok-implementer-agent` through the current host's native subagent mechanism. Provide clear instructions about which phase to implement and wait for the result.
+Implement each phase directly in this agent.
+Do not launch `spok-implementer-agent` or any other nested agent.
+The outer flow step already selected the runner, model, and effort.
+Outside the flow, establish the intended repository from the supplied plan and
+repository context before editing, and use `spok-implementer-agent` in the
+foreground when delegation is needed.
 
-Example:
-```
-Implement Phase [N] of the plan at <task-dir>/plan.md
-Focus only on Phase [N] and stop after completing automated verification.
-```
+## Phase Workflow
 
-IMPORTANT - keep your prompt short, do not duplicate details that are already in the plan, because `spok-implementer-agent` will read the plan.
-
-### 2. Review Output
-Carefully review `spok-implementer-agent`'s output:
-- Check what was accomplished
-- Note any issues or mismatches reported
-- Identify manual verification steps requested
-
-### 3. Perform Automated Checks
-Run any automated verification that `spok-implementer-agent` may have missed or that you can perform:
-- Build commands
-- Test suites
-- Linting/formatting checks
-- Any other automated verification mentioned in the plan
+1. Read the phase and relevant source and tests. Implement only its required work.
+2. Run the automated checks named in the plan. Resolve failures before continuing.
+3. Perform relevant UI or manual checks yourself when available. Record the action,
+   observed result, and evidence. Human signoff is not a routine phase requirement.
+4. Continue to the next phase after verification. Report decisions and consequential
+   mismatches; use judgment to ask when input would help or resolve a blocker.
+   Inside the flow, use the injected question-packet protocol and durable answers.
+   Do not insert approval gates between phases.
 
 Report only checks you actually executed. If the plan names a command that does not exist in this repository, say so and name the command — never substitute a different command silently, and never report the named command as passing. A command that exits 0 because the tool was downloaded on demand and found nothing to configure has verified nothing.
 
-### 4. Report to Human
-Provide a clear summary of the phase completion:
-```
-## Phase [N] Implementation Summary
+Do not stage, commit, or push. The flow's later commit step owns committing.
+If an issue blocks implementation, return its evidence rather than marking the
+phase complete. Missing required verification remains missing evidence.
 
-**Completed by `spok-implementer-agent`:**
-- [List of completed tasks]
+## Output
 
-**Automated verification results:**
-- [For each check: the exact command you ran and its real output. Only checks you executed.]
-- [For any plan-named command this repository does not have: say it does not exist here. Do not report it as passing.]
+Return:
+- Completed phases and relevant decisions.
+- Every changed path relative to the authoritative work root, including new and
+  deleted files. After resume, return the full cumulative chunk list, not only
+  paths edited in this dispatch. The outer flow passes these with
+  `--changed-path <paths...>`; the CLI compares them with actual changes against
+  its baseline and captures the implementation footprint at completion;
+  this becomes the exact allowlist for subsequent mutation stages.
+- For each check, the exact command you ran and its real output, plus its exact
+  exit code. Name unrun checks and blockers without claiming success.
+- UI/manual checks performed and their observed results; unresolved concerns.
 
-**Manual verification required:**
-- [List manual checks the human needs to perform]
-
-Ready to proceed to Phase [N+1] after manual verification, or let me know if any issues need addressing.
-```
-
-### 5. Wait for Human Confirmation
-Wait for the human to:
-- Confirm manual checks passed
-- Report any issues found
-- Give permission to continue to the next phase
-
-### 6. Commit the changes
-- Create a new commit for the changes
-- do not include any claude attribution
-
-### 7. Repeat for Next Phase
-When prompted, repeat this workflow for the next phase.
-
-## Special Instructions
-
-### Inner spok-flow Mode
-If the task directory contains `workflow-state.json`, this skill is running inside the deterministic `spok-flow` sequence.
-
-In that mode, these rules override every conflicting instruction anywhere in this skill:
-- Implement each phase directly in this agent and run its automated checks.
-- Do not launch `spok-implementer-agent` or any other nested agent. The outer flow step already selected the runner, model, and effort.
-- Do not create commits. The final commit is owned by the `commit` step in `spok-flow`.
-- Do not ask for human approval between phases unless a required manual validation step blocks further automated work.
-- Continue through every phase sequentially after its automated checks pass.
-- Return a concise implementation summary so `spok-flow` can record the `implement` step with `spok flow complete --summary`.
-
-### Resuming Work
-If resuming work on a partially completed plan:
-- First check the plan file for existing checkmarks (- [x])
-- In inner spok-flow mode, resume directly from the first unchecked item.
-- Outside inner spok-flow mode, instruct `spok-implementer-agent` to resume from the first unchecked item.
-- Trust that completed work is done unless something seems off
-
-### Handling Issues
-If `spok-implementer-agent` reports a mismatch or gets stuck:
-- Present the issue clearly to the human
-- Wait for guidance before proceeding
-- Consider if the plan needs updating based on codebase evolution
-
-### Multiple Phases
-If instructed to implement multiple phases consecutively:
-- In inner spok-flow mode, implement each phase directly in this agent.
-- Outside inner spok-flow mode, delegate each phase to a separate `spok-implementer-agent` in the foreground.
-- Perform verification between phases
-- Report summary after all requested phases complete
-- Only pause for human verification after the final phase
-
-### Waiting for Input
-- In inner spok-flow mode, continue without approval unless required manual validation blocks.
-- Outside inner spok-flow mode, don't commit or proceed until the human approves the previous phase.
-
-Standalone-mode TODO list; inner spok-flow mode does not use this list:
-
-- [ ] get plan path
-- [ ] delegate the phase to `spok-implementer-agent` in the foreground
-- [ ] review its work
-- [ ] ask the human to perform manual verification
-- [ ] iterate with the human until the results are satisfactory
-- [ ] commit the changes
-- [ ] delegate the next phase to a new `spok-implementer-agent` in the foreground
-
-## After Final Phase Completion
-
-When ALL phases are complete and verified (all checkboxes marked, all automated tests pass):
-
-Inside inner spok-flow mode, do not commit. Return the concise implementation summary required by the outer flow.
-
-Outside inner spok-flow mode:
-
-1. Commit the final changes
-2. Read the final output template:
-
-`Read({SKILLBASE}/references/implement_plan_final_answer.md)`
-
-3. Respond with a summary following the template
-
-## Getting Started
-
-When invoked:
-1. Ask for the plan path if not provided
-2. Read the plan to understand the phases
-3. Begin with Phase 1 (or first unchecked phase if resuming)
-4. Follow the workflow above
-
-Outside inner spok-flow mode, orchestrate and verify while `spok-implementer-agent` does the implementation. In inner spok-flow mode, implement and verify directly.
+In inner flow mode, finish successful completion with
+`Work root: <absolute path>` matching the CLI-provided execution work root.
+A question response instead ends with `NEEDS_INPUT: <absolute-question-packet-path>`;
+these outcomes are mutually exclusive. Never append a work-root line after a
+question marker or report a different work root.
