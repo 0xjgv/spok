@@ -31,21 +31,32 @@ There is no "implementation" section - that is intentional.
 
 ## Detailed Findings
 
-### [Component/Area 1]
-- Description of what exists ([file.ext:line](link))
-- How it connects to other components
-- Current implementation details (without evaluation)
+[Organize by concept, not by file location. Number the top-level sections. Write each one as a
+cohesive explanation with citations woven in, not a file index and not a list of answers to the
+research questions. Describe current state only: never use `diff` blocks or `+`/`-` change markers.]
+
+### 1. [Takeaway about this concept — the header asserts what's true, not the topic or the question]
+
+[Cohesive explanation of what exists, how it works, and how it connects to other components, with
+citations woven in and adjacent lines ranged — e.g. (`path/to/file.ts:57-80`). Place each view
+beside the prose it illustrates: call-stack tree, file tree, type-signature or endpoint contract
+block, or pseudocode.]
 
 #### Testing patterns
 - [concrete examples of how this component is tested in the codebase]
 - [unit or integration or e2e or whatever else exists]
 
-### [Component/Area 2]
+### 2. [Takeaway about the next concept]
 ...
 
 ## Code References
-- `path/to/file.py:123` - Description of what's there
+
+[Group by area. For each group, state whether the list is exhaustive for that area or covers the key
+files while others in the directory may also be relevant.]
+
+- `path/to/file.py:123` - Description of what's there (exhaustive for this module)
 - `another/file.ts:45-67` - Description of the code block
+- `path/to/directory/` - Description of directory contents (key files listed; others exist)
 
 ## Architecture Documentation
 [Current patterns, conventions, and design implementations found in the codebase]

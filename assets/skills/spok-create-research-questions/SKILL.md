@@ -11,7 +11,7 @@ These questions will be used by another agent to research the codebase.
 
 ## Available Research Tools
 
-Use the current host's native subagent mechanism to delegate research to these specialized agents:
+These specialized agents are available for the delegation step below:
 
 - **spok-codebase-locator**: Find all files related to the task/feature
   - Finds relevant source files, configs, and tests
@@ -37,19 +37,24 @@ Use the current host's native subagent mechanism to delegate research to these s
    - Review them carefully before creating questions
    - If `<task-dir>/problem-validation.md` exists next to the ticket, read it FULLY and use its evidence as context. Do not redo reproduction or root cause analysis.
 
-2. **Focus ONLY on the current state of the codebase**
+2. **Delegate lightweight research before drafting any question**
+   - Use the current host's native subagent mechanism to delegate to the agents listed above. Questions must be written from evidence, not from guesses about the codebase.
+   - Send `spok-codebase-locator` first to find what exists, then `spok-codebase-analyzer` or `spok-codebase-pattern-finder` on the areas that look relevant. Use `spok-web-search-researcher` only when an external dependency is in scope.
+   - Group related areas into one subagent prompt rather than one per hunch. Wait for every result before drafting.
+
+3. **Focus ONLY on the current state of the codebase**
    - Do NOT include questions about what should be built
    - Do NOT suggest improvements unless asked
    - Do NOT ask about what the codebase needs or what changes need to happen
    - Only ask questions that would document what exists, where it exists, and how components are organized
 
-3. **Create questions about:**
+4. **Create questions about:**
    - Current implementation details
    - Relevant patterns or constraints
    - Potential complexities or edge cases
    - Architecture, dependencies, and implementation details
    - Which existing controls, state, platform guarantees, or upstream mechanisms already govern the reported behavior, where their boundaries lie, and what evidence establishes the smallest viable scope. Research what exists; leave solution selection to design.
-   - For frontend or UI work, locate the design system, reusable components, tokens, and theming conventions, including their existing usage and verification patterns. Skip this question for work without a UI surface; combine related exploration to stay within the question limit.
+   - For frontend or UI work, locate the design system, reusable components, tokens, and theming conventions, including their existing usage and verification patterns. Probe the component library in use, the design tokens with their hex values, typography settings, spacing, borders, and shadows, and what theming system exists. Consider this category even if UI is not explicitly mentioned in the ticket. Skip it only for work with no UI surface; combine related exploration to stay within the question limit.
 
    **MANDATORY — every run must include this question**: what are this repository's actual lint, typecheck, test, and format commands? The answer must be sourced from the repository's own manifest — `package.json` scripts, `Makefile` targets, or the equivalent for this stack — and never inferred from a toolchain name, a lockfile, or a config file's presence. Phrase it as codebase exploration like every other question, with path steering to the manifest.
 
@@ -59,7 +64,7 @@ Good questions will include some basic path steering, like "... in apps/wui ..."
 
 CRITICAL - DO NOT LEAK ANY IMPLEMENTATION DETAILS OR THE NATURE OF YOUR TASK INTO THE QUESTION LIST. NO "HOW WOULD WE XYZ" - ONLY "HOW DOES IT WORK"
 
-4. **Preserve key context and refine questions**
+5. **Preserve key context and refine questions**
    - Add `## Key Context Pointers` before the numbered questions. Preserve ticket URLs, repository identifiers, dependencies, and paths verbatim from the request and ticket, with a short label explaining each pointer's relevance. Do not shorten, normalize, or replace them with a generic description.
    - Mark unavailable pointers as unknown rather than inventing them. These pointers do not count toward the question limit.
    - Choose the research questions autonomously from the available evidence; ask when clarification would improve the result. When dispatched by an outer flow, use its supplied structured question packet and `NEEDS_INPUT` contract instead of asking the user directly.

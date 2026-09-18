@@ -22,6 +22,8 @@ You are repairing an implementation that failed the flow's `validate` step. The 
 3. **Fix exactly the blocking findings**:
    - Surgical changes only: every edit must trace to a blocking finding. Do not widen scope, refactor opportunistically, or address non-blocking notes.
    - If a finding is wrong about the code, do not "fix" working code to match it — leave the code unchanged and say so in your summary; the next validation run re-judges it.
+   - Stay inside the execution work root and the owned-path allowlist the CLI supplies in `step.prompt`. Edit the allowlisted paths plus only the paths a recorded blocking finding demonstrably requires, and report the entire updated chunk path list. An absent allowlist is a blocker, not permission to infer one from `git status`.
+   - If a blocking finding needs work beyond that bound — another chunk, another repository, a dependency change — do not widen scope. Leave it unchanged and report it as a remaining blocker.
 
 4. **Re-run the checks the findings cite**:
    - Run the exact failing commands or tests named by the findings and confirm they now pass.
@@ -29,7 +31,21 @@ You are repairing an implementation that failed the flow's `validate` step. The 
 
 5. **Leave the validation artifact alone**:
    - Do NOT edit, rewrite, or delete `validation.md` — the next `validate` step re-runs validation and rewrites it. Do not create any commits.
+   - Repair attempts are budgeted by the CLI; an exhausted budget blocks the flow. Do not edit `validation.md` to unblock it and do not retry beyond the dispatched attempt.
 
 ## Output
 
-Return a concise summary of what you did: each blocking finding, the fix applied (or the reason no change was needed), and the exact commands you re-ran with their results. Do not claim a check passed without naming the command that ran.
+Return a summary in this shape — `spok flow complete --summary` records it permanently:
+
+```
+Findings addressed:
+- <blocking finding → fix applied, with file paths> (or "<finding> — no change needed: <reason>")
+Commands run:
+- <exact command> — <actual result and exact exit code>
+Changed paths:
+- <path relative to the work root — the full cumulative chunk list, not only this dispatch>
+Remaining blockers:
+- <finding left unfixed and why> (or "None.")
+```
+
+Do not claim a check passed without naming the exact command that ran.

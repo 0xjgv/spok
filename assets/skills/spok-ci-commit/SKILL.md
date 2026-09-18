@@ -37,6 +37,11 @@ creating another commit. The remaining process applies to an uncommitted chunk.
    other agents may be working in this repository concurrently.
    Never treat a gitignored path as committable: use
    `git -C <work-root> check-ignore` before staging expected paths.
+   Never stage or commit a path under the Spok planning directory `spok/` at
+   the work root: specs, proposals, task checklists, memory, and config are
+   planning state owned by other skills, never chunk output. If the owned-path
+   allowlist names such a path, fail with the exact offending path list and do
+   not commit.
    **Fail loudly instead of falling back to a directory scan.** If the owned change set is empty after verification, report a no-op with
    the existing HEAD SHA and do not create an empty commit. Stop on unexplained
    ownership overlap, branch mismatch, or changed baseline; do not widen the search to another directory.

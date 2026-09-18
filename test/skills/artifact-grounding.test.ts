@@ -10,6 +10,10 @@ async function readSkill(skill: string): Promise<string> {
   return fs.readFile(path.join(SKILLS_DIR, skill, 'SKILL.md'), 'utf-8');
 }
 
+async function readSkillAsset(skill: string, file: string): Promise<string> {
+  return fs.readFile(path.join(SKILLS_DIR, skill, file), 'utf-8');
+}
+
 describe('artifact grounding rules in skill assets', () => {
   describe('spok-create-research-questions', () => {
     it('makes the repository tooling question mandatory for every run', async () => {
@@ -132,6 +136,84 @@ describe('artifact grounding rules in skill assets', () => {
     });
   });
 
+  describe('planning skills visual guidance', () => {
+    const PLANNING_SKILLS = [
+      'spok-create-design-discussion',
+      'spok-create-structure-outline',
+    ] as const;
+
+    it('points both planning skills at their own show-me reference', async () => {
+      for (const skill of PLANNING_SKILLS) {
+        const body = await readSkill(skill);
+        expect(body, skill).toContain('`Read({SKILLBASE}/references/show-me.md)`');
+
+        const showMe = await readSkillAsset(skill, 'references/show-me.md');
+        expect(showMe, skill).toContain('not ASCII substitutes');
+        expect(showMe, skill).toContain(
+          'start added and changed (`~`) lines with `+`, removed lines with `-`',
+        );
+        expect(showMe, skill).toContain(
+          'only when relationships among three or more components are materially clearer',
+        );
+      }
+    });
+
+    it('keeps stale research questions out of the planning read set', async () => {
+      for (const skill of PLANNING_SKILLS) {
+        const body = await readSkill(skill);
+        expect(body, skill).toContain('**DO NOT read research questions documents**');
+        expect(body, skill).toContain('stale questions contaminate the design context');
+      }
+    });
+
+    it('gives spok-create-design-discussion a real one-line description', async () => {
+      const body = await readSkill('spok-create-design-discussion');
+
+      expect(body).toContain(
+        'description: record consequential design decisions before structure planning',
+      );
+      expect(body).not.toContain('description:  first step of planning');
+    });
+  });
+
+  describe('spok-create-structure-outline', () => {
+    it('splits phase validation into automated and manual verification', async () => {
+      const template = await readSkillAsset(
+        'spok-create-structure-outline',
+        'references/structure_outline_template.md',
+      );
+      const body = await readSkill('spok-create-structure-outline');
+
+      expect(template).toMatch(/^#### Automated Verification$/m);
+      expect(template).toMatch(/^#### Manual Verification$/m);
+      expect(template).toMatch(/^## Implementation Overview$/m);
+      expect(template).toMatch(/^- \[ \] Phase 1: /m);
+      expect(template).toMatch(/^Implements: /m);
+      expect(body).toContain('`#### Automated Verification`');
+      expect(body).toContain('`#### Manual Verification`');
+    });
+
+    it('closes every template fence with a matching three-backtick fence', async () => {
+      const template = await readSkillAsset(
+        'spok-create-structure-outline',
+        'references/structure_outline_template.md',
+      );
+
+      expect(template).not.toContain('````');
+      const fences = template.split('\n').filter((line) => line.startsWith('```'));
+      expect(fences.length % 2, 'unbalanced code fences').toBe(0);
+    });
+
+    it('requires vertically sliced phases that verify without the next phase', async () => {
+      const body = await readSkill('spok-create-structure-outline');
+
+      expect(body).toContain(
+        'Do not structure a phase N such that Phase N+1 must be completed before Phase N can be verified',
+      );
+      expect(body).toContain('thin vertical slice');
+    });
+  });
+
 });
 
 describe('spok-ci-commit grounding rules', () => {
@@ -172,6 +254,21 @@ describe('spok-ci-commit grounding rules', () => {
 
       expect(body).toContain('**Fail loudly instead of falling back to a directory scan.**');
       expect(body).toContain('do not widen the search to another directory');
+    });
+
+    it('forbids committing the Spok planning directory', async () => {
+      const body = await readSkill('spok-ci-commit');
+
+      expect(body).toContain(
+        'Never stage or commit a path under the Spok planning directory `spok/`',
+      );
+      expect(body).toContain('planning state owned by other skills, never chunk output');
+    });
+
+    it('fails with the offending paths when the allowlist names planning state', async () => {
+      const body = await readSkill('spok-ci-commit');
+
+      expect(body).toContain('allowlist names such a path, fail with the exact offending path list');
     });
   });
 });

@@ -28,10 +28,11 @@ Verify these types before writing. Stop and report a missing or mismatched type;
    - Use Read tool WITHOUT limit/offset to read the research document
    - Understand the current state of the codebase from research findings
    - Review all design decisions and patterns to follow
+   - **DO NOT read research questions documents** (`<task-dir>/research-questions.md`) - research questions are inputs to the research phase only, and stale questions contaminate the design context. Use the completed research document instead.
 
 2. **Check for related task content**:
    - The skill argument is the absolute path to the task directory. Use `ls <task-dir>` to enumerate its files.
-   - Read all files in the task directory.
+   - Read all files in the task directory except research questions documents.
    - Read relevant files mentioned in the task files.
 
 3. **Use the current host's native subagent mechanism for follow-up research**:
@@ -44,16 +45,50 @@ Verify these types before writing. Stop and report a missing or mismatched type;
 
    Run all subagents in the foreground only.
 
-4. **Create a phased implementation plan**:
+4. **Read the visual guidance, then create a phased implementation plan**:
+   - Before drafting any phase, `Read({SKILLBASE}/references/show-me.md)` and follow it while writing the artifact body
+   - Use the smallest set of visual views needed for each phase instead of a flat list of files and changes
+   - Tell the story of each phase in the order that makes it easiest to understand: show files first when ownership gives the needed context, or establish the key data structure, SQL table, or API contract first when it explains the rest of the change
+   - Treat every view and subheading as optional. Choose and order them from the change, not from a fixed template. Write it as one human writes to another
+   - Place a short description between views so the outline explains why the next shape matters
+   - Use `diff` blocks for focused changes to existing shapes; use language-specific or `text` blocks for complete target shapes that are new, high-level, or clearer without diff notation
+   - Use proper tree glyphs (`├──`, `└──`, and `│`), not ASCII substitutes
+   - In `diff` blocks, start added and changed (`~`) lines with `+`, removed lines with `-`, and unchanged context lines with a space
+   - Keep trees small enough to scan. Group related files under their shared directory and omit unchanged paths unless they give needed context
+   - A Mermaid diagram stays subordinate to the text views and to the diagram gate: only when relationships among three or more components are materially clearer than concise prose
    - Break the work into logical phases
    - Each phase should be independently testable
    - Order phases vertically rather than horizontally - wire everything together in a testable way and then add functionality incrementally
 
+### Order phases vertically
+
+Each phase should be a thin vertical slice that touches as many layers of the desired end state as it can. Avoid horizontal phases like 'add all types', 'add API endpoints', 'implement UI'.
+
+A horizontal breakdown looks like this:
+
+1. Build the schema
+2. Build the API
+3. Build the UI
+4. Add tests
+
+That creates handoff problems and partially finished work.
+
+A vertical slice cuts through the stack:
+
+1. User can create the simplest version of the thing end-to-end
+2. User can edit one field end-to-end
+3. User can see the first validation error end-to-end
+
+Each slice includes the schema, API, UI, and tests it needs.
+
+These are **illustrative**. Not all work fits this shape, but cross module boundaries where you can so surprises surface early. **Do not structure a phase N such that Phase N+1 must be completed before Phase N can be verified.** Each phase must be independently verifiable from typechecks, tests, build steps, and other in-repo verification. Never propose a manual step for something a script, existing check, or existing skill can automate.
+
 5. **For each phase, specify**:
    - Overview of what's being built
-   - Specific file changes with descriptions
-   - Test file changes if the research found testing patterns for the components being modified (e.g. "add test in `__tests__/foo.test.ts` covering the new behavior")
-   - Validation approach - how we'll verify the phase works
+   - `Implements:` one line naming the resolved design decision title(s) from `design-discussion.md` that this phase delivers
+   - A compact `### Change Outline`: prose first, then only the views that explain the phase - an optional `diff` file tree when file ownership matters, and focused views for key data structures, SQL tables, API contracts, or signature changes
+   - Test changes if the research found testing patterns for the components being modified (e.g. show `+ foo.test.ts  + covers the new behavior` in the tree)
+   - `### Validation` split into `#### Automated Verification` and `#### Manual Verification` checkbox lists
 
 6. **Document what's out of scope**:
    - What we're NOT doing in this plan
@@ -104,10 +139,15 @@ npm install example
 ## Phase changes should be concise but clear
 
 The goal of this document is to be concise and human readable. 
-Be tasteful and thoughtful about how and where you include code snippets, and prefer highlighting signature changes rather than entire code blocks, unless the user explicitly asks for them. The structure outline is our "c header files", the plan will include the function definitions.
+Be tasteful and thoughtful about how and where you include code snippets, and prefer highlighting signature changes rather than entire code blocks, unless the user explicitly asks for them. The structure outline is our "c header files", the plan will include the function definitions. Inside `### Change Outline` this means the signature slot carries the change - show a full type or data structure only when its shape is the decision, and never a function body.
 
 
 ## Phase Validation Design
+
+Each phase has a `### Validation` section with two subsections:
+
+- `#### Automated Verification`: runnable commands (typecheck, tests, lint) as a checkbox list
+- `#### Manual Verification`: steps that need human judgment, as a checkbox list
 
 Not every phase requires manual validation, don't put steps for manual validation just to have them. 
 

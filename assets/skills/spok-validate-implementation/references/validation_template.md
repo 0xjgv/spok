@@ -59,6 +59,13 @@ verdict: PASS|FAIL
 - [gap tied to plan section, file, test, or command]
 - [gap tied to plan section, file, test, or command]
 
+### Unplanned Additions
+
+- [changed path or behavior with no traceable plan phase, and its justification]
+- [changed path or behavior with no traceable plan phase, and its justification]
+
+[Each entry is a finding. An addition the implementation cannot justify counts against `PASS`.]
+
 ## Blocking Findings
 
 - [blocking issue, or `none`]
