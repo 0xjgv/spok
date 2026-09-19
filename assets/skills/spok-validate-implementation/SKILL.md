@@ -102,7 +102,7 @@ Then wait for the user's input.
    - If an ExecPlan is present, compare its `Progress`, acceptance language, and required outcomes against observed reality without editing the ExecPlan
    - Use a binary verdict:
      - `PASS`: all required implemented behavior is present and required automated checks passed
-     - `FAIL`: any required behavior is missing, contradicted, unproven, blocked by failing or unrun required checks, or lacking evidence from required UI/manual checks
+     - `FAIL`: any required behavior is missing, contradicted, unproven, blocked by failing or unrun required checks, lacking evidence from required UI/manual checks, or accompanied by an unjustified unplanned addition
 
 ## Output Document
 

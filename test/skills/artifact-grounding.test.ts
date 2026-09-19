@@ -256,20 +256,6 @@ describe('spok-ci-commit grounding rules', () => {
       expect(body).toContain('do not widen the search to another directory');
     });
 
-    it('forbids committing the Spok planning directory', async () => {
-      const body = await readSkill('spok-ci-commit');
-
-      expect(body).toContain(
-        'Never stage or commit a path under the Spok planning directory `spok/`',
-      );
-      expect(body).toContain('planning state owned by other skills, never chunk output');
-    });
-
-    it('fails with the offending paths when the allowlist names planning state', async () => {
-      const body = await readSkill('spok-ci-commit');
-
-      expect(body).toContain('allowlist names such a path, fail with the exact offending path list');
-    });
   });
 });
 

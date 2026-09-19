@@ -57,7 +57,7 @@ describe('execution skill boundaries', () => {
 
   it('routes the validation verdict through the CLI instead of naming absent skills', async () => {
     const body = await readReference('spok-validate-implementation', 'validation_final_answer.md');
-    expect(body).toContain('The CLI routes from here; the human invokes nothing.');
+    expect(body).toContain('Inside a flow run the CLI routes from here; the human invokes nothing.');
     expect(body).toContain('the flow routes to a `repair` step and then back to `validate`');
     expect(body).toContain('the next step is `commit`, dispatched to `spok-ci-commit`');
     expect(body).not.toContain('iterate-implementation');
@@ -94,7 +94,7 @@ describe('execution skill boundaries', () => {
   it('verifies supplied corrections and reports mismatches with evidence', async () => {
     const plan = await readSkill('spok-create-plan');
     const implement = await readSkill('spok-implement-plan');
-    expect(plan).toContain('A supplied answer or correction is input, not authority.');
+    expect(plan).toContain('A supplied answer is authoritative for the decision it answers.');
     expect(plan).toContain('do not accept it blindly: read the named files');
     expect(plan).toContain('Chronology does not determine authority.');
     expect(implement).toContain('Report a consequential mismatch in this shape:');

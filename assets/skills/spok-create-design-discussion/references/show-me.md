@@ -1,7 +1,4 @@
----
-name: show-me
-description: Text-first visual views for Spok planning artifacts - pseudocode, call trees, component trees, file trees, and diffs.
----
+# Show me: text-first views for planning artifacts
 
 Show the reader the shape of the change. Skip preamble, keep prose short, and pick the
 smallest view that makes the point clear. Text views are the default. Place each view next
@@ -30,10 +27,10 @@ submitForm
 - Show UI structure as a component tree, including the state and module boundaries that matter:
 
 ```tsx
-<SessionPage> (apps/example/src/routes/session.tsx)
+<SessionPage> (src/routes/session.tsx)
   useSessionEvents()
   <SessionToolbar>
-    <RunSkillButton> (packages/ui)
+    <RunSkillButton> (src/ui)
 ```
 
 - Show file responsibility or a broad refactor as a shallow file tree:
@@ -69,7 +66,7 @@ For a file-layout change:
 ```diff
  src/
  ├── commands/
-+│   └── show-me.ts       + expands the slash command
++│   └── show-me.ts       + owns the new behavior
  ├── sessions/
 -└── transport.ts
 +└── transport/

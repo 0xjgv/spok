@@ -71,7 +71,7 @@ Implements: [resolved decision title(s) from `design-discussion.md` that this ph
 
 ### Change Outline
 
-[Tell the story of this phase in the order that makes it easiest to understand. Prose first. It may make sense to show files first, or to establish a data structure, SQL table, or API contract first. Every view below is optional - keep only the ones that explain this phase, and order them from the change rather than from this template. Write it as one human writes to another. Use `diff` for a focused change to an existing shape. Show the complete target shape in a language-specific or `text` block when it is new, high-level, or clearer without diff notation. Follow `references/show-me.md`.]
+[Tell the story of this phase in the order that makes it easiest to understand. Prose first. It may make sense to show files first, or to establish a data structure, SQL table, or API contract first. Every view below is optional - keep only the ones that explain this phase, and order them from the change rather than from this template. Write it as one human writes to another. Use `diff` for a focused change to an existing shape. Show the complete target shape in a language-specific or `text` block when it is new, high-level, or clearer without diff notation. Follow the show-me guidance the skill read.]
 
 {...short-description...}
 

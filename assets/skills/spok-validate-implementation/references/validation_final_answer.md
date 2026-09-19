@@ -16,7 +16,7 @@
 
 ### Next Steps
 
-The CLI routes from here; the human invokes nothing.
+Inside a flow run the CLI routes from here; the human invokes nothing. Standalone, stop after this report.
 
 - `FAIL` with repair attempts remaining: the flow routes to a `repair` step and then back to `validate`. Name the blocking findings repair must address.
 - `FAIL` with repair attempts exhausted: the flow blocks. Report the CLI reason exactly; do not edit `validation.md` to unblock it.

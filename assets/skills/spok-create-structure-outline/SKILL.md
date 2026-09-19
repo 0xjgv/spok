@@ -60,28 +60,28 @@ Verify these types before writing. Stop and report a missing or mismatched type;
    - Each phase should be independently testable
    - Order phases vertically rather than horizontally - wire everything together in a testable way and then add functionality incrementally
 
-### Order phases vertically
+   **Order phases vertically.**
 
-Each phase should be a thin vertical slice that touches as many layers of the desired end state as it can. Avoid horizontal phases like 'add all types', 'add API endpoints', 'implement UI'.
+   Each phase should be a thin vertical slice that touches as many layers of the desired end state as it can. Avoid horizontal phases like 'add all types', 'add API endpoints', 'implement UI'.
 
-A horizontal breakdown looks like this:
+   A horizontal breakdown looks like this:
 
-1. Build the schema
-2. Build the API
-3. Build the UI
-4. Add tests
+   1. Build the schema
+   2. Build the API
+   3. Build the UI
+   4. Add tests
 
-That creates handoff problems and partially finished work.
+   That creates handoff problems and partially finished work.
 
-A vertical slice cuts through the stack:
+   A vertical slice cuts through the stack:
 
-1. User can create the simplest version of the thing end-to-end
-2. User can edit one field end-to-end
-3. User can see the first validation error end-to-end
+   1. User can create the simplest version of the thing end-to-end
+   2. User can edit one field end-to-end
+   3. User can see the first validation error end-to-end
 
-Each slice includes the schema, API, UI, and tests it needs.
+   Each slice includes the schema, API, UI, and tests it needs.
 
-These are **illustrative**. Not all work fits this shape, but cross module boundaries where you can so surprises surface early. **Do not structure a phase N such that Phase N+1 must be completed before Phase N can be verified.** Each phase must be independently verifiable from typechecks, tests, build steps, and other in-repo verification. Never propose a manual step for something a script, existing check, or existing skill can automate.
+   These are **illustrative**. Not all work fits this shape, but cross module boundaries where you can so surprises surface early. **Do not structure a phase N such that Phase N+1 must be completed before Phase N can be verified.** Each phase must be independently verifiable from typechecks, tests, build steps, and other in-repo verification. Never propose a manual step for something a script, existing check, or existing skill can automate.
 
 5. **For each phase, specify**:
    - Overview of what's being built

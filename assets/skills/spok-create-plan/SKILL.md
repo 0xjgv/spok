@@ -53,7 +53,7 @@ You are in the final Plan Writing phase. Convert the structure outline into a co
 - Structure outline owns decomposition only. It must conform to the design discussion.
 - Plan owns implementation detail only. It cannot override the reviewed design.
 
-A supplied answer or correction is input, not authority. When one contradicts `research.md`, `design-discussion.md`, `structure-outline.md`, or the code they cite, do not accept it blindly: read the named files, verify their paths, code, and commands yourself, and fold it into the plan only after that check. Record the evidence-backed resolution and name the file that settled it.
+A supplied answer is authoritative for the decision it answers. A correction that asserts a fact about the codebase is not: when one contradicts `research.md`, `design-discussion.md`, `structure-outline.md`, or the code they cite, do not accept it blindly: read the named files, verify their paths, code, and commands yourself, and fold it into the plan only after that check. Record the evidence-backed resolution and name the file that settled it.
 
 Chronology does not determine authority. Unresolved or contradictory decisions block review and planning until reconciled against artifact authority and explicit user intent. Record evidence-backed resolutions; ask through the flow question protocol when useful, without requiring human review. Never silently override the reviewed design.
 
