@@ -338,6 +338,75 @@ describe('flow execution commit checks', () => {
 
 });
 
+describe('flow execution planning-state ownership', () => {
+  async function implementWithPlanningState(): Promise<string> {
+    const next = await getFlowNext(taskDir);
+    expect(next.step?.id, next.reason).toBe('implement');
+    const workRoot = next.execution!.workRoot;
+    await write(workRoot, 'owned.ts', 'export const owned = true;\n');
+    await write(workRoot, 'spok/config.yaml', 'schema: spec-driven\n');
+    const completed = await completeFlowStep(taskDir, {
+      step: 'implement',
+      summary: 'Added the owned file and its planning state.',
+      changedPaths: ['owned.ts', 'spok/config.yaml'],
+    });
+    expect(completed.state, completed.reason).toBe('ready');
+    return workRoot;
+  }
+
+  async function reachCommitWithPlanningState(): Promise<string> {
+    const workRoot = await implementWithPlanningState();
+    const simplified = await completeFlowStep(taskDir, { step: 'simplify', summary: 'No changes needed.' });
+    expect(simplified.state, simplified.reason).toBe('ready');
+    await completeFile(taskDir, 'validate', PASS_VALIDATION);
+    expect((await getFlowNext(taskDir)).step?.id).toBe('commit');
+    return workRoot;
+  }
+
+  it('commits owned spok/ planning state alongside source in one chunk', async () => {
+    await reachImplementation(taskDir);
+    const workRoot = await reachCommitWithPlanningState();
+    expect((await readState(taskDir)).execution?.ownedPaths)
+      .toEqual(['owned.ts', 'spok/config.yaml']);
+    git(workRoot, 'add', 'owned.ts', 'spok/config.yaml');
+    git(workRoot, 'commit', '-m', 'Implement owned file and planning state');
+    const head = git(workRoot, 'rev-parse', 'HEAD');
+    const result = await completeFlowStep(taskDir, { step: 'commit', commit: head });
+    expect(result.state, result.reason).toBe('complete');
+    expect(result.completedStep?.result?.commit).toBe(head);
+    expect(git(workRoot, 'diff', '--name-only', `${head}~1`, head).split('\n'))
+      .toEqual(['owned.ts', 'spok/config.yaml']);
+  });
+
+  it('rejects commit completion that leaves owned spok/ planning state uncommitted', async () => {
+    await reachImplementation(taskDir);
+    const workRoot = await reachCommitWithPlanningState();
+    git(workRoot, 'add', 'owned.ts');
+    git(workRoot, 'commit', '-m', 'Implement owned file only');
+    const result = await completeFlowStep(taskDir, {
+      step: 'commit', commit: git(workRoot, 'rev-parse', 'HEAD'),
+    });
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('Execution still has uncommitted chunk changes');
+    expect(result.reason).toContain('spok/config.yaml');
+  });
+
+  it('rejects implementation completion that omits the changed spok/ planning state', async () => {
+    await reachImplementation(taskDir);
+    const next = await getFlowNext(taskDir);
+    const workRoot = next.execution!.workRoot;
+    await write(workRoot, 'owned.ts', 'export const owned = true;\n');
+    await write(workRoot, 'spok/config.yaml', 'schema: spec-driven\n');
+    const result = await completeFlowStep(taskDir, {
+      step: 'implement', summary: 'Reported only the source file.', changedPaths: ['owned.ts'],
+    });
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toContain('Reported --changed-path paths must match chunk changes');
+    expect(result.reason).toContain('spok/config.yaml');
+    expect((await readState(taskDir)).execution?.ownedPaths).toBeUndefined();
+  });
+});
+
 describe('flow execution commit rename scope', () => {
   it('rejects deletion of an unowned path even when Git detects a rename to an owned path', async () => {
     await reachImplementation(taskDir);

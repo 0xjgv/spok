@@ -55,6 +55,25 @@ describe('execution skill boundaries', () => {
     expect(body).toContain('exact commands and exit codes');
   });
 
+  it('ranks design authority above implementation state in the precedence rules', async () => {
+    const body = await readSkill('spok-validate-implementation');
+    expect(body).not.toContain(
+      '**implementation state + executed checks > plan > structure outline > design discussion > research > ticket**',
+    );
+    expect(body).toContain('**design discussion > structure outline > plan**');
+    expect(body).toContain('Chronology does not determine authority.');
+    expect(body).toContain('never authorize a change in required behavior');
+  });
+
+  it('fails an implementation that contradicts required design behavior', async () => {
+    const body = await readSkill('spok-validate-implementation');
+    expect(body).toContain(
+      'contradicts required design behavior is `FAIL` even when every executed check passes',
+    );
+    expect(body).toContain('not as a passing deviation');
+    expect(body).toContain('do not rewrite history');
+  });
+
   it('routes the validation verdict through the CLI instead of naming absent skills', async () => {
     const body = await readReference('spok-validate-implementation', 'validation_final_answer.md');
     expect(body).toContain('Inside a flow run the CLI routes from here; the human invokes nothing.');

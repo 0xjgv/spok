@@ -134,8 +134,11 @@ Then wait for the user's input.
 
 ## Document Precedence
 
-When documents conflict, use this order:
-**implementation state + executed checks > plan > structure outline > design discussion > research > ticket**
+Authority over intended behavior: **design discussion > structure outline > plan**. The outline owns decomposition only; the plan owns implementation detail only and cannot override the reviewed design. Chronology does not determine authority. An answer recorded through the flow question protocol is authoritative for the decision it answers, not for a claim about what the code does.
+
+Evidence about current behavior: implementation state and executed checks are the only evidence of what the code does. They never authorize a change in required behavior.
+
+An implementation or plan that contradicts required design behavior is `FAIL` even when every executed check passes. Record it as a mismatch against the design, not as a passing deviation.
 
 If the implementation does not match the plan, do not rewrite history. Record the mismatch and fail validation if the discrepancy affects required behavior or proof.
 

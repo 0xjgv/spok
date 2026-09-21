@@ -27,3 +27,33 @@ describe('repository Claude hooks', () => {
     expect(instructions).not.toContain('PreToolUse');
   });
 });
+
+describe('harness pre-commit gate', () => {
+  it('covers staged skill assets with the skill test targets', async () => {
+    const harness = await readFile(path.join(ROOT, 'harness.ts'), 'utf8');
+
+    // Staged-file filter reaches skill/agent prose, not just TypeScript.
+    expect(harness).toContain("'assets/skills'");
+    expect(harness).toContain("'assets/agents'");
+
+    // Targeted suites that assert on that prose.
+    expect(harness).toContain("'test/skills'");
+    expect(harness).toContain("'test/package-assets.test.ts'");
+
+    const sliceBody = (name: string): string => {
+      const start = harness.indexOf(`async function ${name}(`);
+      expect(start).toBeGreaterThan(-1);
+      return harness.slice(start, harness.indexOf('\nasync function ', start + 1));
+    };
+
+    const skillTests = sliceBody('cmdSkillTests');
+    expect(skillTests).toContain('vitest');
+    expect(skillTests).toContain('SKILL_TEST_TARGETS');
+
+    const preCommit = sliceBody('cmdPreCommit');
+    expect(preCommit).toContain('isSkillAsset');
+    expect(preCommit).toContain('isSkillTest');
+    expect(preCommit).toContain('cmdSkillTests');
+    expect(preCommit).toContain('skipping checks');
+  });
+});
