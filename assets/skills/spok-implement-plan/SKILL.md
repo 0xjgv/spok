@@ -36,6 +36,14 @@ foreground when delegation is needed.
    Inside the flow, use the injected question-packet protocol and durable answers.
    Do not insert approval gates between phases.
 
+Report a consequential mismatch in this shape:
+
+```
+Expected: <what the plan says>
+Found: <what the code does, at path:line>
+Why this matters: <the required behavior or check at risk>
+```
+
 Report only checks you actually executed. If the plan names a command that does not exist in this repository, say so and name the command — never substitute a different command silently, and never report the named command as passing. A command that exits 0 because the tool was downloaded on demand and found nothing to configure has verified nothing.
 
 Do not stage, commit, or push. The flow's later commit step owns committing.

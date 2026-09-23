@@ -6,7 +6,7 @@
  *   bun harness.ts                  # full pre-flight (default)
  *   bun harness.ts check            # full pre-flight
  *   bun harness.ts fix              # fix lint errors + format
- *   bun harness.ts pre-commit       # staged checks + tests
+ *   bun harness.ts pre-commit       # staged checks + tests (TS or skill assets)
  *   bun harness.ts ci               # CI verification
  *   bun harness.ts acceptance       # cucumber scenarios
  *   bun harness.ts coverage --min=N # tests with coverage threshold
@@ -21,6 +21,8 @@
 
 const SRC_DIR = 'src';
 const TEST_DIR = 'test';
+const ASSET_DIRS = ['assets/skills', 'assets/agents'] as const;
+const SKILL_TEST_TARGETS = ['test/skills', 'test/package-assets.test.ts'] as const;
 const ROOT = import.meta.dir;
 const COMPLEXITY_BASELINE = 'complexity-baseline.json';
 
@@ -201,7 +203,7 @@ async function printSuppressionsReport(): Promise<void> {
 
 // ── Git helpers ─────────────────────────────────────────────────────
 
-async function stagedTsFiles(): Promise<string[]> {
+async function stagedFiles(): Promise<string[]> {
   const proc = Bun.spawn(
     ['git', 'diff', '--cached', '--name-only', '--diff-filter=d', '--relative'],
     {
@@ -212,12 +214,22 @@ async function stagedTsFiles(): Promise<string[]> {
   );
   const stdout = await new Response(proc.stdout).text();
   await proc.exited;
-  return stdout
-    .trim()
-    .split('\n')
-    .filter(
-      (f) => f.endsWith('.ts') && (f.startsWith(`${SRC_DIR}/`) || f.startsWith(`${TEST_DIR}/`)),
-    );
+  return stdout.trim().split('\n').filter(Boolean);
+}
+
+function isTsSource(f: string): boolean {
+  return f.endsWith('.ts') && (f.startsWith(`${SRC_DIR}/`) || f.startsWith(`${TEST_DIR}/`));
+}
+
+// Skill and agent prose lives in Markdown under assets/, and test/skills +
+// test/package-assets.test.ts assert on it. Staging only those files leaves
+// zero staged .ts, so the TypeScript path alone would skip every gate.
+function isSkillAsset(f: string): boolean {
+  return ASSET_DIRS.some((dir) => f.startsWith(`${dir}/`));
+}
+
+function isSkillTest(f: string): boolean {
+  return SKILL_TEST_TARGETS.some((target) => f === target || f.startsWith(`${target}/`));
 }
 
 async function changedTsFiles(): Promise<string[]> {
@@ -259,6 +271,12 @@ async function cmdTypecheck(): Promise<void> {
 
 async function cmdTest(): Promise<void> {
   await run('Tests', ['bunx', 'vitest', 'run'], { extract: extractTestSummary });
+}
+
+async function cmdSkillTests(): Promise<void> {
+  await run('Skill tests', ['bunx', 'vitest', 'run', ...SKILL_TEST_TARGETS], {
+    extract: extractTestSummary,
+  });
 }
 
 async function cmdAudit(): Promise<void> {
@@ -721,19 +739,28 @@ async function cmdCheck(): Promise<void> {
 }
 
 async function cmdPreCommit(): Promise<void> {
-  const files = await stagedTsFiles();
-  if (files.length === 0) {
-    console.log('No staged TypeScript files — skipping checks');
+  const staged = await stagedFiles();
+  const files = staged.filter(isTsSource);
+  const assets = staged.filter(isSkillAsset);
+  if (files.length === 0 && assets.length === 0) {
+    console.log('No staged TypeScript or skill-asset files — skipping checks');
     return;
   }
 
   console.log(`\n${BLUE}[pre-commit]${RESET}\n`);
-  await cmdFix(files);
-  await cmdTypecheck();
-  await checkAgentsMdDrift();
+  if (files.length > 0) {
+    await cmdFix(files);
+    await cmdTypecheck();
+    await checkAgentsMdDrift();
+  }
 
   if (files.some((f) => f.startsWith(`${SRC_DIR}/`))) {
     await cmdTest();
+    return;
+  }
+  // Prose-only commits: run the targeted tests that assert on skill assets.
+  if (assets.length > 0 || files.some(isSkillTest)) {
+    await cmdSkillTests();
   }
 }
 
@@ -793,7 +820,7 @@ const TASKS: Record<string, [(() => Promise<void>) | ((f?: string[]) => Promise<
   complexity: [cmdComplexity, 'Cyclomatic complexity gate (lizard, CCN 15)'],
   arch: [cmdArch, 'Architecture checks (dependency-cruiser)'],
   check: [cmdCheck, 'Full pre-flight: lockfile + fix + build + typecheck + tests'],
-  'pre-commit': [cmdPreCommit, 'Staged checks + tests'],
+  'pre-commit': [cmdPreCommit, 'Staged checks + tests (TS or skill assets)'],
   ci: [cmdCi, 'Lint + typecheck + build + audit + complexity + acceptance + coverage + crap + arch'],
   'setup-hooks': [cmdHooks, 'Install git pre-commit hook'],
   'post-edit': [cmdPostEdit, 'Format if source files changed (Claude Code hook)'],

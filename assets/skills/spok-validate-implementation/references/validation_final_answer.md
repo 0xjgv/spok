@@ -16,14 +16,8 @@
 
 ### Next Steps
 
-If the verdict is `FAIL`, continue with a prompt like
+Inside a flow run the CLI routes from here; the human invokes nothing. Standalone, stop after this report.
 
-```text
-use the iterate-implementation skill for <task-dir>/plan.md and address the validation findings in <task-dir>/validation.md
-```
-
-If the verdict is `PASS`, continue with a prompt like
-
-```text
-use the describe-pr skill for <task-dir>
-```
+- `FAIL` with repair attempts remaining: the flow routes to a `repair` step and then back to `validate`. Name the blocking findings repair must address.
+- `FAIL` with repair attempts exhausted: the flow blocks. Report the CLI reason exactly; do not edit `validation.md` to unblock it.
+- `PASS`: the next step is `commit`, dispatched to `spok-ci-commit`.

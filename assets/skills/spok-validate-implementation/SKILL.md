@@ -98,10 +98,11 @@ Then wait for the user's input.
    - Synthesize your own findings with the subagent's implementation-path analysis
    - Treat the subagent as an independent evidence source, not as the source of truth
    - Record mismatches between the written plan and the current implementation state
+   - List changed paths and behavior not traceable to any plan phase under `### Unplanned Additions`; each is a finding the implementation must justify, and an unjustified addition counts against `PASS`
    - If an ExecPlan is present, compare its `Progress`, acceptance language, and required outcomes against observed reality without editing the ExecPlan
    - Use a binary verdict:
      - `PASS`: all required implemented behavior is present and required automated checks passed
-     - `FAIL`: any required behavior is missing, contradicted, unproven, blocked by failing or unrun required checks, or lacking evidence from required UI/manual checks
+     - `FAIL`: any required behavior is missing, contradicted, unproven, blocked by failing or unrun required checks, lacking evidence from required UI/manual checks, or accompanied by an unjustified unplanned addition
 
 ## Output Document
 
@@ -133,8 +134,11 @@ Then wait for the user's input.
 
 ## Document Precedence
 
-When documents conflict, use this order:
-**implementation state + executed checks > plan > structure outline > design discussion > research > ticket**
+Authority over intended behavior: **design discussion > structure outline > plan**. The outline owns decomposition only; the plan owns implementation detail only and cannot override the reviewed design. Chronology does not determine authority. An answer recorded through the flow question protocol is authoritative for the decision it answers, not for a claim about what the code does.
+
+Evidence about current behavior: implementation state and executed checks are the only evidence of what the code does. They never authorize a change in required behavior.
+
+An implementation or plan that contradicts required design behavior is `FAIL` even when every executed check passes. Record it as a mismatch against the design, not as a passing deviation.
 
 If the implementation does not match the plan, do not rewrite history. Record the mismatch and fail validation if the discrepancy affects required behavior or proof.
 

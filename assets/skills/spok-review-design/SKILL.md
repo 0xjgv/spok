@@ -32,7 +32,6 @@ silently change a design decision.
 1. Read these files fully:
    - `<task-dir>/ticket.md`
    - `<task-dir>/problem-validation.md` when present
-   - `<task-dir>/research-questions.md`
    - `<task-dir>/research.md`
    - `<task-dir>/design-discussion.md`
    - `<task-dir>/structure-outline.md`

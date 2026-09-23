@@ -1,6 +1,6 @@
 ---
 name: spok-create-design-discussion
-description:  first step of planning
+description: record consequential design decisions before structure planning
 ---
 
 # Design Discussion Phase
@@ -12,13 +12,14 @@ You are now in the Design Discussion phase. Based on the research findings and t
 1. **Read all mentioned files immediately and FULLY**:
    - Ticket files (e.g., `<task-dir>/ticket.md`)
    - Research documents (e.g. `<task-dir>/research.md`)
+   - **DO NOT read research questions documents** (`<task-dir>/research-questions.md`) - research questions are inputs to the research phase only, and stale questions contaminate the design context. Use the completed research document instead.
    - **IMPORTANT**: Use the Read tool WITHOUT limit/offset parameters to read entire files
    - **CRITICAL**: DO NOT spawn sub-tasks before reading these files yourself in the main context
    - **NEVER** read files partially - if a file is mentioned, read it completely
 
 2. **Check for related task content**:
    - The skill argument is the absolute path to the task directory. Use `ls <task-dir>` to enumerate its files.
-   - Read all relevant files in the task directory to fully understand the work so far.
+   - Read all relevant files in the task directory to fully understand the work so far, excluding research questions documents.
 
 3. **Read the visual-evidence classification**:
    - Read `## Visual Evidence` from `<task-dir>/ticket.md` and use its classification and repository-relative packet path.
@@ -158,9 +159,15 @@ Complete this section after resolving the design decisions and before finalizing
 
 ## Output Format
 
-1. **Read the design discussion Template**
+1. **Read the design discussion template and the visual guidance**
 
 `Read({SKILLBASE}/references/design_discussion_template.md)`
+
+`Read({SKILLBASE}/references/show-me.md)` and follow it while writing the artifact body.
+
+- `show-me.md` governs the text views inside the discussion: pseudocode, call trees, component trees, file trees, and `diff` blocks. It does not govern the rendered-UI comparison, which stays owned by `## Produce visual evidence when required` and `design_evidence_template.html`.
+- Use the smallest set of views needed to make the current state, the proposed end state, and each consequential decision clear. Place each view next to the short text it supports.
+- A Mermaid diagram stays subordinate to those text views and to the diagram gate: only when relationships among three or more components are materially clearer than concise prose.
 
 2. **Write the design discussion** to `<task-dir>/design-discussion.md`
    - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
