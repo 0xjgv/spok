@@ -1,7 +1,7 @@
 ---
 name: spok-flow
-description: end-to-end problem validation → research → design → plan → implement → review → commit workflow for a single chunk, with native, hybrid, or automatic model routing and an optional post-commit self-learn gate. Driven by spok-apply.
-argument-hint: [hybrid|auto] <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)
+description: end-to-end problem validation → research → design → outline → design review → implement → simplify → validate → commit workflow for a single chunk, with native, hybrid, or automatic model routing and an optional post-commit self-learn gate. Driven by spok-apply.
+argument-hint: "[hybrid|auto] <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)"
 version: 0.9.0
 ---
 # Flow Instructions

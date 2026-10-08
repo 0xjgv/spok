@@ -81,6 +81,10 @@ export async function installVendoredSkills(
 
   const targetSkillsRoot = path.join(projectRoot, toolSkillsDir, 'skills');
   await fs.promises.mkdir(targetSkillsRoot, { recursive: true });
+  await fs.promises.rm(path.join(targetSkillsRoot, 'spok-create-plan'), {
+    recursive: true,
+    force: true,
+  });
 
   const installed: string[] = [];
   for (const skillName of skillNames) {

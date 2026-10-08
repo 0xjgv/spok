@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Workflow artifacts must ground their claims about the repository in evidence. A guess about the repository's own tooling entering at the earliest artifact propagates downstream unchallenged, and a verification claim attributed to no command defeats the redundancy that would otherwise catch it. These requirements pin the rules that close those gaps: a mandatory tooling research question, manifest-sourced plan commands, execution-attributed verification reports, rule-not-snapshot commit constraints, concurrency-safe staging, and a project context that carries conventions rather than perishable facts.
+Workflow artifacts must ground their claims about the repository in evidence. A guess about the repository's own tooling entering at the earliest artifact propagates downstream unchallenged, and a verification claim attributed to no command defeats the redundancy that would otherwise catch it. These requirements pin the rules that close those gaps: a mandatory tooling research question, repository-verified outline commands, execution-attributed verification reports, rule-not-snapshot commit constraints, concurrency-safe staging, and a project context that carries conventions rather than perishable facts.
 
 ## Requirements
 
@@ -26,20 +26,22 @@ The `spok-create-research-questions` skill SHALL require every run to include on
 - **WHEN** the generated `spok-create-research-questions/SKILL.md` is read
 - **THEN** it states that the mandatory question counts toward the maximum number of questions
 
-### Requirement: Plans must source verification commands from evidence
+### Requirement: Outlines must source verification commands from current evidence
 
-The `spok-create-plan` skill SHALL require every automated-verification command in the plan to come from the repository's manifest or from `research.md`, MUST forbid naming a command derived from a toolchain guess, and SHALL require the plan to state plainly when research did not establish the commands rather than hedging.
+The `spok-create-structure-outline` skill SHALL require automated-verification command names and options to be verified against current repository scripts, configuration, or tool help, with working directories and expected outcomes. Research notes alone SHALL NOT count as proof that a command exists. Proposed new tests MAY be named, but their runner MUST be verified. Command support SHALL NOT be presented as evidence that a check ran or passed.
 
 #### Scenario: Skill content requires an evidence source for commands
 
-- **WHEN** the generated `spok-create-plan/SKILL.md` is read
-- **THEN** it instructs the agent that automated-verification commands must come from the repository's manifest or from `research.md`
-- **AND** it tells the agent never to name a command from a toolchain guess
+- **WHEN** the generated `spok-create-structure-outline/SKILL.md` is read
+- **THEN** it instructs the agent to verify command names and options against current repository scripts, configuration, or tool help and cite the evidence
+- **AND** it states that research notes alone do not prove a command exists
+- **AND** it requires the runner for proposed new tests to be verified
 
-#### Scenario: Skill content forbids hedging over unknown commands
+#### Scenario: Skill content separates supported commands from executed checks
 
-- **WHEN** the generated `spok-create-plan/SKILL.md` is read
-- **THEN** it instructs the agent to say that research did not establish the commands, rather than hedging with a conditional such as "if configured"
+- **WHEN** the generated `spok-create-structure-outline/SKILL.md` is read
+- **THEN** it instructs the agent to leave checks unchecked until execution
+- **AND** it forbids claiming results without the command and observed outcome
 
 ### Requirement: Implementation reports must be attributable to executed commands
 

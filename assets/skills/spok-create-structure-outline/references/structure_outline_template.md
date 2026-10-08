@@ -65,9 +65,11 @@ Full discussion doc: `<task-dir>/design-discussion.md`
 
 ## Phase 1: [Phase Title]
 
-[Overview of what this phase accomplishes]
+[Required observable behavior, completion conditions, and relevant failure cases from the ticket and resolved design]
 
 Implements: [resolved decision title(s) from `design-discussion.md` that this phase delivers]
+
+[Affected repository areas and their responsibilities; relevant interface inputs, outputs, errors, ownership, and wiring. Name prerequisites. Keep this phase independently verifiable.]
 
 ### Change Outline
 
@@ -131,11 +133,15 @@ interface RecordSummary {
  ): [returntype] { ... }
 ```
 
+### Tests
+
+[Concrete test changes that prove this phase's behavior and failure cases. Cite existing tests or test configuration for the runner, fixtures, and conventions. Mark proposed files as new.]
+
 ### Validation
 
 #### Automated Verification
 
-- [ ] [runnable command taken from the repository manifest or `research.md`]
+- [ ] [exact command] — cwd: [repository-relative directory]; expected: [observable result]; command support: [current script/configuration path or tool-help evidence]
 - [ ] ...
 
 #### Manual Verification
@@ -153,5 +159,5 @@ interface RecordSummary {
 
 ## Open Questions
 
-- [questions about plan structure that need clarification]
+- [consequential unresolved questions that block implementation readiness, or "None"]
 - ...

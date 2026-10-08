@@ -14,7 +14,6 @@ const FORK_ARTIFACTS: Record<string, string> = {
   'spok-create-research': 'research.md',
   'spok-create-design-discussion': 'design-discussion.md',
   'spok-create-structure-outline': 'structure-outline.md',
-  'spok-create-plan': 'plan.md',
   'spok-validate-implementation': 'validation.md',
   'spok-self-learn': 'self-learn.md',
 };

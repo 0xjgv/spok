@@ -37,7 +37,6 @@ const ARTIFACTS = {
   'design-discussion': '# Design Discussion\n\nNo contested decisions.\n',
   'structure-outline': '# Structure Outline\n\n## Phase 1\n\nEdit both chunk paths.\n',
   'design-review': '---\ntype: design-review\nverdict: PASS\n---\n# Design Review\n',
-  plan: '# Plan\n\n## Phase 1\n\nEdit both chunk paths, then commit them together.\n',
   validate: '---\nverdict: PASS\n---\n# Validation\n\nBoth chunk paths changed as planned.\n',
 };
 

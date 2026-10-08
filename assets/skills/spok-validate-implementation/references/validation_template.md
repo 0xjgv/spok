@@ -4,7 +4,7 @@ type: validation
 repo: [current repository]
 branch: [current branch name]
 sha: [result of git rev-parse HEAD]
-plan: [<task-dir>/plan.md]
+plan: [exact selected reviewed structure-outline.md path]
 exec_plan: [path if provided, otherwise "none"]
 validator: [runner/model this validation ran as, e.g. claude/fable]
 verdict: PASS|FAIL
@@ -18,7 +18,7 @@ verdict: PASS|FAIL
 
 ## Scope and Inputs
 
-- Plan: `[path]`
+- Implementation artifact: `[exact selected reviewed outline path; matches the plan frontmatter field]`
 - ExecPlan: `[path or "none"]`
 - Validation date: `[today's date]`
 - Working tree state: `[clean/dirty summary]`

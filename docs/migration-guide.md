@@ -19,7 +19,7 @@ The user-facing workflow now has four slash commands. Exploration is optional; s
 /spok-archive
 ```
 
-`/spok-explore` investigates ideas without implementing. `/spok-propose` writes `proposal.md`, `specs/`, `design.md`, and a chunked `tasks.md`. `/spok-apply` ships one unchecked chunk end-to-end through a vendored research → design → plan → implement → review → commit flow, then ticks the box. `/spok-archive` applies your delta specs and moves the change to `spok/changes/archive/`.
+`/spok-explore` investigates ideas without implementing. `/spok-propose` writes `proposal.md`, `specs/`, `design.md`, and a chunked `tasks.md`. `/spok-apply` ships one unchecked chunk end-to-end through a vendored research → design → outline → design review → implement → simplify → validate → commit flow, then ticks the box. `/spok-archive` applies your delta specs and moves the change to `spok/changes/archive/`.
 
 Only the `/spok-*` slash-command namespace is supported. There is no profile system. There is no separate sync step.
 

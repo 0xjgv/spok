@@ -16,6 +16,54 @@ Feature: Tool skill artifacts
     And Spok does not create ".codex"
     And Spok does not create command or prompt files for the selected tools
 
+  Scenario: CLI init omits the retired create-plan skill
+    Given a new project
+    And the project directory is the isolated home
+    When I run the Spok CLI in the project with "init --tools claude,codex --force"
+    Then the Spok CLI exits with code 0
+    And Spok creates the workflow skill "spok-review-design" under ".claude/skills"
+    And Spok creates the workflow skill "spok-review-design" under ".agents/skills"
+    And Spok does not create ".claude/skills/spok-create-plan"
+    And Spok does not create ".agents/skills/spok-create-plan"
+
+  Scenario: CLI project update removes retired create-plan resources and preserves custom skills
+    Given a new project
+    And the project directory is the isolated home
+    When I run the Spok CLI in the project with "init --tools claude,codex --force"
+    Then the Spok CLI exits with code 0
+    Given retired create-plan and custom skills exist for Claude and Codex
+    When I run the Spok CLI in the project with "update --force"
+    Then the Spok CLI exits with code 0
+    And Spok does not create ".claude/skills/spok-create-plan"
+    And Spok does not create ".agents/skills/spok-create-plan"
+    And custom skill contents are unchanged for Claude and Codex
+
+  Scenario: CLI global install removes retired create-plan resources and preserves custom skills
+    Given a new project
+    And the project directory is the isolated home
+    And retired create-plan and custom skills exist for Claude and Codex
+    When I run the Spok CLI in the project with "skills install --tools claude,codex"
+    Then the Spok CLI exits with code 0
+    And Spok creates the workflow skill "spok-review-design" under ".claude/skills"
+    And Spok creates the workflow skill "spok-review-design" under ".agents/skills"
+    And Spok does not create ".claude/skills/spok-create-plan"
+    And Spok does not create ".agents/skills/spok-create-plan"
+    And custom skill contents are unchanged for Claude and Codex
+    And Spok does not create "spok"
+
+  Scenario: CLI global update removes retired create-plan resources and preserves custom skills
+    Given a new project
+    And the project directory is the isolated home
+    And retired create-plan and custom skills exist for Claude and Codex
+    When I run the Spok CLI in the project with "update --global"
+    Then the Spok CLI exits with code 0
+    And Spok creates the workflow skill "spok-review-design" under ".claude/skills"
+    And Spok creates the workflow skill "spok-review-design" under ".agents/skills"
+    And Spok does not create ".claude/skills/spok-create-plan"
+    And Spok does not create ".agents/skills/spok-create-plan"
+    And custom skill contents are unchanged for Claude and Codex
+    And Spok does not create "spok"
+
   Scenario: Claude and Codex update creates missing explore skills
     Given a new project
     And an existing Spok setup for the tools "claude,codex" without the workflow skill "spok-explore"
@@ -154,7 +202,8 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-review-design" under ".claude/skills" mentions "verdict: FAIL"
     And the workflow skill "spok-review-design" under ".claude/skills" mentions "## Human Decisions Required"
     And the workflow skill "spok-review-design" under ".claude/skills" mentions "Do not read, create, or edit `<task-dir>/plan.md`"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "spok-create-plan"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "spok flow next"
+    And the workflow skill "spok-review-design" under ".claude/skills" mentions "implementation readiness"
 
   Scenario: Apply exposes a hybrid Claude and Codex execution mode
     Given a new project
@@ -277,11 +326,8 @@ Feature: Tool skill artifacts
     Given a new project
     When I initialize Spok for the tools "claude"
     Then the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Design discussion owns behavior, scope, APIs, UX, and tradeoffs."
-    And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "Structure outline owns decomposition only."
+    And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "Structure outline owns executable phase decomposition"
     And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "Chronology does not determine authority."
-    And the workflow skill "spok-create-plan" under ".claude/skills" mentions "Plan owns implementation detail only."
-    And the workflow skill "spok-create-plan" under ".claude/skills" mentions "It cannot override the reviewed design."
-    And the workflow skill "spok-create-plan" under ".claude/skills" mentions "Unresolved or contradictory decisions block review"
 
   Scenario: Installed workflow assets use Spok task handoffs
     Given a new project
@@ -475,15 +521,15 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "Model: fable"
     And the Spok CLI output contains "Effort: high"
 
-  Scenario: Flow reviews the design before exposing planning
+  Scenario: Flow reviews the design before exposing implementation
     Given a new project
     And a staged flow task
     And the staged flow task is completed through structure outline
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: design-review"
-    And the Spok CLI output does not contain "Next step: plan"
+    And the Spok CLI output does not contain "Next step: implement"
 
-  Scenario: A passing design review advances the flow to planning
+  Scenario: A passing design review advances the flow to implementation
     Given a new project
     And a staged flow task
     And the staged flow task is completed through structure outline
@@ -498,9 +544,9 @@ Feature: Tool skill artifacts
       """
     When I attempt the staged flow design-review step
     Then the Spok CLI exits with code 0
-    And the Spok CLI output contains "\"id\": \"plan\""
+    And the staged flow JSON next step is "implement"
 
-  Scenario: A failing design review blocks planning
+  Scenario: A failing design review blocks implementation
     Given a new project
     And a staged flow task
     And the staged flow task is completed through structure outline
@@ -518,7 +564,7 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "\"state\": \"blocked\""
     And the Spok CLI output contains "recorded a FAIL verdict"
 
-  Scenario: A passing verdict with the wrong artifact type blocks planning
+  Scenario: A passing verdict with the wrong artifact type blocks implementation
     Given a new project
     And a staged flow task
     And the staged flow task is completed through structure outline
@@ -536,7 +582,7 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "\"state\": \"blocked\""
     And the Spok CLI output contains "has no readable verdict"
 
-  Scenario: An unrecognized design-review verdict blocks planning
+  Scenario: An unrecognized design-review verdict blocks implementation
     Given a new project
     And a staged flow task
     And the staged flow task is completed through structure outline
@@ -554,7 +600,7 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "\"state\": \"blocked\""
     And the Spok CLI output contains "has no readable verdict"
 
-  Scenario: A design-review verdict outside frontmatter blocks planning
+  Scenario: A design-review verdict outside frontmatter blocks implementation
     Given a new project
     And a staged flow task
     And the staged flow task is completed through structure outline
@@ -725,6 +771,8 @@ Feature: Tool skill artifacts
     Then Spok creates global skills under ".claude/skills"
     And Spok creates the global workflow skill "spok-explore" under ".claude/skills"
     And Spok creates the global workflow skill "spok-self-learn" under ".claude/skills"
+    And Spok does not create ".claude/skills/spok-create-plan"
+    And Spok does not create ".agents/skills/spok-create-plan"
     And Spok creates global skills under ".agents/skills"
     And Spok creates the global workflow skill "spok-explore" under ".agents/skills"
     And Spok creates the global workflow skill "spok-self-learn" under ".agents/skills"
@@ -819,7 +867,6 @@ Feature: Tool skill artifacts
     When I initialize Spok for the tools "claude"
     Then the workflow skill "spok-review-design" under ".claude/skills" mentions "Resolve decisions autonomously"
     And the workflow skill "spok-review-design" under ".claude/skills" mentions "structured question packet"
-    And the workflow skill "spok-create-plan" under ".claude/skills" does not mention "Pause for human confirmation between phases"
     And the workflow skill "spok-create-structure-outline" under ".claude/skills" does not mention "surface them to the human"
 
   Scenario Outline: Question packets accept task aliases and dot-prefixed filenames

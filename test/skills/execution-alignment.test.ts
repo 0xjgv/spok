@@ -60,7 +60,7 @@ describe('execution skill boundaries', () => {
     expect(body).not.toContain(
       '**implementation state + executed checks > plan > structure outline > design discussion > research > ticket**',
     );
-    expect(body).toContain('**design discussion > structure outline > plan**');
+    expect(body).toContain('**design discussion > structure outline**');
     expect(body).toContain('Chronology does not determine authority.');
     expect(body).toContain('never authorize a change in required behavior');
   });
@@ -111,11 +111,11 @@ describe('execution skill boundaries', () => {
   });
 
   it('verifies supplied corrections and reports mismatches with evidence', async () => {
-    const plan = await readSkill('spok-create-plan');
+    const review = await readSkill('spok-review-design');
     const implement = await readSkill('spok-implement-plan');
-    expect(plan).toContain('A supplied answer is authoritative for the decision it answers.');
-    expect(plan).toContain('do not accept it blindly: read the named files');
-    expect(plan).toContain('Chronology does not determine authority.');
+    expect(review).toContain('A supplied answer is authoritative for the decision it answers.');
+    expect(review).toContain('do not accept it blindly: read the named files');
+    expect(review).toContain('Chronology does not determine authority.');
     expect(implement).toContain('Report a consequential mismatch in this shape:');
     expect(implement).toContain('Expected: <what the plan says>');
     expect(implement).toContain('Found: <what the code does, at path:line>');

@@ -15,7 +15,11 @@ CLI-provided execution metadata, task artifacts, and git.
   missing execution metadata. Do not discover a repository or switch branches.
 - The CLI-provided branch, baseline, pre-existing changes, and exact owned-path
   allowlist. These define the commit boundary; do not infer ownership from status.
-- `<task-dir>` — the directory containing `plan.md` and `validation.md`.
+- `Implementation artifact: <absolute path>` — the reviewed `structure-outline.md`
+  selected by the CLI. Read that exact artifact; missing
+  selection is a blocker. Do not infer it from file existence or substitute a
+  stale plan.
+- `<task-dir>` — the directory containing the selected artifact and `validation.md`.
   It is often a **different** repository from `<work-root>`.
 
 ## Process
@@ -25,7 +29,7 @@ while resuming, report the current HEAD SHA and work root without staging or
 creating another commit. The remaining process applies to an uncommitted chunk.
 
 1. **Derive the expected file list from the artifacts** as a cross-check:
-   Read the plan and validation. Compare their intended changes with the CLI's
+   Read the selected implementation artifact and validation. Compare their intended changes with the CLI's
    exact owned-path allowlist; the allowlist is authoritative. A planned file
    that needed no change is not a mismatch or automatic failure.
 

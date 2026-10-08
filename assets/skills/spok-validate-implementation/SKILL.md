@@ -1,17 +1,19 @@
 ---
 name: spok-validate-implementation
-description: validate an implementation against a task plan and current code. use this when given a plan path from a task directory or when asked to verify implemented work before review or PR
+description: Validate implementation against the reviewed structure outline and current code, before review or PR.
 ---
 
 # Validate Implementation
 
-You are validating implemented work against an existing implementation plan and the current codebase state.
+You are validating implemented work against the selected implementation artifact,
+the resolved design and review, and the current codebase state. Below, “plan”
+means the selected reviewed structure outline.
 
 You are the adversary, not the author. Presume the implementation is wrong and try to break it; `PASS` means you tried and failed. Judge from code, diff, tests, and the task documents. Do not read step summaries in `workflow-state.json` and do not treat the implementer's claims as evidence.
 
 ## Input
 
-- `planPath`: Path to the plan document (e.g. `<task-dir>/plan.md`)
+- `planPath`: Path to the reviewed structure outline (`<task-dir>/structure-outline.md`)
 - Optionally, a task directory
 - Optionally, an ExecPlan path for additional validation context
 - Optionally, a ticket file containing feedback or review comments
@@ -19,13 +21,18 @@ You are the adversary, not the author. Presume the implementation is wrong and t
   allowlist supplied in `step.prompt`. Use that repository for all source reads
   and checks, even when the task directory lives elsewhere. Do not discover a
   different repository or switch branches.
+- Inside the flow, `Implementation artifact: <absolute path>` in `step.prompt`
+  selects the reviewed `structure-outline.md` for every flow.
+  A missing selection is a blocker; never infer selection from an existing
+  `plan.md`. This explicit selection takes precedence over a task-directory argument.
 
 ## Initial Check
 
-If the user does not provide a plan path or task directory, ask for it:
+Outside the flow, if the user does not provide an artifact path or task directory,
+ask for it:
 
 ```
-I'm ready to validate the implementation. Please provide the plan path or task directory so I can compare the implemented work against the plan and run the required checks.
+Please provide the implementation artifact path or task directory so I can compare the implemented work against it and run the required checks.
 ```
 
 Then wait for the user's input.
@@ -34,9 +41,13 @@ Then wait for the user's input.
 
 1. **Read all input files FULLY**:
    - Use Read tool WITHOUT limit/offset to read the plan document and any other provided paths
-   - The skill argument is the absolute path to the task directory (or a plan file within it). Treat that path as the source of truth — do not search elsewhere.
-   - If the argument is a directory, read `<task-dir>/plan.md`; if it is a plan file, read it directly.
-   - Read all relevant files in the task directory to build full context
+   - Inside the flow, read the CLI-selected artifact. Outside the flow, read an
+     explicit reviewed outline path directly, or `<task-dir>/structure-outline.md` for a directory
+     argument. Do not search elsewhere for a replacement artifact.
+   - Read the resolved `design-discussion.md` and passing `design-review.md`;
+     missing review evidence is a blocker.
+   - Read relevant task context, but ignore any unrelated stale
+     `plan.md`; it must not supply requirements or validation commands.
    - If an ExecPlan path is provided or clearly referenced, read it fully as additional validation context
 
 2. **If a ticket file is provided, read it for validation context**:
@@ -111,6 +122,8 @@ Then wait for the user's input.
 `Read({SKILLBASE}/references/validation_template.md)`
 
 1. **Write the validation document** to `<task-dir>/validation.md`
+   - Set the template's `plan:` frontmatter to the absolute path of the selected
+     reviewed structure outline.
    - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-validation.md` (legacy date-prefixed orphans from pre-fork runs).
    - The skill argument is the absolute path to the task directory (it already exists — do not create or search for it).
    - Filename is bare: `validation.md` (no date prefix).
@@ -134,7 +147,12 @@ Then wait for the user's input.
 
 ## Document Precedence
 
-Authority over intended behavior: **design discussion > structure outline > plan**. The outline owns decomposition only; the plan owns implementation detail only and cannot override the reviewed design. Chronology does not determine authority. An answer recorded through the flow question protocol is authoritative for the decision it answers, not for a claim about what the code does.
+Authority over intended behavior: **design discussion > structure outline**.
+The design review records the reconciliation of the resolved design and executable
+outline. The outline owns phase decomposition and verification. Validate the
+selected outline against that resolved design and review. Chronology does not determine authority. An answer recorded
+through the flow question protocol is authoritative for the decision it answers,
+not for a claim about what the code does.
 
 Evidence about current behavior: implementation state and executed checks are the only evidence of what the code does. They never authorize a change in required behavior.
 

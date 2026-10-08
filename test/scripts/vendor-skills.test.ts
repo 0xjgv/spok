@@ -7,13 +7,13 @@ import {
 describe('vendor-skills rewrite helpers', () => {
   it('rewrites skill references without touching "data flow"', () => {
     const input = [
-      'Call the `create-plan` skill after `flow` completes.',
+      'Call the `create-structure-outline` skill during `flow`.',
       'Traces data flow and key functions',
     ].join('\n');
 
     const out = rewriteSkillReferences(input);
 
-    expect(out).toContain('`spok-create-plan`');
+    expect(out).toContain('`spok-create-structure-outline`');
     expect(out).toContain('`spok-flow`');
     expect(out).toContain('Traces data flow and key functions');
     expect(out).not.toContain('data spok-flow');
