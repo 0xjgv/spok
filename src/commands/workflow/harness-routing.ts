@@ -126,11 +126,6 @@ export const AUTO_V1_CANDIDATES_BY_ID = {
     { runner: 'omp', model: SOL, effort: 'xhigh' },
     { runner: 'claude', model: 'opus', effort: 'medium' },
   ],
-  plan: [
-    { runner: 'claude', model: 'fable', effort: 'xhigh' },
-    { runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
-    { runner: 'omp', model: SOL, effort: 'max' },
-  ],
   implement: [
     { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
     { runner: 'omp', model: SOL, effort: 'xhigh' },
@@ -165,7 +160,7 @@ export const AUTO_V1_CANDIDATES_BY_ID = {
 
 type AutoStepId = keyof typeof AUTO_V1_CANDIDATES_BY_ID;
 
-/** Terminal fallback appended by the selector; never part of the 13×3 table. */
+/** Terminal fallback appended by the selector; never part of the candidate table. */
 const CURRENT_FALLBACK: AutoCandidate = { runner: 'current' };
 const MODEL_IDENTITY_UNAVAILABLE_REASON =
   'No explicit auto candidate is eligible; running on the current harness whose model identity is unavailable.';

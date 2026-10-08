@@ -49,7 +49,6 @@ async function reachImplementation(taskDir: string): Promise<void> {
     await completeFile(taskDir, step, `# ${step}\n`);
   }
   await completeFile(taskDir, 'design-review', PASS_DESIGN);
-  await completeFile(taskDir, 'plan', '# Plan\n');
 }
 
 async function implement(taskDir: string): Promise<string> {

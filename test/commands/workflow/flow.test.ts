@@ -143,7 +143,6 @@ const EXPECTED_STEP_ROUTING = [
   { id: 'design-discussion', model: 'fable', effort: 'xhigh' },
   { id: 'structure-outline', model: 'fable', effort: 'xhigh' },
   { id: 'design-review', model: 'opus', effort: 'medium' },
-  { id: 'plan', model: 'fable', effort: 'xhigh' },
   { id: 'implement', model: 'opus', effort: 'medium' },
   { id: 'simplify', model: 'opus', effort: undefined },
   { id: 'validate', model: 'fable', effort: 'high' },
@@ -162,7 +161,6 @@ const EXPECTED_HYBRID_STEP_ROUTING = [
   { id: 'design-discussion', runner: 'claude', model: 'fable', effort: 'xhigh' },
   { id: 'structure-outline', runner: 'claude', model: 'fable', effort: 'xhigh' },
   { id: 'design-review', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-  { id: 'plan', runner: 'claude', model: 'fable', effort: 'xhigh' },
   { id: 'implement', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
   { id: 'simplify', runner: 'claude', model: 'opus', effort: undefined },
   { id: 'validate', runner: 'claude', model: 'opus', effort: 'medium' },
@@ -297,7 +295,6 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
   }
 
   async function completeFileStep(step: string, filename: string) {
-    if (step === 'plan') await seedFlowRepository(path.resolve(taskDir, '../../../../..'));
     await getFlowNext(taskDir);
     const output = path.join(taskDir, filename);
     await fs.writeFile(output, `# ${step}\n`, 'utf-8');
@@ -322,6 +319,7 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
   }
 
   async function completeDesignReview(content = PASS_DESIGN_REVIEW) {
+    await seedFlowRepository(path.resolve(taskDir, '../../../../..'));
     await getFlowNext(taskDir);
     const output = path.join(taskDir, 'design-review.md');
     await fs.writeFile(output, content, 'utf-8');
@@ -332,7 +330,6 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
     await advanceToDesignReview();
     const designReview = await completeDesignReview();
     expect(designReview.state).not.toBe('blocked');
-    await completeFileStep('plan', 'plan.md');
     await completeSummaryStep('implement', 'Implemented the plan.');
     await completeSummaryStep('simplify', 'Simplified the implementation.');
   }
@@ -429,7 +426,6 @@ describe('deterministic workflow step state', () => {
       { id: 'design-discussion', runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
       { id: 'structure-outline', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
       { id: 'design-review', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-      { id: 'plan', runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
       { id: 'implement', runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
       { id: 'simplify', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
       { id: 'validate', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
@@ -1240,7 +1236,6 @@ describe('auto flow judge repair anti-affinity', () => {
     process.env.SPOK_FLOW_PROFILE = 'auto';
     await flow.advanceToDesignReview();
     await flow.completeDesignReview();
-    await flow.completeFileStep('plan', 'plan.md');
     vi.mocked(probeHarnesses).mockResolvedValue(NOTHING_AVAILABLE);
     await flow.completeSummaryStep('implement', 'Implemented the plan.');
     vi.mocked(probeHarnesses).mockResolvedValue(ALL_HARNESSES_AVAILABLE);
@@ -1265,7 +1260,7 @@ describe('auto flow judge repair anti-affinity', () => {
 describe('design review gate', () => {
   const flow = useFlowHarness();
 
-  it('runs after structure-outline with the task directory and advances to plan on PASS', async () => {
+  it('runs after structure-outline with the task directory and advances to implement on PASS', async () => {
     await flow.advanceToDesignReview();
 
     const next = await getFlowNext(flow.taskDir);
@@ -1286,7 +1281,7 @@ describe('design review gate', () => {
       id: 'design-review',
       status: 'completed',
     });
-    expect(result.nextStep?.id).toBe('plan');
+    expect(result.nextStep?.id).toBe('implement');
   });
 
   it('accepts CRLF frontmatter and body content after the closing delimiter', async () => {
@@ -1295,7 +1290,7 @@ describe('design review gate', () => {
     const result = await flow.completeDesignReview(PASS_DESIGN_REVIEW.replaceAll('\n', '\r\n'));
 
     expect(result.state).toBe('ready');
-    expect(result.nextStep?.id).toBe('plan');
+    expect(result.nextStep?.id).toBe('implement');
   });
 
   it.each([
@@ -1359,7 +1354,7 @@ describe('design review gate', () => {
       id: 'design-review',
       status: 'completed',
     });
-    expect(retried.nextStep?.id).toBe('plan');
+    expect(retried.nextStep?.id).toBe('implement');
   });
 
   it('records design_review_verdict_unreadable for an unreadable review', async () => {
@@ -1378,95 +1373,8 @@ describe('design review gate', () => {
   });
 });
 
-const legacyStepOrder = [
-  'validate-problem',
-  'research-questions',
-  'research',
-  'design-discussion',
-  'structure-outline',
-  'plan',
-  'implement',
-  'simplify',
-  'validate',
-  'commit',
-];
-const legacyFileByStep: Record<string, string> = {
-  'validate-problem': 'problem-validation.md',
-  'research-questions': 'research-questions.md',
-  research: 'research.md',
-  'design-discussion': 'design-discussion.md',
-  'structure-outline': 'structure-outline.md',
-  plan: 'plan.md',
-  validate: 'validation.md',
-};
-
 describe('deterministic workflow state resumption', () => {
   const flow = useFlowHarness();
-
-  async function writeLegacyState(completedIds: string[], readyId?: string) {
-    const completed = new Set(completedIds);
-    const createdAt = '2026-01-01T00:00:00.000Z';
-
-    for (const id of completed) {
-      const filename = legacyFileByStep[id];
-      if (!filename) continue;
-      const content =
-        id === 'validate-problem'
-          ? '# Problem Validation\n\n## Flow Decision\n\nproceed\n'
-          : id === 'validate'
-          ? PASS_VALIDATION
-          : `# ${id}\n`;
-      await fs.writeFile(path.join(flow.taskDir, filename), content, 'utf-8');
-    }
-
-    const steps = legacyStepOrder.map((id) => {
-      const status = completed.has(id) ? 'completed' : id === readyId ? 'ready' : 'pending';
-      if (status !== 'completed') return { id, status };
-
-      const filename = legacyFileByStep[id];
-      if (filename) {
-        return {
-          id,
-          status,
-          result: {
-            output: path.join(flow.taskDir, filename),
-            completedAt: createdAt,
-          },
-        };
-      }
-      if (id === 'commit') {
-        return {
-          id,
-          status,
-          result: { commit: 'abc123', completedAt: createdAt },
-        };
-      }
-      return {
-        id,
-        status,
-        result: { summary: `Completed ${id}.`, completedAt: createdAt },
-      };
-    });
-
-    await fs.writeFile(
-      path.join(flow.taskDir, WORKFLOW_STATE_FILE),
-      `${JSON.stringify(
-        {
-          version: 2,
-          profile: 'claude',
-          taskDir: flow.taskDir,
-          status: 'ready',
-          steps,
-          repairAttempts: 0,
-          createdAt,
-          updatedAt: createdAt,
-        },
-        null,
-        2
-      )}\n`,
-      'utf-8'
-    );
-  }
 
   it('validates the expected output before advancing to the next step', async () => {
     await flow.completeProblemValidation();
@@ -1619,62 +1527,34 @@ describe('deterministic workflow state resumption', () => {
     expectStepRouting(normalizedState.steps);
   });
 
-  it('runs design-review for a plan-ready legacy state that has not completed plan', async () => {
-    const completedBeforeReview = legacyStepOrder.slice(0, legacyStepOrder.indexOf('plan'));
-    await writeLegacyState(completedBeforeReview, 'plan');
+  it.each([
+    ['pending', 'next'],
+    ['completed', 'next'],
+    ['pending', 'status'],
+    ['completed', 'status'],
+    ['pending', 'complete'],
+    ['completed', 'complete'],
+  ])('rejects a %s plan step on %s without rewriting state', async (status, operation) => {
+    await getFlowNext(flow.taskDir);
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+    state.steps.splice(6, 0, { id: 'plan', status });
+    const original = `${JSON.stringify(state, null, 2)}\n`;
+    await fs.writeFile(statePath, original);
 
-    const result = await getFlowNext(flow.taskDir);
+    const result = operation === 'next'
+      ? await getFlowNext(flow.taskDir)
+      : operation === 'status'
+      ? await getFlowStatus(flow.taskDir)
+      : await completeFlowStep(flow.taskDir, { step: 'plan', output: path.join(flow.taskDir, 'plan.md') });
 
-    expect(result.state).toBe('ready');
-    expect(result.step).toMatchObject({
-      id: 'design-review',
-      skill: 'spok-review-design',
-      argument: flow.taskDir,
-      expectedOutput: path.join(flow.taskDir, 'design-review.md'),
-      status: 'ready',
-    });
-    const state = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
-    expect(state.version).toBe(2);
-    expect(state.steps.find((step: { id: string }) => step.id === 'plan').status).toBe('pending');
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toBe(
+      'Unsupported workflow state: the plan step has been removed. Start a new task directory with ticket.md.'
+    );
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(original);
   });
 
-  it('inserts a synthetic completed review when a legacy state completed plan', async () => {
-    const completedThroughPlan = legacyStepOrder.slice(0, legacyStepOrder.indexOf('plan') + 1);
-    await writeLegacyState(completedThroughPlan, 'implement');
-    await seedFlowRepository(flow.projectRoot);
-
-    const result = await getFlowNext(flow.taskDir);
-
-    expect(result.state).toBe('ready');
-    expect(result.step?.id).toBe('implement');
-    const review = result.steps.find((step) => step.id === 'design-review');
-    expect(review).toMatchObject({ id: 'design-review', status: 'completed' });
-    expect(review?.result?.completedAt).toEqual(expect.any(String));
-    expect(review?.result?.output).toBeUndefined();
-
-    const state = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
-    expect(state.version).toBe(2);
-  });
-
-  it('preserves later legacy progress when plan itself is not recorded complete', async () => {
-    const completedBeforeReview = legacyStepOrder.slice(0, legacyStepOrder.indexOf('plan'));
-
-    for (const laterStep of ['implement', 'simplify', 'validate', 'commit']) {
-      await writeLegacyState([...completedBeforeReview, laterStep], 'plan');
-
-      const result = await getFlowStatus(flow.taskDir);
-      expect(result.state).toBe('ready');
-      expect(result.nextStep?.id).toBe('plan');
-      expect(result.steps.find((step) => step.id === 'design-review')).toMatchObject({
-        status: 'completed',
-        result: { completedAt: expect.any(String) },
-      });
-      expect(result.steps.find((step) => step.id === laterStep)?.status).toBe('completed');
-
-      const state = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
-      expect(state.version).toBe(2);
-    }
-  });
 });
 
 describe('deterministic workflow blockers', () => {
@@ -1941,7 +1821,7 @@ describe('bounded repair cycle', () => {
     expect(state.repairAttempts).toBe(1);
     expect(state.steps.map((step: { id: string }) => step.id)).toEqual([
       'validate-problem', 'research-questions', 'research', 'design-discussion',
-      'structure-outline', 'design-review', 'plan', 'implement', 'simplify',
+      'structure-outline', 'design-review', 'implement', 'simplify',
       'validate', 'repair', 'validate', 'commit',
     ]);
 
@@ -2115,7 +1995,7 @@ describe('repair attempt exhaustion', () => {
 describe('completed artifact revalidation', () => {
   const flow = useFlowHarness();
 
-  it.each(['status', 'next', 'plan completion'])('revalidates a completed design review on %s', async (operation) => {
+  it.each(['status', 'next', 'implement completion'])('revalidates a completed design review on %s', async (operation) => {
     await flow.advanceToDesignReview();
     const completed = await flow.completeDesignReview();
     expect(completed.state).toBe('ready');
@@ -2127,8 +2007,8 @@ describe('completed artifact revalidation', () => {
         : operation === 'next'
         ? await getFlowNext(flow.taskDir)
         : await completeFlowStep(flow.taskDir, {
-            step: 'plan',
-            output: path.join(flow.taskDir, 'plan.md'),
+            step: 'implement',
+            summary: 'Implemented the outline.',
           });
 
     expect(result.state).toBe('blocked');
@@ -2614,7 +2494,6 @@ describe('flow step prompt composition', () => {
     await flow.completeFileStep('structure-outline', 'structure-outline.md');
     const designReview = await flow.completeDesignReview();
     expect(designReview.state).not.toBe('blocked');
-    await flow.completeFileStep('plan', 'plan.md');
 
     const result = await getFlowNext(flow.taskDir);
 
@@ -2634,6 +2513,35 @@ describe('flow step prompt composition', () => {
     const raw = await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8');
     expect(raw).not.toContain('"prompt"');
     expect(raw).not.toContain('Probe rule text');
+  });
+});
+
+describe('outline artifact selection', () => {
+  const flow = useFlowHarness();
+
+  it('keeps the outline selector across every execution stage despite a stray plan', async () => {
+    await flow.advanceToDesignReview();
+    await flow.completeDesignReview();
+    await fs.writeFile(path.join(flow.taskDir, 'plan.md'), '# Stray plan\n');
+    const selected = `Implementation artifact: ${path.join(flow.taskDir, 'structure-outline.md')}`;
+    const expectSelected = async (id: string) => {
+      const next = await getFlowNext(flow.taskDir);
+      expect(next.step?.id).toBe(id);
+      expect(next.step?.prompt?.split('\n')).toContain(selected);
+      expect(next.steps.some((step) => step.id === 'plan')).toBe(false);
+    };
+    await expectSelected('implement');
+    await expectSelected('implement');
+    await flow.completeSummaryStep('implement', 'Implemented the outline.');
+    await expectSelected('simplify');
+    await flow.completeSummaryStep('simplify', 'Simplified implementation.');
+    await expectSelected('validate');
+    await flow.completeValidate(FAIL_VALIDATION);
+    await expectSelected('repair');
+    await flow.completeSummaryStep('repair', 'Repaired implementation.');
+    await expectSelected('validate');
+    await flow.completeValidate(PASS_VALIDATION);
+    await expectSelected('commit');
   });
 });
 
@@ -2991,7 +2899,6 @@ async function advanceToImplement(flow: FlowHarness): Promise<void> {
   await flow.advanceToDesignReview();
   const designReview = await flow.completeDesignReview();
   expect(designReview.state).not.toBe('blocked');
-  await flow.completeFileStep('plan', 'plan.md');
   const next = await getFlowNext(flow.taskDir);
   expect(next.state, next.reason).toBe('ready');
   expect(next.step?.id).toBe('implement');

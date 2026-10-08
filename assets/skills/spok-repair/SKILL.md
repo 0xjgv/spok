@@ -16,7 +16,7 @@ You are repairing an implementation that failed the flow's `validate` step. The 
    - Extract the blocking findings — the concrete failures that produced the `FAIL` verdict, including any file paths, line references, failing commands, and expected behavior they cite.
 
 2. **Build context from the task directory**:
-   - The task directory is the directory containing `validation.md`. Read `plan.md` and `ticket.md` there for the intended behavior and success criteria.
+   - The task directory is the directory containing `validation.md`. Read the exact `Implementation artifact: <absolute path>` supplied in `step.prompt` (the reviewed `structure-outline.md`), plus `ticket.md`, the resolved design discussion, and passing design review for intended behavior and success criteria. Missing review evidence is a blocker. Do not choose an artifact by file existence or use a stale `plan.md` to override the selection. Missing artifact metadata inside a flow is a blocker; outside a flow, use the explicitly supplied reviewed outline, or `<task-dir>/structure-outline.md` when only the validation path was supplied.
    - Read the source and test files the findings reference before changing anything.
 
 3. **Fix exactly the blocking findings**:

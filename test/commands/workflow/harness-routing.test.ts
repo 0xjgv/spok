@@ -100,11 +100,6 @@ describe('AUTO_V1_CANDIDATES_BY_ID', () => {
         { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
         { runner: 'claude', model: 'opus', effort: 'medium' },
       ],
-      plan: [
-        { runner: 'claude', model: 'fable', effort: 'xhigh' },
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'max' },
-      ],
       implement: [
         { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
         { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
@@ -475,7 +470,7 @@ describe('selectAutoRoute judge degradation', () => {
 
   it('marks producer_family_unknown and omits producer when no producer precedes the judge', () => {
     const { route } = selectAutoRoute('validate', allAvailable(), [
-      { id: 'plan', runner: 'claude', model: 'fable' },
+      { id: 'structure-outline', runner: 'claude', model: 'fable' },
     ]);
 
     expect(route).toMatchObject({ runner: 'claude', model: 'opus' });
@@ -525,10 +520,10 @@ describe('selectAutoRoute judge degradation', () => {
       { id: 'design-discussion', runner: 'codex', model: 'gpt-5.6-sol' },
     ];
 
-    expect(selectAutoRoute('plan', allAvailable(), prior)).toEqual(
-      selectAutoRoute('plan', allAvailable())
+    expect(selectAutoRoute('structure-outline', allAvailable(), prior)).toEqual(
+      selectAutoRoute('structure-outline', allAvailable())
     );
-    expect(selectAutoRoute('plan', allAvailable(), prior).route.route).not.toHaveProperty('producer');
+    expect(selectAutoRoute('structure-outline', allAvailable(), prior).route.route).not.toHaveProperty('producer');
   });
 });
 

@@ -1,13 +1,24 @@
 ---
 name: spok-implement-plan
-description: phased implementation of a structured plan you must use this skill when asked to implement a plan file in a task directory
+description: Implement phases from the reviewed structure outline, selected by the CLI or supplied directly.
 ---
 
 # Implement the Plan
 
-The argument is the absolute task directory containing `plan.md`. Read the plan
-fully and implement its phases in order, starting at the first unchecked item
-when resuming. Verify completed work when evidence suggests it changed.
+Inside `spok-flow`, read the exact absolute path in
+`Implementation artifact: <absolute path>` from `step.prompt`. This selects the
+reviewed `structure-outline.md` for every flow.
+A missing selection is a blocker; never choose an artifact because `plan.md`
+exists. Outside the flow, accept an explicit reviewed outline path, or use
+`<task-dir>/structure-outline.md` when given a task directory.
+
+Read the selected outline fully; below, “plan” means this reviewed outline.
+Read the resolved `design-discussion.md` and passing `design-review.md`;
+missing review evidence is a blocker. The design owns behavior and the outline
+owns executable decomposition. Ignore any unrelated stale `plan.md`.
+Implement the selected artifact's phases in order,
+starting at the first unchecked item when resuming. Verify completed work when
+evidence suggests it changed.
 
 ## Execution Boundary
 

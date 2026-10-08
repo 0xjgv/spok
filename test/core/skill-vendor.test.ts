@@ -8,6 +8,67 @@ import {
   getVendoredSkillNames,
 } from '../../src/core/skill-vendor.js';
 
+describe('retired skill cleanup', () => {
+  let tempDir: string;
+  let sourceDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spok-retired-test-'));
+    sourceDir = path.join(tempDir, 'source');
+    fs.mkdirSync(path.join(sourceDir, 'spok-flow'), { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, 'spok-flow/SKILL.md'), 'current');
+    for (const tool of ['.claude', '.cursor']) {
+      for (const skill of ['spok-create-plan', 'spok-custom', 'custom']) {
+        const resources = path.join(tempDir, tool, 'skills', skill, 'references');
+        fs.mkdirSync(resources, { recursive: true });
+        fs.writeFileSync(path.join(resources, 'resource.md'), 'keep');
+      }
+    }
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it.each(['.claude', '.cursor'])('cleans only %s, idempotently', async (tool) => {
+    const skillsRoot = path.join(tempDir, tool, 'skills');
+    const otherTool = tool === '.claude' ? '.cursor' : '.claude';
+
+    for (let run = 0; run < 2; run++) {
+      const result = await installVendoredSkills(tempDir, tool, sourceDir);
+
+      expect(result).toEqual({ installedSkills: ['spok-flow'], skipped: false });
+      expect(fs.existsSync(path.join(skillsRoot, 'spok-create-plan'))).toBe(false);
+      const flowPath = path.join(skillsRoot, 'spok-flow/SKILL.md');
+      expect(fs.readFileSync(flowPath, 'utf8')).toBe('current');
+      for (const skill of ['spok-custom', 'custom']) {
+        const resource = path.join(skillsRoot, skill, 'references/resource.md');
+        expect(fs.readFileSync(resource, 'utf8')).toBe('keep');
+      }
+      const untouched = path.join(
+        tempDir, otherTool, 'skills/spok-create-plan/references/resource.md'
+      );
+      expect(fs.readFileSync(untouched, 'utf8')).toBe('keep');
+    }
+  });
+
+  it.each(['missing', 'empty'])('skips a %s source safely', async (sourceState) => {
+    fs.rmSync(sourceDir, { recursive: true });
+    if (sourceState === 'empty') fs.mkdirSync(sourceDir);
+
+    const result = await installVendoredSkills(tempDir, '.claude', sourceDir);
+
+    expect(result.skipped).toBe(true);
+    expect(result.installedSkills).toEqual([]);
+    for (const skill of ['spok-create-plan', 'spok-custom', 'custom']) {
+      const resource = path.join(
+        tempDir, '.claude/skills', skill, 'references/resource.md'
+      );
+      expect(fs.readFileSync(resource, 'utf8')).toBe('keep');
+    }
+  });
+});
+
 describe('skill-vendor', () => {
   let tempDir: string;
   let sourceDir: string;

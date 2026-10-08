@@ -41,22 +41,25 @@ describe('artifact grounding rules in skill assets', () => {
     });
   });
 
-  describe('spok-create-plan', () => {
-    it('requires verification commands to come from the manifest or research', async () => {
-      const body = await readSkill('spok-create-plan');
+  describe('outline verification grounding', () => {
+    it('requires verification commands to be checked against current repository evidence', async () => {
+      const body = await readSkill('spok-create-structure-outline');
 
       expect(body).toContain(
-        "Every automated-verification command must come from the repository's manifest",
+        'Verify command names and options against current repository scripts, configuration, or tool help',
       );
-      expect(body).toContain('or from `research.md`');
-      expect(body).toContain('Never name a command from a toolchain guess');
+      expect(body).toContain('Research notes alone do not prove a command exists');
+      expect(body).toContain('their runner must be verified');
+      expect(body).toContain('If no runnable command can be confirmed for a required check, state that plainly');
+      expect(body).toContain('identify the missing check as a blocker');
+      expect(body).toContain('do not hedge with a conditional such as "if configured"');
     });
 
-    it('forbids hedging when research did not establish the commands', async () => {
-      const body = await readSkill('spok-create-plan');
+    it('distinguishes supported commands from observed execution results', async () => {
+      const body = await readSkill('spok-create-structure-outline');
 
-      expect(body).toContain('If research did not establish the commands, say so plainly');
-      expect(body).toContain('Do not hedge with a conditional like "if configured"');
+      expect(body).toContain('Leave checks unchecked until execution and never claim results');
+      expect(body).toContain('without the command and observed outcome');
     });
   });
 

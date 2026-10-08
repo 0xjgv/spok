@@ -27,7 +27,6 @@ const SKILLS = [
   'create-research',
   'create-design-discussion',
   'create-structure-outline',
-  'create-plan',
   'implement-plan',
   'validate-implementation',
   'ci-commit',
@@ -36,7 +35,7 @@ const SKILLS = [
 
 /**
  * Spok-specific forks - not copied from ~/.claude/skills; maintained in assets/skills/.
- * Includes the 7 downstream flow skills because they now route artifacts to
+ * Includes the downstream flow skills because they route artifacts to
  * `<task-dir>` rather than `.humanlayer/tasks/`, a fork-only divergence.
  */
 const HAND_MAINTAINED_SKILLS = new Set([
@@ -46,7 +45,6 @@ const HAND_MAINTAINED_SKILLS = new Set([
   'create-research',
   'create-design-discussion',
   'create-structure-outline',
-  'create-plan',
   'implement-plan',
   'validate-implementation',
   // Deliberately diverges from the in-session ~/.claude/skills/ci-commit: the

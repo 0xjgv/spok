@@ -1,7 +1,7 @@
 ---
 name: spok-simplify
 description: Behavior-preserving simplification of the current chunk — remove duplication, unnecessary abstraction, and dead code inside the chunk's diff, prove behavior with re-run checks, and return a structured summary. Invoked by spok-flow between implement and validate.
-argument-hint: <task-dir> (absolute path to the task directory containing plan.md and ticket.md)
+argument-hint: <task-dir> (absolute task directory; the CLI selects the implementation artifact)
 license: MIT
 metadata:
   author: spok
@@ -18,9 +18,16 @@ still be true.
 ## Steps
 
 1. **Read the task context FULLY**:
-   - The argument is the absolute path to the task directory. Read `plan.md` and
-     `ticket.md` there for the intended behavior and the automated verification
-     commands the plan names.
+   - The argument is the absolute path to the task directory. Read the exact
+     absolute path in `Implementation artifact: <absolute path>` from
+     `step.prompt`: the reviewed `structure-outline.md` for every flow.
+     A missing selection is a blocker; never infer selection
+     from the presence of `plan.md`. Below, “plan” means the selected artifact.
+   - Read `ticket.md` and the resolved design discussion and passing design review
+     for intended behavior and review decisions. Missing review evidence is a
+     blocker. The design owns behavior and
+     the outline owns executable decomposition. Ignore any unrelated stale `plan.md`.
+     Use the selected artifact's automated verification commands.
    - Use the execution work root and exact owned-path allowlist supplied by the
      CLI in `step.prompt`. Run all source reads, edits, and commands there; the
      task directory may live elsewhere. Do not discover another repository or
@@ -70,8 +77,8 @@ still be true.
 
 6. **Stay in your lane**:
    - Do not stage, commit, or push. The CLI verifies the source boundary at completion.
-   - Do not edit task artifacts (`ticket.md`, `plan.md`, research, design, or
-     validation documents).
+   - Do not edit task artifacts (`ticket.md`, `structure-outline.md`, `plan.md`,
+     research, design, review, or validation documents).
    - Do not add dependencies.
 
 ## Output

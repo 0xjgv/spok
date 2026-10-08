@@ -1,11 +1,13 @@
 ---
 name: spok-create-structure-outline
-description: create a phased implementation plan based on research and design decisions
+description: create executable implementation phases based on research and resolved design decisions
 ---
 
 # Create Structure Outline
 
-You are creating a phased implementation plan based on research findings and design decisions.
+You are creating the executable structure outline based on research findings and resolved
+design decisions. Flows implement the reviewed outline directly; do not defer required
+behavior, interfaces, tests, or validation to a later plan.
 
 ## Input
 
@@ -21,6 +23,10 @@ The relevant task artifacts must have their expected YAML frontmatter types:
 - `<task-dir>/structure-outline.md` output: `type: structure-outline`
 
 Verify these types before writing. Stop and report a missing or mismatched type; do not infer an artifact's authority from its filename.
+
+Use the supplied execution work root when present for repository evidence and validation
+command paths. Keep task artifacts at the supplied absolute task directory. Do not select
+another repository or establish implementation execution metadata yourself.
 
 ## Steps
 
@@ -84,11 +90,22 @@ Verify these types before writing. Stop and report a missing or mismatched type;
    These are **illustrative**. Not all work fits this shape, but cross module boundaries where you can so surprises surface early. **Do not structure a phase N such that Phase N+1 must be completed before Phase N can be verified.** Each phase must be independently verifiable from typechecks, tests, build steps, and other in-repo verification. Never propose a manual step for something a script, existing check, or existing skill can automate.
 
 5. **For each phase, specify**:
-   - Overview of what's being built
+   - Required observable behavior and completion conditions, traced to `ticket.md` and the resolved design; name relevant constraints and failure cases
    - `Implements:` one line naming the resolved design decision title(s) from `design-discussion.md` that this phase delivers
    - A compact `### Change Outline`: prose first, then only the views that explain the phase - an optional `diff` file tree when file ownership matters, and focused views for key data structures, SQL tables, API contracts, or signature changes
-   - Test changes if the research found testing patterns for the components being modified (e.g. show `+ foo.test.ts  + covers the new behavior` in the tree)
-   - `### Validation` split into `#### Automated Verification` and `#### Manual Verification` checkbox lists
+   - Affected repository areas and their responsibilities, including interface inputs, outputs, error behavior, ownership, and cross-module wiring where relevant; record phase prerequisites without deferring a phase's verification to later work
+   - Concrete test changes covering the required behavior and failure cases. Ground test locations, fixtures, and conventions in actual repository tests; label proposed new files as new. If no relevant tests exist, inspect the repository's test setup and specify an executable approach rather than inventing an existing pattern
+   - `### Validation` with `#### Automated Verification` checkboxes containing exact commands, working directories, and expected outcomes. Verify command names and options against current repository scripts, configuration, or tool help; cite that evidence. Research notes alone do not prove a command exists. Proposed new tests may be named, but their runner must be verified
+   - If no runnable command can be confirmed for a required check, state that plainly and identify the missing check as a blocker; do not hedge with a conditional such as "if configured"
+   - `#### Manual Verification` only for checks requiring human judgment that cannot be automated
+
+   Before finishing, map every required ticket behavior and resolved design decision to
+   a phase and its verification. Repair missing coverage. Record consequential unresolved
+   choices as blockers; do not silently decide user intent or describe a blocked outline
+   as implementation-ready. Inside a flow, use its supplied durable question protocol
+   when clarification is needed, ending the response with its `NEEDS_INPUT` marker and
+   consuming durable answers on redispatch. Standalone, ask the user directly and
+   keep the outline blocked until the consequential choice is resolved.
 
 6. **Document what's out of scope**:
    - What we're NOT doing in this plan
@@ -111,7 +128,10 @@ Verify these types before writing. Stop and report a missing or mismatched type;
 
 `Read({SKILLBASE}/references/structure_outline_final_answer.md)`
 
-4. Respond to the user with a summary following the template
+4. Respond to the user with a summary following the template. In a flow, return the
+   artifact to the caller, which completes the step and uses
+   `spok flow next "<task-dir>" --json` to select the next stage. Do not hardcode
+   implementation as the handoff; the CLI owns the sequence.
 
 ## Work with the user to iterate on the design
 
@@ -138,8 +158,11 @@ npm install example
 
 ## Phase changes should be concise but clear
 
-The goal of this document is to be concise and human readable. 
-Be tasteful and thoughtful about how and where you include code snippets, and prefer highlighting signature changes rather than entire code blocks, unless the user explicitly asks for them. The structure outline is our "c header files", the plan will include the function definitions. Inside `### Change Outline` this means the signature slot carries the change - show a full type or data structure only when its shape is the decision, and never a function body.
+The goal of this document is to be concise, human readable, and executable without a
+separate plan. Prefer signatures and focused code shapes to whole function bodies.
+Show a full type or data structure only when its shape is the decision. Specify enough
+behavior, ownership, interfaces, tests, and commands for implementation without reopening
+design decisions; do not expand the outline into line-by-line coding instructions.
 
 
 ## Phase Validation Design
@@ -148,6 +171,10 @@ Each phase has a `### Validation` section with two subsections:
 
 - `#### Automated Verification`: runnable commands (typecheck, tests, lint) as a checkbox list
 - `#### Manual Verification`: steps that need human judgment, as a checkbox list
+
+Command verification establishes that the command is supported; it does not mean the
+tests ran or passed. Leave checks unchecked until execution and never claim results
+without the command and observed outcome.
 
 Not every phase requires manual validation, don't put steps for manual validation just to have them. 
 
@@ -161,8 +188,11 @@ of the codebase and testing patterns, and be clear about which tests are manual 
 ## Artifact Authority
 
 - Design discussion owns behavior, scope, APIs, UX, and tradeoffs.
-- Structure outline owns decomposition only. It must conform to the design discussion.
-- Plan owns implementation detail only. It cannot override the reviewed design.
+- Structure outline owns executable phase decomposition, affected areas, interfaces,
+  test coverage, and validation commands. It must conform to the design discussion.
 
-Chronology does not determine authority. Unresolved or contradictory decisions block review and planning until reconciled against artifact authority and explicit user intent. Record evidence-backed resolutions; ask through the flow question protocol when useful, without requiring human review. Never silently override the reviewed design.
+Chronology does not determine authority. Unresolved or contradictory decisions block
+readiness until reconciled against artifact authority and explicit user intent. Record
+evidence-backed resolutions and resolve intent ambiguity using the question handling
+above, without adding a human approval gate. Never silently override the reviewed design.
 </guidance>

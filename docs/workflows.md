@@ -25,10 +25,29 @@ Spok exposes four user-facing workflow skills. `/spok-explore` is optional think
 
 - **`/spok-explore`** helps investigate ideas, compare approaches, inspect Spok artifacts, and summarize findings without writing implementation code.
 - **`/spok-propose`** scaffolds the change folder, creates the planning artifacts (proposal, specs, design), and writes a `tasks.md` that is a list of chunks. A chunk is one thin, end-to-end-testable slice of work.
-- **`/spok-apply`** picks the first unchecked chunk, stages a ticket under `.flow/<chunk-slug>/`, runs research → design → plan → implement → review → commit on it via the vendored `spok-flow` skill, then flips the chunk's checkbox to `[x]`. One chunk per invocation. When `flow.self_learn` is enabled, `spok-flow` also runs an advisory post-commit review and writes `.flow/<chunk-slug>/self-learn.md`.
+- **`/spok-apply`** picks the first unchecked chunk, stages a ticket under `.flow/<chunk-slug>/`, runs research → design → outline → design review → implement → simplify → validate → commit on it via the vendored `spok-flow` skill, then flips the chunk's checkbox to `[x]`. One chunk per invocation. When `flow.self_learn` is enabled, `spok-flow` also runs an advisory post-commit review and writes `.flow/<chunk-slug>/self-learn.md`.
 - **`/spok-archive`** applies any delta specs to the main specs and moves the change into `spok/changes/archive/YYYY-MM-DD-<name>/`. Sync is folded in — there is no separate sync step.
 
 The patterns below are about how you sequence these skills across real-world situations.
+
+Flows implement the reviewed `structure-outline.md` directly. Design review
+checks that each phase names the required behavior, affected areas and interfaces,
+tests, and exact repository-supported verification commands. Unresolved design or
+readiness gaps block progression; a passing review proceeds to implementation.
+
+Saved flows that contain a `plan` step are unsupported. The CLI blocks them
+without rewriting their state or task documents. Start a new task directory with
+`ticket.md` to use the current flow; keep the old directory as a record.
+
+The CLI names `structure-outline.md` in every implementation, simplification,
+validation, repair, and commit prompt. An unrelated `plan.md` does not change
+that selection. Execution ownership, durable questions, bounded repair, and
+commit boundaries remain enforced.
+
+`spok-create-plan` has been removed. `spok update` removes its installed directory
+from configured project tools; `spok update --global` removes it from configured
+home-scoped tools. Custom skills are preserved. Direct implementation and
+validation skill invocations with a task directory also use the reviewed outline.
 
 ---
 
@@ -58,7 +77,7 @@ AI:  Created spok/changes/add-logout-button/
 You: /spok-apply
 
 AI:  Shipping chunk 1: Add logout endpoint + session clearing
-     [research → design → plan → implement → review → commit]
+     [research → design → outline → design review → implement → simplify → validate → commit]
      ✓ Chunk shipped.
      Remaining: 1/2. Next: Wire logout button to header.
 

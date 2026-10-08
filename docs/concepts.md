@@ -32,8 +32,8 @@ brownfield-first        — works with existing codebases, not just greenfield
 The flow treats quality as three distinct concerns, each enforced by the cheapest mechanism that can prove it:
 
 1. **Mechanical correctness** — formatting, lint, types, build, complexity, coverage. Deterministic tools decide these: your repository's own hooks, check scripts, and CI. Spok never spends agent reasoning on what a tool can prove.
-2. **Semantic code quality** — duplication, unnecessary abstraction, dead code, AI-generated slop. This requires judgment over code structure, so the `simplify` step owns it: a bounded pass over the chunk's diff that preserves behavior, reuses existing repository abstractions, and proves itself by re-running the plan's checks.
-3. **Behavioral correctness** — does the change do what the plan promised? The `validate` step owns it, independently of whoever implemented or simplified: executed checks and implementation state outrank any agent's prose, and missing required evidence is a failure.
+2. **Semantic code quality** — duplication, unnecessary abstraction, dead code, AI-generated slop. This requires judgment over code structure, so the `simplify` step owns it: a bounded pass over the chunk's diff that preserves behavior, reuses existing repository abstractions, and proves itself by re-running the reviewed outline's checks.
+3. **Behavioral correctness** — does the change deliver the reviewed outline's required behavior? The `validate` step owns it, independently of whoever implemented or simplified: executed checks and implementation state outrank any agent's prose, and missing required evidence is a failure.
 
 Simplify never fails the flow — it only makes (or declines to make) changes. Failure belongs to the deterministic gates and the validate verdict.
 
@@ -340,7 +340,7 @@ A chunk is the unit of shipping. `/spok-apply` ships exactly one chunk per invoc
 1. Reading `tasks.md` and picking the first `- [ ]` chunk.
 2. Halting if a prerequisite is unchecked.
 3. Staging a ticket at `<changeRoot>/.flow/<chunk-slug>/ticket.md` containing the chunk's title, slug, layers, end-to-end test, rollback, body, and pointers back to the change's proposal/specs/design.
-4. Invoking the vendored `spok-flow` skill against that ticket directory. The flow skill drives **research → design → plan → implement → review → commit** for the chunk.
+4. Invoking the vendored `spok-flow` skill against that ticket directory. The flow skill drives **research → design → outline → design review → implement → simplify → validate → commit** for the chunk.
 5. On success, flipping `- [ ]` to `- [x]` for that chunk's line.
 
 This is intentionally one chunk per command call. You stay in control of the shipping cadence, you can inspect each commit, and you can stop after any chunk without losing state — the unchecked boxes in `tasks.md` are the resumable queue.
@@ -515,8 +515,9 @@ spok/
 │           ▼                                                                  │
 │   ┌────────────────┐                                                         │
 │   │  2. APPLY      │  /spok-apply (one chunk per call)                       │
-│   │  (loop)        │  → research → design → plan → implement → review →     │
-│   │                │     commit, then tick the box                           │
+│   │  (loop)        │  → research → design → outline → design review →       │
+│   │                │     implement → simplify → validate → commit           │
+│   │                │     then tick the box                                   │
 │   └───────┬────────┘                                                         │
 │           │                                                                  │
 │   repeat until tasks.md is fully ticked                                      │
@@ -551,7 +552,7 @@ spok/
 | **Chunk** | One thin, end-to-end-testable slice of work; one top-level checkbox in `tasks.md` |
 | **Delta spec** | A spec that describes changes (ADDED/MODIFIED/REMOVED/RENAMED) relative to current specs |
 | **Domain** | A logical grouping for specs (e.g., `auth/`, `payments/`) |
-| **Flow** | The research → design → plan → implement → review → commit loop the `spok-flow` skill runs per chunk |
+| **Flow** | The research → design → outline → design review → implement → simplify → validate → commit loop the `spok-flow` skill runs per chunk |
 | **Requirement** | A specific behavior the system must have |
 | **Scenario** | A concrete example of a requirement, typically in Given/When/Then format |
 | **Source of truth** | The `spok/specs/` directory, containing the current agreed-upon behavior |

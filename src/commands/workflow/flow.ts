@@ -69,7 +69,6 @@ const FLOW_STEP_TIER_BY_ID = {
   'design-discussion': 'max',
   'structure-outline': 'heavy',
   [DESIGN_REVIEW_STEP_ID]: 'heavy',
-  plan: 'max',
   implement: 'mid',
   simplify: 'heavy',
   validate: 'heavy',
@@ -87,7 +86,6 @@ const CLAUDE_ROUTING_BY_ID = {
   'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
   'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
   [DESIGN_REVIEW_STEP_ID]: { runner: 'claude', model: 'opus', effort: 'medium' },
-  plan: { runner: 'claude', model: 'fable', effort: 'xhigh' },
   implement: { runner: 'claude', model: 'opus', effort: 'medium' },
   simplify: { runner: 'claude', model: 'opus' },
   // Judge must not be the implementer's model; Fable is the strongest in-family alternative.
@@ -115,7 +113,6 @@ const HYBRID_ROUTING_BY_ID = {
   [DESIGN_REVIEW_STEP_ID]: {
     runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh',
   },
-  plan: { runner: 'claude', model: 'fable', effort: 'xhigh' },
   implement: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
   simplify: { runner: 'claude', model: 'opus' },
   validate: { runner: 'claude', model: 'opus', effort: 'medium' },
@@ -349,7 +346,6 @@ interface FlowStepPaths {
   designDiscussion: string;
   structureOutline: string;
   designReview: string;
-  plan: string;
   validation: string;
   selfLearn: string;
 }
@@ -418,13 +414,6 @@ const BASE_STEP_DEFINITION_SPECS = [
     skill: 'spok-review-design',
     argument: 'taskDir',
     expectedOutput: 'designReview',
-    completionKind: 'file',
-  },
-  {
-    id: 'plan',
-    skill: 'spok-create-plan',
-    argument: 'taskDir',
-    expectedOutput: 'plan',
     completionKind: 'file',
   },
   {
@@ -737,7 +726,7 @@ function openQuestionClause(
 
 const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
   implement:
-    'You are running inside spok-flow. Implement and verify the plan, return a ' +
+    'You are running inside spok-flow. Implement and verify the selected implementation artifact, return a ' +
     'summary of what you did, and do NOT create any commits — the commit step owns that. ' +
     'Only on successful completion, end your reply with a final line reading `Work root: <absolute path>`, naming the ' +
     'absolute path of the repository working tree you edited (the git worktree root that ' +
@@ -745,7 +734,7 @@ const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
     '`git -C <directory containing an edited file> rev-parse --show-toplevel` prints, not a guess.',
   validate:
     'You are the adversary, not the author. Presume the implementation is wrong and try to ' +
-    'break it. Judge from the diff, the plan, the ticket, and the design discussion (including ' +
+    'break it. Judge from the diff, the selected implementation artifact, the ticket, and the design discussion (including ' +
     'its Scale section); do NOT read step summaries in workflow-state.json or trust the ' +
     'implementer\'s claims.',
   [SELF_LEARN_STEP_ID]: 'This gate is advisory. Do not fail, amend, or rewrite the commit.',
@@ -837,7 +826,6 @@ function buildFlowStepPaths(taskDir: string): FlowStepPaths {
     designDiscussion: path.join(taskDir, 'design-discussion.md'),
     structureOutline: path.join(taskDir, 'structure-outline.md'),
     designReview: path.join(taskDir, 'design-review.md'),
-    plan: path.join(taskDir, 'plan.md'),
     validation: path.join(taskDir, 'validation.md'),
     selfLearn: path.join(taskDir, 'self-learn.md'),
   };
@@ -970,25 +958,6 @@ function shouldSkipProblemValidationForLegacyState(completed: Map<string, FlowSt
   return completed.size > 0 && !completed.has(occurrenceKey(PROBLEM_VALIDATION_STEP_ID, 0));
 }
 
-const STEPS_AT_OR_AFTER_PLAN = new Set([
-  'plan',
-  'implement',
-  'simplify',
-  VALIDATE_STEP_ID,
-  REPAIR_STEP_ID,
-  'commit',
-  SELF_LEARN_STEP_ID,
-]);
-
-function shouldCompleteDesignReviewForLegacyState(storedSteps: unknown[]): boolean {
-  if (storedSteps.some((step) => storedStepId(step) === DESIGN_REVIEW_STEP_ID)) return false;
-
-  return storedSteps.some((step) => {
-    const id = storedStepId(step);
-    return id !== undefined && STEPS_AT_OR_AFTER_PLAN.has(id) && isCompletedStep(step);
-  });
-}
-
 function inferLegacyProfile(stored: unknown): DetectedProfile | undefined {
   if (!stored || typeof stored !== 'object') return;
   const steps = Array.isArray((stored as Partial<WorkflowState>).steps)
@@ -1055,7 +1024,6 @@ function normalizeState(
 
   const definitions = buildStepDefinitions(taskDir, repairAttempts, profile);
   const skipProblemValidation = shouldSkipProblemValidationForLegacyState(completedByKey);
-  const completeDesignReview = shouldCompleteDesignReviewForLegacyState(storedSteps);
   const definitionOccurrences = new Map<string, number>();
   const steps = definitions.map((definition) => {
     const key = takeOccurrenceKey(definitionOccurrences, definition.id);
@@ -1063,13 +1031,6 @@ function normalizeState(
     if (!completed && definition.id === PROBLEM_VALIDATION_STEP_ID && skipProblemValidation) {
       return stepFromDefinition(definition, 'completed', {
         summary: 'Skipped for legacy workflow state created before validate-problem existed.',
-        completedAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
-      });
-    }
-
-    if (!completed && definition.id === DESIGN_REVIEW_STEP_ID && completeDesignReview) {
-      return stepFromDefinition(definition, 'completed', {
-        summary: 'Completed synthetically for legacy workflow state with plan or later work completed.',
         completedAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
       });
     }
@@ -1281,6 +1242,14 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
   try {
     const raw = await fs.readFile(statePath, 'utf-8');
     const stored: unknown = JSON.parse(raw);
+    if (stored && typeof stored === 'object' && 'steps' in stored &&
+        Array.isArray(stored.steps) && stored.steps.some((step) => storedStepId(step) === 'plan')) {
+      return {
+        taskDir,
+        statePath,
+        reason: 'Unsupported workflow state: the plan step has been removed. Start a new task directory with ticket.md.',
+      };
+    }
     if (stored && typeof stored === 'object' && 'execution' in stored &&
         !FlowExecutionSchema.safeParse(stored.execution).success) {
       return { taskDir, statePath, reason: `Invalid execution context in workflow state: ${statePath}` };
@@ -1315,13 +1284,8 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
   }
 }
 
-function getDefinitionById(
-  taskDir: string,
-  stepId: string,
-  repairAttempts: number,
-  profile: FlowProfile
-): StepDefinition | undefined {
-  return buildStepDefinitions(taskDir, repairAttempts, profile).find(
+function getDefinitionById(state: WorkflowState, stepId: string): StepDefinition | undefined {
+  return buildStepDefinitions(state.taskDir, state.repairAttempts, state.profile).find(
     (definition) => definition.id === stepId
   );
 }
@@ -1335,22 +1299,22 @@ function getCurrentStep(state: WorkflowState): FlowStep | undefined {
  * attached to a copy — mutating in place would leak it into workflow-state.json.
  */
 function withStepPrompt(
-  taskDir: string,
+  state: WorkflowState,
   step: FlowStep | undefined,
   rules: string[],
-  repairAttempts: number,
-  profile: FlowProfile,
   workRoot?: string,
   execution?: FlowExecution
 ): FlowStep | undefined {
   if (!step) return step;
 
-  const definition = getDefinitionById(taskDir, step.id, repairAttempts, profile);
+  const definition = getDefinitionById(state, step.id);
   if (!definition) return step;
 
+  const prompt = buildStepPrompt(state.taskDir, definition, rules, step.interactions, workRoot, execution);
+  const artifact = path.join(state.taskDir, 'structure-outline.md');
   return {
     ...step,
-    prompt: buildStepPrompt(taskDir, definition, rules, step.interactions, workRoot, execution),
+    prompt: EXECUTION_STEPS.has(step.id) ? `${prompt}\n\nImplementation artifact: ${artifact}` : prompt,
   };
 }
 
@@ -1380,11 +1344,9 @@ function buildResponse(
   const memory = readMemory(state.taskDir);
   const workRoot = state.execution?.workRoot ?? recordedWorkRoot(state);
   const nextStep = withStepPrompt(
-    state.taskDir,
+    state,
     getCurrentStep(state),
     memory?.rules ?? [],
-    state.repairAttempts,
-    state.profile,
     workRoot,
     state.execution
   );
@@ -1595,7 +1557,7 @@ async function invalidateAnsweredOutput(state: WorkflowState): Promise<string | 
   const step = getCurrentStep(state);
   const interaction = step?.interactions?.at(-1);
   if (!step || !interaction?.resolvedAt || interaction.outputInvalidated) return;
-  const definition = getDefinitionById(state.taskDir, step.id, state.repairAttempts, state.profile);
+  const definition = getDefinitionById(state, step.id);
   if (definition?.completionKind !== 'file' || !definition.expectedOutput) return;
 
   const output = definition.expectedOutput;
@@ -2279,12 +2241,7 @@ export async function completeFlowStep(
     return response;
   }
 
-  const definition = getDefinitionById(
-    loaded.state.taskDir,
-    currentStep.id,
-    loaded.state.repairAttempts,
-    loaded.state.profile
-  );
+  const definition = getDefinitionById(loaded.state, currentStep.id);
   if (!definition) {
     const response = blockedResponse(loaded.state, `Unknown workflow step: ${currentStep.id}.`);
     await recordFlowResponse(response, 'flow_complete');

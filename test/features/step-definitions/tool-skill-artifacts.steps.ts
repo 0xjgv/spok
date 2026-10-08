@@ -101,6 +101,42 @@ Given('a new project', async function (this: SkillArtifactWorld) {
   await fs.mkdir(this.projectDir, { recursive: true });
 });
 
+Given('the project directory is the isolated home', function (this: SkillArtifactWorld) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  process.env.HOME = this.projectDir;
+  process.env.USERPROFILE = this.projectDir;
+});
+
+Given('retired create-plan and custom skills exist for Claude and Codex', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  for (const tool of ['.claude', '.agents']) {
+    for (const skill of ['spok-create-plan', 'spok-custom', 'personal-skill']) {
+      const skillDir = path.join(this.projectDir, tool, 'skills', skill);
+      await fs.mkdir(path.join(skillDir, 'references'), { recursive: true });
+      await fs.writeFile(path.join(skillDir, 'SKILL.md'), `# ${skill}\n`);
+      await fs.writeFile(path.join(skillDir, 'references', 'notes.md'), `${skill} resource\n`);
+    }
+  }
+});
+
+Then('custom skill contents are unchanged for Claude and Codex', async function (
+  this: SkillArtifactWorld
+) {
+  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+  for (const tool of ['.claude', '.agents']) {
+    for (const skill of ['spok-custom', 'personal-skill']) {
+      const skillDir = path.join(this.projectDir, tool, 'skills', skill);
+      assert.equal(await fs.readFile(path.join(skillDir, 'SKILL.md'), 'utf-8'), `# ${skill}\n`);
+      assert.equal(
+        await fs.readFile(path.join(skillDir, 'references', 'notes.md'), 'utf-8'),
+        `${skill} resource\n`
+      );
+    }
+  }
+});
+
 Given('an empty home directory for agent readiness', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   this.emptyAgentHome = path.join(this.projectDir, 'empty-home');
@@ -353,7 +389,6 @@ Given(
         'design-review.md',
         '---\ntype: design-review\nverdict: PASS\n---\n\n# Design Review\n',
       ],
-      ['plan', 'plan.md', '# Plan\n'],
     ] as const;
 
     for (const [step, filename, content] of completedSteps) {
@@ -428,11 +463,10 @@ async function stageFlowThrough(taskDir: string, lastStep: 'simplify' | 'validat
       'design-review.md',
       '---\ntype: design-review\nverdict: PASS\n---\n\n# Design Review\n',
     ],
-    ['plan', 'plan.md', '# Plan\n'],
     ['validate', 'validation.md', '---\nverdict: PASS\n---\n\n# Validation\n'],
   ] as const;
 
-  const writtenFileSteps = lastStep === 'validate' ? fileSteps : fileSteps.slice(0, 7);
+  const writtenFileSteps = lastStep === 'validate' ? fileSteps : fileSteps.slice(0, 6);
   for (const [, filename, content] of writtenFileSteps) {
     await fs.writeFile(path.join(taskDir, filename), content, 'utf-8');
   }
@@ -454,18 +488,18 @@ async function stageFlowThrough(taskDir: string, lastStep: 'simplify' | 'validat
         taskDir,
         status: 'ready',
         steps: [
-          ...fileSteps.slice(0, 7).map(completedFileStep),
+          ...fileSteps.slice(0, 6).map(completedFileStep),
           {
             id: 'implement',
             status: 'completed',
-            result: { summary: 'Implemented the plan.', completedAt },
+            result: { summary: 'Implemented the structure outline.', completedAt },
           },
           {
             id: 'simplify',
             status: 'completed',
             result: { summary: 'Simplified the implementation.', completedAt },
           },
-          ...(lastStep === 'validate' ? [completedFileStep(fileSteps[7])] : []),
+          ...(lastStep === 'validate' ? [completedFileStep(fileSteps[6])] : []),
         ],
         createdAt: completedAt,
         updatedAt: completedAt,
@@ -489,7 +523,6 @@ const STAGED_AUTO_ROUTES: Record<string, StagedRoute> = {
   'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
   'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
   'design-review': { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-  plan: { runner: 'claude', model: 'fable', effort: 'xhigh' },
   implement: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
   simplify: { runner: 'claude', model: 'opus' },
   validate: { runner: 'claude', model: 'opus', effort: 'medium' },
@@ -831,6 +864,12 @@ When('I run spok flow status as JSON for the staged task', async function (this:
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stderr);
 });
 
+Then('the staged flow JSON next step is {string}', function (this: SkillArtifactWorld, expected: string) {
+  assert.ok(this.cliResult, 'cliResult must be set by a CLI run step');
+  const response = JSON.parse(this.cliResult.stdout) as { nextStep?: { id: string } };
+  assert.equal(response.nextStep?.id, expected);
+});
+
 When('I attempt the staged flow design-review step', async function (this: SkillArtifactWorld) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
@@ -863,7 +902,7 @@ When('I complete the staged flow implement step with the separate work root', as
       '--step',
       'implement',
       '--summary',
-      'Implemented the plan.',
+      'Implemented the structure outline.',
       '--work-root',
       this.flowWorkRoot,
       '--json',
@@ -877,7 +916,7 @@ When('I attempt the staged flow implement step with a blank work root', async fu
 ) {
   this.cliResult = await runStagedFlowComplete(this, 'implement', [
     '--summary',
-    'Implemented the plan.',
+    'Implemented the structure outline.',
     '--work-root',
     '   ',
   ]);
