@@ -50,6 +50,9 @@ describe('artifact grounding rules in skill assets', () => {
       );
       expect(body).toContain('Research notes alone do not prove a command exists');
       expect(body).toContain('their runner must be verified');
+      expect(body).toContain('If no runnable command can be confirmed for a required check, state that plainly');
+      expect(body).toContain('identify the missing check as a blocker');
+      expect(body).toContain('do not hedge with a conditional such as "if configured"');
     });
 
     it('distinguishes supported commands from observed execution results', async () => {

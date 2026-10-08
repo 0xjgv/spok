@@ -261,7 +261,7 @@ Different AI tools surface slash commands slightly differently. The intent is th
 | `spok-create-structure-outline` | `spok-flow` | Produces executable phases with behavior, interfaces, tests, and verification commands |
 | `spok-review-design` | `spok-flow` | Reconciles the design and outline and records a PASS/FAIL implementation-readiness verdict |
 | `spok-implement-plan` | `spok-flow` | Implements the reviewed outline in phases |
-| `spok-simplify` | `spok-flow` | Behavior-preserving simplification of the chunk diff — removes duplication, unnecessary abstraction, and dead code, then re-runs the plan's checks |
+| `spok-simplify` | `spok-flow` | Behavior-preserving simplification of the chunk diff — removes duplication, unnecessary abstraction, and dead code, then re-runs the reviewed outline's checks |
 | `spok-validate-implementation` | `spok-flow` | Validates implementation against the selected artifact and resolved design |
 | `spok-repair` | `spok-flow` | Fixes the blocking findings from a failing validation so the flow can re-validate (at most two repair attempts) |
 | `spok-ci-commit` | `spok-flow` | Commits the chunk with a conventional message |

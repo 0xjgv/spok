@@ -28,7 +28,7 @@ The `spok-create-research-questions` skill SHALL require every run to include on
 
 ### Requirement: Outlines must source verification commands from current evidence
 
-The `spok-create-structure-outline` skill SHALL require automated-verification command names and options to be verified against current repository scripts, configuration, or tool help, with working directories and expected outcomes. Research notes alone SHALL NOT count as proof that a command exists. Proposed new tests MAY be named, but their runner MUST be verified. Command support SHALL NOT be presented as evidence that a check ran or passed.
+The `spok-create-structure-outline` skill SHALL require automated-verification command names and options to be verified against current repository scripts, configuration, or tool help, with working directories and expected outcomes. Research notes alone SHALL NOT count as proof that a command exists. If no runnable command can be confirmed for a required check, the outline SHALL state that plainly and identify the missing check as a blocker, rather than hedge with a conditional such as "if configured". Proposed new tests MAY be named, but their runner MUST be verified. Command support SHALL NOT be presented as evidence that a check ran or passed.
 
 #### Scenario: Skill content requires an evidence source for commands
 
@@ -36,6 +36,12 @@ The `spok-create-structure-outline` skill SHALL require automated-verification c
 - **THEN** it instructs the agent to verify command names and options against current repository scripts, configuration, or tool help and cite the evidence
 - **AND** it states that research notes alone do not prove a command exists
 - **AND** it requires the runner for proposed new tests to be verified
+
+#### Scenario: Skill content reports an unconfirmed required check
+
+- **WHEN** no runnable command can be confirmed for a required check
+- **THEN** the outline states that plainly and identifies the missing check as a blocker
+- **AND** it does not substitute a conditional such as "if configured"
 
 #### Scenario: Skill content separates supported commands from executed checks
 

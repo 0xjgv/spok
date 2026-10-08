@@ -3,7 +3,7 @@
  *
  * Picks the next unchecked chunk from \`spok/changes/<name>/tasks.md\`, stages
  * its ticket under \`.flow/<chunk-slug>/\`, and invokes the vendored \`spok-flow\`
- * skill to drive research → design → outline → design review → implement → simplify → validate → commit for
+ * skill to drive problem validation → research → design → outline → design review → implement → simplify → validate → commit for
  * that single chunk.
  */
 import type { SkillTemplate, CommandTemplate } from '../types.js';
@@ -12,7 +12,7 @@ const APPLY_INSTRUCTIONS = `Ship the next chunk of a Spok change end-to-end.
 
 This skill picks one chunk from \`spok/changes/<name>/tasks.md\`, stages a
 ticket file for it, and hands off to the vendored \`spok-flow\` skill which
-runs research → design → outline → design review → implement → simplify → validate → commit on that single
+runs problem validation → research → design → outline → design review → implement → simplify → validate → commit on that single
 chunk. On success the chunk's checkbox is ticked. On failure the run halts
 so the user can intervene.
 
@@ -172,7 +172,7 @@ ambiguous you MUST prompt the user.
    - For \`/spok-apply auto\`, call \`spok-flow\` with
      \`auto "<absolute-ticket-dir>"\` as its argument using the **Skill tool**.
 
-   The flow skill drives research → design → outline → design review → implement → simplify → validate → commit and returns when done or when it hits a blocker.
+   The flow skill drives problem validation → research → design → outline → design review → implement → simplify → validate → commit and returns when done or when it hits a blocker.
 
 7. **Tick the checkbox on success / halt on failure**
 

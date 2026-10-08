@@ -322,6 +322,15 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "System Design"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Program Design"
 
+  Scenario: Installed outlines distinguish missing checks and standalone questions
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "If no runnable command can be confirmed for a required check, state that plainly"
+    And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "do not hedge with a conditional such as \"if configured\""
+    And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "Inside a flow, use its supplied durable question protocol"
+    And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "Standalone, ask the user directly"
+    And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "keep the outline blocked until the consequential choice is resolved"
+
   Scenario: Planning artifacts enforce typed authority instead of chronology
     Given a new project
     When I initialize Spok for the tools "claude"
@@ -333,6 +342,7 @@ Feature: Tool skill artifacts
     Given a new project
     When I initialize Spok for the tools "claude"
     Then the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "spok/changes/<change-slug>/tasks.md"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "problem validation → research → design → outline → design review → implement → simplify → validate → commit"
     And the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "/spok-apply <change-slug>"
     And the workflow skill resource "references/chunks_final_answer.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "/spok-apply <change-slug>"
     And the workflow skill resource "references/chunk_ticket_template.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "spok/changes/<change-slug>/tasks.md"

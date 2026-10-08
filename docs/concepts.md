@@ -32,8 +32,8 @@ brownfield-first        — works with existing codebases, not just greenfield
 The flow treats quality as three distinct concerns, each enforced by the cheapest mechanism that can prove it:
 
 1. **Mechanical correctness** — formatting, lint, types, build, complexity, coverage. Deterministic tools decide these: your repository's own hooks, check scripts, and CI. Spok never spends agent reasoning on what a tool can prove.
-2. **Semantic code quality** — duplication, unnecessary abstraction, dead code, AI-generated slop. This requires judgment over code structure, so the `simplify` step owns it: a bounded pass over the chunk's diff that preserves behavior, reuses existing repository abstractions, and proves itself by re-running the plan's checks.
-3. **Behavioral correctness** — does the change do what the plan promised? The `validate` step owns it, independently of whoever implemented or simplified: executed checks and implementation state outrank any agent's prose, and missing required evidence is a failure.
+2. **Semantic code quality** — duplication, unnecessary abstraction, dead code, AI-generated slop. This requires judgment over code structure, so the `simplify` step owns it: a bounded pass over the chunk's diff that preserves behavior, reuses existing repository abstractions, and proves itself by re-running the reviewed outline's checks.
+3. **Behavioral correctness** — does the change deliver the reviewed outline's required behavior? The `validate` step owns it, independently of whoever implemented or simplified: executed checks and implementation state outrank any agent's prose, and missing required evidence is a failure.
 
 Simplify never fails the flow — it only makes (or declines to make) changes. Failure belongs to the deterministic gates and the validate verdict.
 

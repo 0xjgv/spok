@@ -96,14 +96,16 @@ another repository or establish implementation execution metadata yourself.
    - Affected repository areas and their responsibilities, including interface inputs, outputs, error behavior, ownership, and cross-module wiring where relevant; record phase prerequisites without deferring a phase's verification to later work
    - Concrete test changes covering the required behavior and failure cases. Ground test locations, fixtures, and conventions in actual repository tests; label proposed new files as new. If no relevant tests exist, inspect the repository's test setup and specify an executable approach rather than inventing an existing pattern
    - `### Validation` with `#### Automated Verification` checkboxes containing exact commands, working directories, and expected outcomes. Verify command names and options against current repository scripts, configuration, or tool help; cite that evidence. Research notes alone do not prove a command exists. Proposed new tests may be named, but their runner must be verified
+   - If no runnable command can be confirmed for a required check, state that plainly and identify the missing check as a blocker; do not hedge with a conditional such as "if configured"
    - `#### Manual Verification` only for checks requiring human judgment that cannot be automated
 
    Before finishing, map every required ticket behavior and resolved design decision to
    a phase and its verification. Repair missing coverage. Record consequential unresolved
    choices as blockers; do not silently decide user intent or describe a blocked outline
-   as implementation-ready. Use the supplied durable question protocol when clarification
-   is needed, ending the response with its `NEEDS_INPUT` marker and consuming durable
-   answers on redispatch.
+   as implementation-ready. Inside a flow, use its supplied durable question protocol
+   when clarification is needed, ending the response with its `NEEDS_INPUT` marker and
+   consuming durable answers on redispatch. Standalone, ask the user directly and
+   keep the outline blocked until the consequential choice is resolved.
 
 6. **Document what's out of scope**:
    - What we're NOT doing in this plan
@@ -191,6 +193,6 @@ of the codebase and testing patterns, and be clear about which tests are manual 
 
 Chronology does not determine authority. Unresolved or contradictory decisions block
 readiness until reconciled against artifact authority and explicit user intent. Record
-evidence-backed resolutions; ask through the flow question protocol for intent ambiguity,
-without adding a human approval gate. Never silently override the reviewed design.
+evidence-backed resolutions and resolve intent ambiguity using the question handling
+above, without adding a human approval gate. Never silently override the reviewed design.
 </guidance>
