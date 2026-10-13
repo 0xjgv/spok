@@ -13,9 +13,6 @@ import {
   type WorkflowState,
 } from '../../../src/commands/workflow/flow.js';
 
-const PASS_DESIGN = '---\ntype: design-review\nverdict: PASS\n---\n# Design Review\n';
-const PASS_VALIDATION = '---\nverdict: PASS\n---\n# Validation\n';
-
 function git(root: string, ...args: string[]): string {
   const env = { ...process.env };
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']) {
@@ -44,11 +41,9 @@ async function completeFile(taskDir: string, step: string, content: string): Pro
 
 async function reachImplementation(taskDir: string): Promise<void> {
   await write(taskDir, 'ticket.md', '# Add one owned file\n');
-  await completeFile(taskDir, 'validate-problem', '# Problem\n\n## Flow Decision\n\nproceed\n');
   for (const step of ['research-questions', 'research', 'design-discussion', 'structure-outline']) {
     await completeFile(taskDir, step, `# ${step}\n`);
   }
-  await completeFile(taskDir, 'design-review', PASS_DESIGN);
 }
 
 async function implement(taskDir: string): Promise<string> {
@@ -65,9 +60,6 @@ async function implement(taskDir: string): Promise<string> {
 
 async function reachCommit(taskDir: string): Promise<string> {
   const workRoot = await implement(taskDir);
-  const simplified = await completeFlowStep(taskDir, { step: 'simplify', summary: 'No changes needed.' });
-  expect(simplified.state, simplified.reason).toBe('ready');
-  await completeFile(taskDir, 'validate', PASS_VALIDATION);
   expect((await getFlowNext(taskDir)).step?.id).toBe('commit');
   return workRoot;
 }
@@ -241,29 +233,31 @@ describe('flow execution work-root identity', () => {
 });
 
 describe('flow execution scope', () => {
-  it('puts the persisted root and exact implementation allowlist in the simplify prompt', async () => {
+  it('puts the persisted root and exact implementation allowlist in the commit prompt', async () => {
     await reachImplementation(taskDir);
     const workRoot = await implement(taskDir);
-    const simplify = await getFlowNext(taskDir);
-    expect(simplify.step?.id, simplify.reason).toBe('simplify');
-    expect(simplify.step?.prompt).toContain(workRoot);
-    expect(simplify.step?.prompt).toContain('Exact implementation allowlist: ["owned.ts"]');
+    const commit = await getFlowNext(taskDir);
+    expect(commit.step?.id, commit.reason).toBe('commit');
+    expect(commit.step?.prompt).toContain(workRoot);
+    expect(commit.step?.prompt).toContain('Exact implementation allowlist: ["owned.ts"]');
     expect((await readState(taskDir)).execution?.ownedPaths).toEqual(['owned.ts']);
     await expect(fs.access(path.join(primary, 'owned.ts'))).rejects.toThrow();
   });
 
-  it('blocks simplify dispatch and completion after an out-of-scope source edit', async () => {
+  it('blocks commit dispatch and completion after an out-of-scope source edit', async () => {
     await reachImplementation(taskDir);
     const workRoot = await implement(taskDir);
     await write(workRoot, 'outside.ts', 'out of scope\n');
     const dispatched = await getFlowNext(taskDir);
     expect(dispatched.state).toBe('blocked');
     expect(dispatched.reason).toContain('outside.ts');
-    const completed = await completeFlowStep(taskDir, { step: 'simplify', summary: 'Simplified.' });
+    const completed = await completeFlowStep(taskDir, {
+      step: 'commit', commit: git(workRoot, 'rev-parse', 'HEAD'),
+    });
     expect(completed.state).toBe('blocked');
     expect(completed.reason).toContain('outside.ts');
     await fs.rm(path.join(workRoot, 'outside.ts'));
-    expect((await getFlowNext(taskDir)).step?.id).toBe('simplify');
+    expect((await getFlowNext(taskDir)).step?.id).toBe('commit');
   });
 
   it('blocks completion and redispatch when a pre-existing dirty file changes', async () => {
@@ -355,9 +349,6 @@ describe('flow execution planning-state ownership', () => {
 
   async function reachCommitWithPlanningState(): Promise<string> {
     const workRoot = await implementWithPlanningState();
-    const simplified = await completeFlowStep(taskDir, { step: 'simplify', summary: 'No changes needed.' });
-    expect(simplified.state, simplified.reason).toBe('ready');
-    await completeFile(taskDir, 'validate', PASS_VALIDATION);
     expect((await getFlowNext(taskDir)).step?.id).toBe('commit');
     return workRoot;
   }
@@ -417,8 +408,6 @@ describe('flow execution commit rename scope', () => {
       step: 'implement', summary: 'Copy the seed.', changedPaths: ['owned.ts'],
     });
     expect(implemented.state, implemented.reason).toBe('ready');
-    await completeFlowStep(taskDir, { step: 'simplify', summary: 'No changes needed.' });
-    await completeFile(taskDir, 'validate', PASS_VALIDATION);
     expect((await getFlowNext(taskDir)).step?.id).toBe('commit');
     await fs.rm(path.join(workRoot, 'seed.ts'));
     git(workRoot, 'add', 'seed.ts', 'owned.ts');
@@ -479,10 +468,8 @@ describe('flow execution legacy compatibility', () => {
     const legacy = await readState(taskDir);
     delete legacy.execution;
     await fs.writeFile(path.join(taskDir, WORKFLOW_STATE_FILE), JSON.stringify(legacy));
-    expect((await getFlowStatus(taskDir)).nextStep?.id).toBe('simplify');
+    expect((await getFlowStatus(taskDir)).nextStep?.id).toBe('commit');
     expect((await getFlowNext(taskDir)).execution).toBeUndefined();
-    await completeFlowStep(taskDir, { step: 'simplify', summary: 'Legacy simplification.' });
-    await completeFile(taskDir, 'validate', PASS_VALIDATION);
     const completed = await completeFlowStep(taskDir, { step: 'commit', commit: 'legacy-commit' });
     expect(completed.state, completed.reason).toBe('complete');
     expect(completed.execution).toBeUndefined();

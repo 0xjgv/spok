@@ -13,6 +13,7 @@ interface OutlineStep {
 
 interface OutlineResponse {
   state?: string;
+  execution?: { workRoot: string; branch: string };
   reason?: string;
   steps: OutlineStep[];
   nextStep?: OutlineStep;
@@ -43,45 +44,78 @@ async function command(world: OutlineWorld, action: string, args: string[] = [])
   assert.equal(world.cliResult.exitCode, 0, world.cliResult.stdout + world.cliResult.stderr);
 }
 
-async function completeArtifact(world: OutlineWorld, step: string, filename: string, content: string): Promise<void> {
-  const output = path.join(world.flowTaskDir, filename);
-  await fs.writeFile(output, content);
-  await command(world, 'complete', ['--step', step, '--output', output]);
-}
-
 Given('the outline flow has {string} plan content', async function (this: OutlineWorld, plan: string) {
   if (plan === 'stale') {
     await fs.writeFile(path.join(this.flowTaskDir, 'plan.md'), '# Obsolete plan\n');
   }
 });
 
-Given('the outline flow saved graph contains a plan step', async function (this: OutlineWorld) {
+async function snapshotTaskFiles(world: OutlineWorld): Promise<void> {
+  world.savedTaskFiles = {};
+  for (const filename of await fs.readdir(world.flowTaskDir)) {
+    if (filename.endsWith('.md') || filename === 'workflow-state.json') {
+      world.savedTaskFiles[filename] = await fs.readFile(path.join(world.flowTaskDir, filename), 'utf-8');
+    }
+  }
+}
+
+Given('the outline flow saved graph contains the {string} step', async function (this: OutlineWorld, removed: string) {
   const statePath = path.join(this.flowTaskDir, 'workflow-state.json');
   const state = JSON.parse(await fs.readFile(statePath, 'utf-8')) as OutlineResponse;
   const index = state.steps.findIndex((step) => step.id === 'implement');
-  state.steps.splice(index, 0, { id: 'plan', status: 'pending' });
+  state.steps.splice(index, 0, { id: removed, status: 'pending' });
   await fs.writeFile(statePath, JSON.stringify(state));
-  this.savedTaskFiles = {};
-  for (const filename of await fs.readdir(this.flowTaskDir)) {
-    if (filename.endsWith('.md') || filename === 'workflow-state.json') {
-      this.savedTaskFiles[filename] = await fs.readFile(path.join(this.flowTaskDir, filename), 'utf-8');
-    }
-  }
+  await snapshotTaskFiles(this);
 });
 
-When('I pass the outline flow design review', async function (this: OutlineWorld) {
-  await completeArtifact(this, 'design-review', 'design-review.md',
-    '---\ntype: design-review\nverdict: PASS\n---\n\n# Design Review\n');
+Given('the outline flow saved graph is a finished legacy flow', async function (this: OutlineWorld) {
+  const ids = [
+    'validate-problem', 'research-questions', 'research', 'design-discussion', 'structure-outline',
+    'design-review', 'implement', 'simplify', 'validate', 'commit', 'self-learn',
+  ];
+  const completedAt = new Date().toISOString();
+  const state = {
+    version: 2,
+    profile: 'claude',
+    taskDir: this.flowTaskDir,
+    status: 'complete',
+    steps: ids.map((id) => ({ id, status: 'completed', result: { summary: 'Done.', completedAt } })),
+    repairAttempts: 0,
+    execution: {
+      workRoot: this.projectDir,
+      branch: 'main',
+      baselineHead: 'a'.repeat(40),
+      baselineChanges: {},
+      ownedPaths: [],
+    },
+    createdAt: completedAt,
+    updatedAt: completedAt,
+  };
+  await fs.writeFile(path.join(this.flowTaskDir, 'workflow-state.json'), JSON.stringify(state));
+  await snapshotTaskFiles(this);
 });
 
-When('I request the unsupported outline flow status', async function (this: OutlineWorld) {
+When('I request the outline flow status', async function (this: OutlineWorld) {
   await request(this, 'status');
 });
 
-Then('the outline flow is blocked because the plan step was removed', function (this: OutlineWorld) {
+When('I request the outline flow next step', async function (this: OutlineWorld) {
+  await request(this, 'next');
+});
+
+Then('the outline flow state is {string} with its recorded execution', function (this: OutlineWorld, expected: string) {
+  assert.ok(this.cliResult);
+  assert.equal(this.cliResult.exitCode, 0, this.cliResult.stdout + this.cliResult.stderr);
+  const result = response(this);
+  assert.equal(result.state, expected);
+  assert.equal(result.execution?.workRoot, this.projectDir);
+  assert.equal(result.execution?.branch, 'main');
+});
+
+Then('the outline flow is blocked because the {string} step was removed', function (this: OutlineWorld, removed: string) {
   const result = response(this);
   assert.equal(result.state, 'blocked');
-  assert.match(result.reason ?? '', /plan step.*removed/i);
+  assert.match(result.reason ?? '', new RegExp(`the ${removed} step has been removed`));
   assert.match(result.reason ?? '', /new task directory.*ticket\.md/i);
   assert.equal(result.nextStep, undefined);
   assert.equal(result.step, undefined);
@@ -109,6 +143,10 @@ Then('the outline flow explicitly selects {string}', async function (this: Outli
   assert.equal(await fs.realpath(match[1]), await fs.realpath(path.join(this.flowTaskDir, filename)));
 });
 
+Then('the outline flow graph is {string}', function (this: OutlineWorld, expected: string) {
+  assert.equal(response(this).steps.map((step) => step.id).join(', '), expected);
+});
+
 Then('the outline flow graph has {string} planning step', function (this: OutlineWorld, expected: string) {
   assert.equal(response(this).steps.some((step) => step.id === 'plan'), expected === 'a');
 });
@@ -122,12 +160,4 @@ When('implementation is recorded as completed in the outline flow fixture', asyn
   implementation.result = { summary: 'Fixture implementation complete.', completedAt: new Date().toISOString() };
   await fs.writeFile(statePath, JSON.stringify(state));
   await command(this, 'status');
-});
-
-When('I complete the outline flow summary step {string}', async function (this: OutlineWorld, step: string) {
-  await command(this, 'complete', ['--step', step, '--summary', 'Completed fixture work.']);
-});
-
-When('I complete outline flow validation with {string}', async function (this: OutlineWorld, verdict: string) {
-  await completeArtifact(this, 'validate', 'validation.md', `---\nverdict: ${verdict}\n---\n\n# Validation\n`);
 });

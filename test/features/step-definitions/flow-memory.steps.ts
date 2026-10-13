@@ -59,7 +59,7 @@ Then('the step prompt does not contain {string}', function (
 Then('the step prompt names the step skill and its argument', function (this: FlowMemoryWorld) {
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
   const prompt = stepPrompt(this);
-  assert.ok(prompt.includes('spok-validate-problem'), 'step prompt should name the skill');
+  assert.ok(prompt.includes('spok-create-research-questions'), 'step prompt should name the skill');
   assert.ok(
     prompt.includes(path.join(this.flowTaskDir, 'ticket.md')),
     'step prompt should name the argument'

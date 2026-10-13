@@ -623,7 +623,7 @@ flowCmd
   .option('--summary <text>', 'Completion summary for no-file steps')
   .option('--commit <sha>', 'Commit SHA for the commit step')
   .option('--work-root <path>', 'Absolute path of the repository the step edited')
-  .option('--changed-path <paths...>', 'Exact repository-relative paths changed by implement or repair')
+  .option('--changed-path <paths...>', 'Exact repository-relative paths changed by implement')
   .option('--json', 'Output as JSON')
   .action(async (taskDir: string, options: FlowCompleteCommandOptions) => {
     try {

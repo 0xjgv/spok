@@ -19,7 +19,7 @@ CLI-provided execution metadata, task artifacts, and git.
   selected by the CLI. Read that exact artifact; missing
   selection is a blocker. Do not infer it from file existence or substitute a
   stale plan.
-- `<task-dir>` — the directory containing the selected artifact and `validation.md`.
+- `<task-dir>` — the directory containing the selected artifact.
   It is often a **different** repository from `<work-root>`.
 
 ## Process
@@ -29,7 +29,7 @@ while resuming, report the current HEAD SHA and work root without staging or
 creating another commit. The remaining process applies to an uncommitted chunk.
 
 1. **Derive the expected file list from the artifacts** as a cross-check:
-   Read the selected implementation artifact and validation. Compare their intended changes with the CLI's
+   Read the selected implementation artifact. Compare its intended changes with the CLI's
    exact owned-path allowlist; the allowlist is authoritative. A planned file
    that needed no change is not a mismatch or automatic failure.
 

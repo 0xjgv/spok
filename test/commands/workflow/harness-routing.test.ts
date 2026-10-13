@@ -4,12 +4,10 @@ import {
   AUTO_POLICY_VERSION,
   AUTO_V1_CANDIDATES_BY_ID,
   DEFAULT_PROBE_TIMEOUT_MS,
-  FAMILY_BY_MODEL,
   MODEL_CONTROL_BY_RUNNER,
   probeHarnesses,
   selectAutoRoute,
   type CapabilityReport,
-  type PriorStep,
   type ProbeExec,
 } from '../../../src/commands/workflow/harness-routing.js';
 
@@ -70,11 +68,6 @@ describe('AUTO_V1_CANDIDATES_BY_ID', () => {
   it('matches the reviewed auto-v1 table', () => {
     expect(AUTO_POLICY_VERSION).toBe('auto-v1');
     expect(AUTO_V1_CANDIDATES_BY_ID).toEqual({
-      'validate-problem': [
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
-        { runner: 'claude', model: 'opus', effort: 'medium' },
-      ],
       'research-questions': [
         { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
         { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'medium' },
@@ -95,40 +88,15 @@ describe('AUTO_V1_CANDIDATES_BY_ID', () => {
         { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
         { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
       ],
-      'design-review': [
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
-        { runner: 'claude', model: 'opus', effort: 'medium' },
-      ],
       implement: [
         { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
         { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
         { runner: 'claude', model: 'opus', effort: 'medium' },
       ],
-      simplify: [
-        { runner: 'claude', model: 'opus' },
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
-      ],
-      validate: [
-        { runner: 'claude', model: 'opus', effort: 'medium' },
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
-      ],
-      repair: [
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'max' },
-        { runner: 'claude', model: 'opus', effort: 'high' },
-      ],
       commit: [
         { runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
         { runner: 'omp', model: 'openai-codex/gpt-5.6-terra', effort: 'low' },
         { runner: 'claude', model: 'haiku', effort: 'low' },
-      ],
-      'self-learn': [
-        { runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-terra', effort: 'xhigh' },
-        { runner: 'claude', model: 'sonnet', effort: 'xhigh' },
       ],
     });
   });
@@ -154,24 +122,6 @@ describe('AUTO_V1_CANDIDATES_BY_ID', () => {
 });
 
 describe('route vocabulary', () => {
-  it('maps every auto model to its base-name family', () => {
-    expect(FAMILY_BY_MODEL).toEqual({
-      haiku: 'haiku',
-      sonnet: 'sonnet',
-      opus: 'opus',
-      fable: 'fable',
-      'gpt-5.6-sol': 'sol',
-      'gpt-5.6-terra': 'terra',
-      'openai-codex/gpt-5.6-sol': 'sol',
-      'openai-codex/gpt-5.6-terra': 'terra',
-    });
-    for (const candidates of Object.values(AUTO_V1_CANDIDATES_BY_ID)) {
-      for (const candidate of candidates) {
-        expect(FAMILY_BY_MODEL[candidate.model], candidate.model).toBeDefined();
-      }
-    }
-  });
-
   it('marks explicit runners selectable and current fixed-unknown', () => {
     expect(MODEL_CONTROL_BY_RUNNER).toEqual({
       claude: 'selectable',
@@ -184,7 +134,7 @@ describe('route vocabulary', () => {
 
 describe('selectAutoRoute', () => {
   it('returns the first candidate with an empty rejection list when everything is available', () => {
-    expect(selectAutoRoute('validate-problem', allAvailable())).toEqual({
+    expect(selectAutoRoute('implement', allAvailable())).toEqual({
       route: {
         runner: 'codex',
         model: 'gpt-5.6-sol',
@@ -206,7 +156,7 @@ describe('selectAutoRoute', () => {
       { runner: 'claude', available: true },
     ];
 
-    expect(selectAutoRoute('validate-problem', reports)).toEqual({
+    expect(selectAutoRoute('implement', reports)).toEqual({
       route: {
         runner: 'claude',
         model: 'opus',
@@ -247,7 +197,7 @@ describe('selectAutoRoute', () => {
       { runner: 'claude', available: true },
     ];
 
-    const result = selectAutoRoute('validate-problem', reports);
+    const result = selectAutoRoute('implement', reports);
     expect('route' in result && result.route.runner).toBe('claude');
     expect('route' in result && result.route.route.rejected[1]).toEqual({
       runner: 'omp',
@@ -273,7 +223,7 @@ describe('selectAutoRoute rejection completeness', () => {
       { runner: 'claude', available: true },
     ];
 
-    const result = selectAutoRoute('validate-problem', reports);
+    const result = selectAutoRoute('implement', reports);
     expect('route' in result && result.route.route.rejected[1]).toMatchObject({
       code: 'effort_unsupported',
       reason: 'omp selector openai-codex/gpt-5.6-sol supports thinking none, not xhigh.',
@@ -311,7 +261,7 @@ describe('selectAutoRoute rejection completeness', () => {
       },
     ];
 
-    const { route } = selectAutoRoute('validate-problem', reports);
+    const { route } = selectAutoRoute('implement', reports);
 
     expect(route).toEqual({
       runner: 'current',
@@ -381,149 +331,6 @@ describe('selectAutoRoute isolation rejection persistence', () => {
       code: 'work_root_not_isolated',
       reason: '/tmp/work is not a provably linked Git worktree; omp --auto-approve requires one.',
     });
-  });
-});
-
-const CLAUDE_OUT: CapabilityReport = {
-  runner: 'claude',
-  available: false,
-  code: 'not_authenticated',
-  reason: 'claude auth status --json reports loggedIn is not true.',
-};
-
-function designOn(
-  model: PriorStep['model'],
-  runner: PriorStep['runner'] = 'claude'
-): PriorStep[] {
-  return [{ id: 'design-discussion', runner, model }];
-}
-
-describe('selectAutoRoute judge anti-affinity', () => {
-  it('keeps table order and records the producer when the producer family already differs', () => {
-    const { route } = selectAutoRoute('design-review', allAvailable(), designOn('fable'));
-
-    expect(route).toMatchObject({ runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' });
-    expect(route.route).toEqual({
-      policy: 'auto-v1',
-      modelControl: 'selectable',
-      rejected: [],
-      producer: { step: 'design-discussion', family: 'fable' },
-    });
-  });
-
-  it('moves different-family candidates ahead of the producer family', () => {
-    const { route } = selectAutoRoute(
-      'design-review',
-      allAvailable(),
-      designOn('gpt-5.6-sol', 'codex')
-    );
-
-    expect(route).toMatchObject({ runner: 'claude', model: 'opus', effort: 'medium' });
-    expect(route.route.producer).toEqual({ step: 'design-discussion', family: 'sol' });
-    expect(route.route.rejected).toEqual([]);
-    expect(route.route).not.toHaveProperty('degraded');
-  });
-
-  it('falls back to the producer family and marks same_family_as_producer', () => {
-    const { route } = selectAutoRoute(
-      'design-review',
-      allAvailable().map((report) => (report.runner === 'claude' ? CLAUDE_OUT : report)),
-      designOn('gpt-5.6-sol', 'codex')
-    );
-
-    expect(route).toMatchObject({ runner: 'codex', model: 'gpt-5.6-sol' });
-    expect(route.route.rejected.map((rejection) => rejection.runner)).toEqual(['claude']);
-    expect(route.route.degraded).toEqual({
-      code: 'same_family_as_producer',
-      reason:
-        'Producer design-discussion ran on the sol family and no different-family candidate is eligible.',
-    });
-  });
-
-  it('uses the latest producer for validate', () => {
-    const prior: PriorStep[] = [
-      { id: 'implement', runner: 'codex', model: 'gpt-5.6-sol' },
-      { id: 'validate', runner: 'claude', model: 'opus' },
-      { id: 'repair', runner: 'omp', model: 'openai-codex/gpt-5.6-terra' },
-    ];
-
-    const { route } = selectAutoRoute('validate', allAvailable(), prior);
-
-    expect(route).toMatchObject({ runner: 'claude', model: 'opus' });
-    expect(route.route.producer).toEqual({ step: 'repair', family: 'terra' });
-    expect(route.route).not.toHaveProperty('degraded');
-  });
-});
-
-describe('selectAutoRoute judge degradation', () => {
-  it('marks producer_family_unknown when the producer ran on current, keeping the producer step', () => {
-    const { route } = selectAutoRoute('design-review', allAvailable(), designOn(undefined, 'current'));
-
-    expect(route).toMatchObject({ runner: 'codex', model: 'gpt-5.6-sol' });
-    expect(route.route.producer).toEqual({ step: 'design-discussion' });
-    expect(route.route.degraded).toEqual({
-      code: 'producer_family_unknown',
-      reason:
-        'Producer design-discussion ran on current with no known model family; independence cannot be verified.',
-    });
-  });
-
-  it('marks producer_family_unknown and omits producer when no producer precedes the judge', () => {
-    const { route } = selectAutoRoute('validate', allAvailable(), [
-      { id: 'structure-outline', runner: 'claude', model: 'fable' },
-    ]);
-
-    expect(route).toMatchObject({ runner: 'claude', model: 'opus' });
-    expect(route.route).not.toHaveProperty('producer');
-    expect(route.route.degraded).toEqual({
-      code: 'producer_family_unknown',
-      reason:
-        'No completed implement or repair step precedes this judge; independence cannot be verified.',
-    });
-  });
-
-  it('prefers model_identity_unavailable when a judge falls back to current and still records the producer', () => {
-    const nothing: CapabilityReport[] = [
-      {
-        runner: 'codex',
-        available: false,
-        code: 'executable_missing',
-        reason: 'codex is not installed or not on PATH.',
-      },
-      {
-        runner: 'omp',
-        available: false,
-        code: 'executable_missing',
-        reason: 'omp is not installed or not on PATH.',
-      },
-      CLAUDE_OUT,
-    ];
-
-    const { route } = selectAutoRoute(
-      'design-review',
-      nothing,
-      designOn('gpt-5.6-sol', 'codex')
-    );
-
-    expect(route.runner).toBe('current');
-    expect(route.route.producer).toEqual({ step: 'design-discussion', family: 'sol' });
-    expect(route.route.degraded?.code).toBe('model_identity_unavailable');
-    expect(route.route.rejected.map((rejection) => rejection.runner)).toEqual([
-      'claude',
-      'codex',
-      'omp',
-    ]);
-  });
-
-  it('ignores prior steps for non-judge steps', () => {
-    const prior: PriorStep[] = [
-      { id: 'design-discussion', runner: 'codex', model: 'gpt-5.6-sol' },
-    ];
-
-    expect(selectAutoRoute('structure-outline', allAvailable(), prior)).toEqual(
-      selectAutoRoute('structure-outline', allAvailable())
-    );
-    expect(selectAutoRoute('structure-outline', allAvailable(), prior).route.route).not.toHaveProperty('producer');
   });
 });
 

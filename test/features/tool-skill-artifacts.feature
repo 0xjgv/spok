@@ -181,8 +181,6 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow complete"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "host-owned `general-purpose`"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next --json is the source of truth"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "Spok settings live in spok/config.toml. To enable it, add:"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "See available settings with: spok capabilities --json"
 
   Scenario: Flow relays design-review human decisions on FAIL and unreadable verdicts
     Given a new project
@@ -231,8 +229,6 @@ Feature: Tool skill artifacts
     Then the workflow skill "spok-apply" under ".claude/skills" mentions "Before staging a hybrid run"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.claude/skills/spok-flow/SKILL.md"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.agents/skills/spok-flow/SKILL.md"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.claude/skills/spok-review-design/SKILL.md"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "~/.agents/skills/spok-review-design/SKILL.md"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "spok skills install --tools claude,codex"
 
   Scenario: Default apply preflights the current tool's skill closure
@@ -342,7 +338,7 @@ Feature: Tool skill artifacts
     Given a new project
     When I initialize Spok for the tools "claude"
     Then the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "spok/changes/<change-slug>/tasks.md"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "problem validation → research → design → outline → design review → implement → simplify → validate → commit"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "research questions → research → design discussion → outline → implement → commit"
     And the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "/spok-apply <change-slug>"
     And the workflow skill resource "references/chunks_final_answer.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "/spok-apply <change-slug>"
     And the workflow skill resource "references/chunk_ticket_template.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "spok/changes/<change-slug>/tasks.md"
@@ -351,61 +347,16 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-ci-commit" under ".claude/skills" mentions "Stage exactly the **intersection**"
     And Spok does not create ".claude/skills/spok-create-scoped-chunks/references/chunks_overview_template.md"
 
-  Scenario: Flow self-learn gate runs after commit when enabled
-    Given a new project
-    And self-learn is enabled in project config
-    And a staged flow task
-    And the staged flow task is completed through validation
-    When I complete the staged flow commit step
-    Then the Spok CLI output contains "\"state\": \"ready\""
-    And the Spok CLI output contains "\"id\": \"self-learn\""
-    And the Spok CLI output contains "\"skill\": \"spok-self-learn\""
-
-  Scenario: A completed validate step re-blocks the flow when its verdict flips to FAIL
-    Given a new project
-    And a staged flow task
-    And the staged flow task is completed through validation
-    And "spok/changes/demo/.flow/chunk-one/validation.md" contains:
-      """
-      ---
-      verdict: FAIL
-      ---
-
-      # Validation
-      """
-    When I attempt the staged flow commit step
-    Then the Spok CLI exits with code 1
-    And the Spok CLI output contains "recorded a FAIL verdict"
-
   Scenario: Legacy flow preserves its recorded implementation work root
     Given a new project
     And a separate flow work repository
     And a staged flow task
-    And the staged flow task is completed through simplify
+    And the staged flow task is completed through implement
     And the staged flow task has the separate work root recorded
     When I run spok flow next as JSON for the staged task
     Then the Spok CLI exits with code 0
     And the staged flow state records the separate work root
-    And the Spok CLI output contains "\"id\": \"validate\""
-
-  Scenario: Flow steers repair to the recorded work root
-    Given a new project
-    And a separate flow work repository
-    And a staged flow task
-    And the staged flow task is completed through validation
-    And the staged flow task has the separate work root recorded
-    And "spok/changes/demo/.flow/chunk-one/validation.md" contains:
-      """
-      ---
-      verdict: FAIL
-      ---
-
-      # Validation
-      """
-    And a repair cycle is pending
-    When I run spok flow next as JSON for the staged task
-    Then the Spok CLI output contains "\"id\": \"repair\""
-    And the editing prompt directs work to the separate work root
+    And the Spok CLI output contains "\"id\": \"commit\""
 
   Scenario: Flow rejects a blank implementation work root
     Given a new project
@@ -425,7 +376,7 @@ Feature: Tool skill artifacts
     Then the implementation response records the Git baseline
     When I complete implementation using the work-root spelling "<spelling>"
     Then the Spok CLI exits with code 0
-    And the Spok CLI output contains "\"id\": \"simplify\""
+    And the Spok CLI output contains "\"id\": \"commit\""
     And the recorded execution root is unchanged
 
     Examples:
@@ -448,7 +399,7 @@ Feature: Tool skill artifacts
     Given a new project
     And a separate flow work repository
     And a staged flow task
-    And the staged flow task is completed through validation
+    And the staged flow task is completed through implement
     And the staged flow task has the separate work root recorded
     When I attempt the staged flow commit step with an unreachable work repository commit
     Then the Spok CLI exits with code 1
@@ -457,7 +408,7 @@ Feature: Tool skill artifacts
   Scenario: Legacy flow state warns when no work root was recorded
     Given a new project
     And a staged flow task
-    And the staged flow task is completed through validation
+    And the staged flow task is completed through implement
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Work root warning: No work root was recorded"
 
@@ -465,7 +416,7 @@ Feature: Tool skill artifacts
     Given a new project
     And a separate flow work repository
     And a staged flow task
-    And the staged flow task is completed through validation
+    And the staged flow task is completed through implement
     When I complete the staged flow commit step with the separate work root
     Then the Spok CLI exits with code 0
     And the staged flow commit records the separate work root
@@ -474,7 +425,7 @@ Feature: Tool skill artifacts
     Given a new project
     And a separate flow work repository
     And a staged flow task
-    And the staged flow task is completed through validation
+    And the staged flow task is completed through implement
     And the staged flow task has the separate work root recorded
     When I attempt the staged flow commit step with a conflicting work root
     Then the Spok CLI exits with code 1
@@ -485,7 +436,7 @@ Feature: Tool skill artifacts
     And the Claude harness is active
     And a staged flow task
     When I run spok flow next for the staged task
-    Then the Spok CLI output contains "Next step: validate-problem"
+    Then the Spok CLI output contains "Next step: research-questions"
     And the Spok CLI output contains "Model: opus"
     And the Spok CLI output contains "Effort: medium"
 
@@ -521,120 +472,12 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "interface: webhook"
     And the Spok CLI output contains "failure-policy: retry"
 
-  Scenario: Flow next routes validate to a model other than the implementer's
-    Given a new project
-    And the Claude harness is active
-    And a staged flow task
-    And the staged flow task is completed through simplify
-    When I run spok flow next for the staged task
-    Then the Spok CLI output contains "Next step: validate"
-    And the Spok CLI output contains "Model: fable"
-    And the Spok CLI output contains "Effort: high"
-
-  Scenario: Flow reviews the design before exposing implementation
-    Given a new project
-    And a staged flow task
-    And the staged flow task is completed through structure outline
-    When I run spok flow next for the staged task
-    Then the Spok CLI output contains "Next step: design-review"
-    And the Spok CLI output does not contain "Next step: implement"
-
-  Scenario: A passing design review advances the flow to implementation
-    Given a new project
-    And a staged flow task
-    And the staged flow task is completed through structure outline
-    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
-      """
-      ---
-      type: design-review
-      verdict: PASS
-      ---
-
-      # Design Review
-      """
-    When I attempt the staged flow design-review step
-    Then the Spok CLI exits with code 0
-    And the staged flow JSON next step is "implement"
-
-  Scenario: A failing design review blocks implementation
-    Given a new project
-    And a staged flow task
-    And the staged flow task is completed through structure outline
-    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
-      """
-      ---
-      type: design-review
-      verdict: FAIL
-      ---
-
-      # Design Review
-      """
-    When I attempt the staged flow design-review step
-    Then the Spok CLI exits with code 1
-    And the Spok CLI output contains "\"state\": \"blocked\""
-    And the Spok CLI output contains "recorded a FAIL verdict"
-
-  Scenario: A passing verdict with the wrong artifact type blocks implementation
-    Given a new project
-    And a staged flow task
-    And the staged flow task is completed through structure outline
-    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
-      """
-      ---
-      type: validation
-      verdict: PASS
-      ---
-
-      # Design Review
-      """
-    When I attempt the staged flow design-review step
-    Then the Spok CLI exits with code 1
-    And the Spok CLI output contains "\"state\": \"blocked\""
-    And the Spok CLI output contains "has no readable verdict"
-
-  Scenario: An unrecognized design-review verdict blocks implementation
-    Given a new project
-    And a staged flow task
-    And the staged flow task is completed through structure outline
-    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
-      """
-      ---
-      type: design-review
-      verdict: MAYBE
-      ---
-
-      # Design Review
-      """
-    When I attempt the staged flow design-review step
-    Then the Spok CLI exits with code 1
-    And the Spok CLI output contains "\"state\": \"blocked\""
-    And the Spok CLI output contains "has no readable verdict"
-
-  Scenario: A design-review verdict outside frontmatter blocks implementation
-    Given a new project
-    And a staged flow task
-    And the staged flow task is completed through structure outline
-    And "spok/changes/demo/.flow/chunk-one/design-review.md" contains:
-      """
-      ---
-      type: design-review
-      ---
-
-      # Design Review
-
-      verdict: PASS
-      """
-    When I attempt the staged flow design-review step
-    Then the Spok CLI exits with code 1
-    And the Spok CLI output contains "\"state\": \"blocked\""
-    And the Spok CLI output contains "has no readable verdict"
-
   Scenario: Flow next prints the Codex-routed model and effort for the first step
     Given a new project
     And the Codex harness is active
     And a staged flow task
     When I run spok flow next for the staged task
-    Then the Spok CLI output contains "Next step: validate-problem"
+    Then the Spok CLI output contains "Next step: research-questions"
     And the Spok CLI output contains "Model: gpt-5.6-sol"
     And the Spok CLI output contains "Effort: xhigh"
 
@@ -651,21 +494,10 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "Model: gpt-5.6-sol"
     And the Spok CLI output contains "Effort: max"
 
-  Scenario: Hybrid flow starts problem validation on Codex Sol
-    Given a new project
-    And the hybrid flow profile is active
-    And a staged flow task
-    When I run spok flow next for the staged task
-    Then the Spok CLI output contains "Profile: hybrid"
-    And the Spok CLI output contains "Runner: codex"
-    And the Spok CLI output contains "Model: gpt-5.6-sol"
-    And the Spok CLI output contains "Effort: xhigh"
-
   Scenario: Hybrid flow routes research questions to Codex Sol at medium effort
     Given a new project
     And the hybrid flow profile is active
     And a staged flow task
-    And the staged flow task is completed through problem validation
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: research-questions"
     And the Spok CLI output contains "Profile: hybrid"
@@ -684,33 +516,12 @@ Feature: Tool skill artifacts
     And the Spok CLI output contains "Model: fable"
     And the Spok CLI output contains "Effort: xhigh"
 
-  Scenario: Hybrid flow routes a pending repair to Codex Sol at max effort
-    Given a new project
-    And the hybrid flow profile is active
-    And a staged flow task
-    And the staged flow task is completed through validation
-    And "spok/changes/demo/.flow/chunk-one/validation.md" contains:
-      """
-      ---
-      verdict: FAIL
-      ---
-
-      # Validation
-      """
-    And a repair cycle is pending
-    When I run spok flow next for the staged task
-    Then the Spok CLI output contains "Next step: repair"
-    And the Spok CLI output contains "Profile: hybrid"
-    And the Spok CLI output contains "Runner: codex"
-    And the Spok CLI output contains "Model: gpt-5.6-sol"
-    And the Spok CLI output contains "Effort: max"
-
   Scenario: Auto flow status leaves the ready step unresolved
     Given a new project
     And the auto flow profile is active
     And a staged flow task
     When I run spok flow status for the staged task
-    Then the Spok CLI output contains "Next step: validate-problem"
+    Then the Spok CLI output contains "Next step: research-questions"
     And the Spok CLI output contains "Profile: auto"
     And the Spok CLI output contains "Route: unresolved until spok flow next"
     And the Spok CLI output does not contain "Runner:"
@@ -721,7 +532,7 @@ Feature: Tool skill artifacts
     And a staged flow task
     And the staged auto flow task is ready on a degraded current route
     When I run spok flow status for the staged task
-    Then the Spok CLI output contains "Next step: validate-problem"
+    Then the Spok CLI output contains "Next step: research-questions"
     And the Spok CLI output contains "Runner: current"
     And the Spok CLI output contains "Degraded: No explicit auto candidate is eligible; running on the current harness whose model identity is unavailable."
     And the Spok CLI output does not contain "Model:"
@@ -730,12 +541,11 @@ Feature: Tool skill artifacts
     Given a new project
     And the auto flow profile is active
     And a staged flow task
-    And the staged auto flow task is completed through validation on persisted routes
-    And a repair cycle is pending
+    And the staged auto flow task is completed through implement on persisted routes
     When I run spok flow status as JSON for the staged task
     Then the JSON flow step "implement" occurrence 0 has runner "codex" and model "gpt-5.6-sol"
-    And the JSON flow step "validate" occurrence 0 has runner "claude" and model "opus"
-    And the JSON flow step "repair" occurrence 0 has no runner
+    And the JSON flow step "structure-outline" occurrence 0 has runner "claude" and model "fable"
+    And the JSON flow step "commit" occurrence 0 has no runner
 
   Scenario: Auto flow rejects OMP outside a linked worktree and falls forward
     Given a new project
@@ -746,7 +556,7 @@ Feature: Tool skill artifacts
     When I run spok flow next as JSON for the staged task
     Then the Spok CLI output contains "\"runner\": \"claude\""
     And the Spok CLI output contains "\"work_root_not_isolated\""
-    And the JSON flow step "validate-problem" occurrence 0 has runner "claude" and model "opus"
+    And the JSON flow step "research-questions" occurrence 0 has runner "claude" and model "opus"
 
   Scenario: Auto flow selects OMP from a linked Git worktree
     Given a new project
@@ -861,7 +671,7 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-apply" under ".claude/skills" mentions "gh pr edit"
     And the workflow skill "spok-apply" under ".claude/skills" mentions "--body-file"
 
-  Scenario: Implementation establishes ownership before editing and constrains simplification
+  Scenario: Implementation establishes ownership before editing and constrains commit
     Given a new project
     And a staged flow task in a linked worktree
     And the staged flow task is ready to implement
@@ -870,7 +680,7 @@ Feature: Tool skill artifacts
     And the execution work root can discover the vendored skills
     When I implement a new owned file in the recorded work root
     And I run spok flow next as JSON for the staged task
-    Then the simplification prompt contains only the recorded owned paths
+    Then the commit prompt contains only the recorded owned paths
 
   Scenario: Design review resolves decisions without mandatory human signoff
     Given a new project

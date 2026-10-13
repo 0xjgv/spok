@@ -3,7 +3,7 @@
  *
  * Picks the next unchecked chunk from \`spok/changes/<name>/tasks.md\`, stages
  * its ticket under \`.flow/<chunk-slug>/\`, and invokes the vendored \`spok-flow\`
- * skill to drive problem validation → research → design → outline → design review → implement → simplify → validate → commit for
+ * skill to drive research questions → research → design discussion → outline → implement → commit for
  * that single chunk.
  */
 import type { SkillTemplate, CommandTemplate } from '../types.js';
@@ -12,7 +12,7 @@ const APPLY_INSTRUCTIONS = `Ship the next chunk of a Spok change end-to-end.
 
 This skill picks one chunk from \`spok/changes/<name>/tasks.md\`, stages a
 ticket file for it, and hands off to the vendored \`spok-flow\` skill which
-runs problem validation → research → design → outline → design review → implement → simplify → validate → commit on that single
+runs research questions → research → design discussion → outline → implement → commit on that single
 chunk. On success the chunk's checkbox is ticked. On failure the run halts
 so the user can intervene.
 
@@ -101,13 +101,9 @@ ambiguous you MUST prompt the user.
    - Resolve the project root with \`git rev-parse --show-toplevel\`.
    - Each harness's installation markers:
      - Claude: \`<project-root>/.claude/skills/spok-flow/SKILL.md\` or
-       \`~/.claude/skills/spok-flow/SKILL.md\`, and
-       \`<project-root>/.claude/skills/spok-review-design/SKILL.md\` or
-       \`~/.claude/skills/spok-review-design/SKILL.md\`.
+       \`~/.claude/skills/spok-flow/SKILL.md\`.
      - Codex: \`<project-root>/.agents/skills/spok-flow/SKILL.md\` or
-       \`~/.agents/skills/spok-flow/SKILL.md\`, and
-       \`<project-root>/.agents/skills/spok-review-design/SKILL.md\` or
-       \`~/.agents/skills/spok-review-design/SKILL.md\`.
+       \`~/.agents/skills/spok-flow/SKILL.md\`.
    - Default execution (\`no arguments\` / \`<change>\`) uses the current tool for
      every step — check only that harness's markers.
    - Before staging a hybrid run (\`hybrid\` / \`hybrid <change>\`), both harnesses
@@ -172,7 +168,7 @@ ambiguous you MUST prompt the user.
    - For \`/spok-apply auto\`, call \`spok-flow\` with
      \`auto "<absolute-ticket-dir>"\` as its argument using the **Skill tool**.
 
-   The flow skill drives problem validation → research → design → outline → design review → implement → simplify → validate → commit and returns when done or when it hits a blocker.
+   The flow skill drives research questions → research → design discussion → outline → implement → commit and returns when done or when it hits a blocker.
 
 7. **Tick the checkbox on success / halt on failure**
 
@@ -188,18 +184,6 @@ ambiguous you MUST prompt the user.
 
    Remaining: M/N unchecked
    Next: <next chunk title> (run \`/spok-apply\` again)
-   \`\`\`
-
-   If \`spok/config.toml\` does not enable \`flow.self_learn = true\`, append:
-
-   \`\`\`
-   Optional: post-commit self-learn is off.
-   Spok settings live in spok/config.toml. To enable it, add:
-
-   [flow]
-   self_learn = true
-
-   See available settings with: spok capabilities --json
    \`\`\`
 
    If any chunk remains unchecked, STOP after showing progress. Publish only when

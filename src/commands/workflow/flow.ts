@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { PROJECT_CONFIG_FILE_NAMES, readProjectConfig } from '../../core/project-config.js';
+import { PROJECT_CONFIG_FILE_NAMES } from '../../core/project-config.js';
 import { FileSystemUtils } from '../../utils/file-system.js';
 import {
   AUTO_V1_CANDIDATES_BY_ID,
@@ -43,16 +43,18 @@ type DetectedProfile = 'claude' | 'codex';
 export type FlowProfile = DetectedProfile | 'hybrid' | 'auto';
 type FlowTier = 'max' | 'heavy' | 'mid' | 'cheap';
 
-const PROBLEM_VALIDATION_STEP_ID = 'validate-problem';
-const DESIGN_REVIEW_STEP_ID = 'design-review';
-const VALIDATE_STEP_ID = 'validate';
-const REPAIR_STEP_ID = 'repair';
-const SELF_LEARN_STEP_ID = 'self-learn';
+/** Step ids no longer in the graph: a saved state that still holds one is rejected. */
+const REMOVED_STEP_IDS = [
+  'plan',
+  'validate-problem',
+  'design-review',
+  'simplify',
+  'validate',
+  'repair',
+  'self-learn',
+];
 const FLOW_EVENT_DIR = '.spok';
 const FLOW_PROFILE_ENV = 'SPOK_FLOW_PROFILE';
-
-/** Bounded: a FAIL splices at most this many [repair, validate] pairs per flow. */
-const MAX_REPAIR_ATTEMPTS = 2;
 
 const MEMORY_FILE = 'MEMORY.md';
 const MAX_MEMORY_RULES = 20;
@@ -63,36 +65,23 @@ const MEMORY_RULE_BULLET_PATTERN = /^-\s+`/;
 
 // Spok flow model map
 const FLOW_STEP_TIER_BY_ID = {
-  [PROBLEM_VALIDATION_STEP_ID]: 'heavy',
   'research-questions': 'heavy',
   research: 'mid',
   'design-discussion': 'max',
   'structure-outline': 'heavy',
-  [DESIGN_REVIEW_STEP_ID]: 'heavy',
   implement: 'mid',
-  simplify: 'heavy',
-  validate: 'heavy',
-  [REPAIR_STEP_ID]: 'heavy',
   commit: 'cheap',
-  [SELF_LEARN_STEP_ID]: 'mid',
 } as const satisfies Record<string, FlowTier>;
 
 type RoutedStepId = keyof typeof FLOW_STEP_TIER_BY_ID;
 
 const CLAUDE_ROUTING_BY_ID = {
-  [PROBLEM_VALIDATION_STEP_ID]: { runner: 'claude', model: 'opus', effort: 'medium' },
   'research-questions': { runner: 'claude', model: 'opus', effort: 'medium' },
   research: { runner: 'claude', model: 'sonnet', effort: 'medium' },
   'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
   'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
-  [DESIGN_REVIEW_STEP_ID]: { runner: 'claude', model: 'opus', effort: 'medium' },
   implement: { runner: 'claude', model: 'opus', effort: 'medium' },
-  simplify: { runner: 'claude', model: 'opus' },
-  // Judge must not be the implementer's model; Fable is the strongest in-family alternative.
-  validate: { runner: 'claude', model: 'fable', effort: 'high' },
-  [REPAIR_STEP_ID]: { runner: 'claude', model: 'opus', effort: 'high' },
   commit: { runner: 'claude', model: 'haiku', effort: 'low' },
-  [SELF_LEARN_STEP_ID]: { runner: 'claude', model: 'sonnet', effort: 'xhigh' },
 } as const satisfies Record<RoutedStepId, Routing>;
 
 const CODEX_ROUTING_BY_TIER: Record<FlowTier, Routing> = {
@@ -103,22 +92,12 @@ const CODEX_ROUTING_BY_TIER: Record<FlowTier, Routing> = {
 };
 
 const HYBRID_ROUTING_BY_ID = {
-  [PROBLEM_VALIDATION_STEP_ID]: {
-    runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh',
-  },
   'research-questions': { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
   research: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
   'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
   'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
-  [DESIGN_REVIEW_STEP_ID]: {
-    runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh',
-  },
   implement: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-  simplify: { runner: 'claude', model: 'opus' },
-  validate: { runner: 'claude', model: 'opus', effort: 'medium' },
-  [REPAIR_STEP_ID]: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
   commit: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
-  [SELF_LEARN_STEP_ID]: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
 } as const satisfies Record<RoutedStepId, Routing>;
 
 /** Sole key check for the auto policy table: fails to compile if harness-routing.ts drops a step that flow.ts routes. */
@@ -254,8 +233,6 @@ export interface FlowStep {
   result?: FlowStepResult;
   /** Auto profile only: policy version and every candidate rejected before this route was chosen. */
   route?: AutoRouteRecord;
-  /** 1-based repair-cycle attempt for spliced repair/validate steps; absent on the base graph. */
-  attempt?: number;
   /** Durable question rounds reported while this occurrence remains unfinished. */
   interactions?: FlowInteraction[];
   /** Derived per response, never persisted: the full subagent prompt to dispatch verbatim. */
@@ -268,7 +245,6 @@ export interface WorkflowState {
   taskDir: string;
   status: FlowRunState;
   steps: FlowStep[];
-  repairAttempts: number;
   execution?: FlowExecution;
   createdAt: string;
   updatedAt: string;
@@ -334,20 +310,15 @@ interface StepDefinition {
   argument: string;
   expectedOutput?: string;
   completionKind: FlowCompletionKind;
-  attempt?: number;
 }
 
 interface FlowStepPaths {
   taskDir: string;
   ticket: string;
-  problemValidation: string;
   researchQuestions: string;
   research: string;
   designDiscussion: string;
   structureOutline: string;
-  designReview: string;
-  validation: string;
-  selfLearn: string;
 }
 
 interface StepDefinitionSpec {
@@ -358,29 +329,7 @@ interface StepDefinitionSpec {
   completionKind: FlowCompletionKind;
 }
 
-const VALIDATE_STEP_DEFINITION_SPEC = {
-  id: VALIDATE_STEP_ID,
-  skill: 'spok-validate-implementation',
-  argument: 'taskDir',
-  expectedOutput: 'validation',
-  completionKind: 'file',
-} as const satisfies StepDefinitionSpec;
-
-const REPAIR_STEP_DEFINITION_SPEC = {
-  id: REPAIR_STEP_ID,
-  skill: 'spok-repair',
-  argument: 'validation',
-  completionKind: 'summary',
-} as const satisfies StepDefinitionSpec;
-
 const BASE_STEP_DEFINITION_SPECS = [
-  {
-    id: PROBLEM_VALIDATION_STEP_ID,
-    skill: 'spok-validate-problem',
-    argument: 'ticket',
-    expectedOutput: 'problemValidation',
-    completionKind: 'file',
-  },
   {
     id: 'research-questions',
     skill: 'spok-create-research-questions',
@@ -410,25 +359,11 @@ const BASE_STEP_DEFINITION_SPECS = [
     completionKind: 'file',
   },
   {
-    id: DESIGN_REVIEW_STEP_ID,
-    skill: 'spok-review-design',
-    argument: 'taskDir',
-    expectedOutput: 'designReview',
-    completionKind: 'file',
-  },
-  {
     id: 'implement',
     skill: 'spok-implement-plan',
     argument: 'taskDir',
     completionKind: 'summary',
   },
-  {
-    id: 'simplify',
-    skill: 'spok-simplify',
-    argument: 'taskDir',
-    completionKind: 'summary',
-  },
-  VALIDATE_STEP_DEFINITION_SPEC,
   {
     id: 'commit',
     skill: 'spok-ci-commit',
@@ -437,14 +372,6 @@ const BASE_STEP_DEFINITION_SPECS = [
   },
 ] as const satisfies readonly StepDefinitionSpec[];
 
-const SELF_LEARN_STEP_DEFINITION_SPEC = {
-  id: SELF_LEARN_STEP_ID,
-  skill: 'spok-self-learn',
-  argument: 'taskDir',
-  expectedOutput: 'selfLearn',
-  completionKind: 'file',
-} as const satisfies StepDefinitionSpec;
-
 interface FlowEvent {
   schemaVersion: 1;
   timestamp: string;
@@ -452,10 +379,9 @@ interface FlowEvent {
   state: FlowRunState;
   step?: string;
   completedStep?: string;
-  /** Routing of the completed step; lets the log answer "which model judged, on which attempt". */
+  /** Routing of the completed step; lets the log answer "which model ran it". */
   runner?: FlowRunner;
   model?: FlowModel;
-  attempt?: number;
   code?: string;
   reason?: string;
 }
@@ -465,6 +391,8 @@ interface LoadResult {
   statePath: string;
   state?: WorkflowState;
   reason?: string;
+  /** A finished legacy state is reported as saved: never normalized, never written. */
+  readOnly?: boolean;
 }
 
 function nowIso(): string {
@@ -572,7 +500,7 @@ function buildMemoryWarning(memory: MemoryRead | undefined): string | undefined 
   return `${memory.path}: ${problems.join('; ')}.`;
 }
 
-const EXECUTION_STEPS = new Set(['implement', 'simplify', 'validate', 'repair', 'commit']);
+const EXECUTION_STEPS = new Set(['implement', 'commit']);
 
 function executionPrompt(step: string, execution: FlowExecution): string {
   const lines = [
@@ -580,15 +508,13 @@ function executionPrompt(step: string, execution: FlowExecution): string {
     `Execution branch: ${JSON.stringify(execution.branch)}. Baseline HEAD: ${execution.baselineHead}. Do not switch branches or move the work.`,
     'Preserve pre-existing changes. Do not stage, commit, or push outside the commit stage.',
   ];
-  if (step === 'implement' || step === 'repair') {
+  if (step === 'implement') {
     lines.push('Return every current chunk changed path relative to the work root, including new files and deletions, plus exact verification commands and exit codes. The caller must pass that list through --changed-path.');
   }
   if (step === 'commit') lines.push('If HEAD differs from the baseline, the CLI has verified an existing completed chunk commit. Report that HEAD SHA without creating another commit; this resumes an interrupted completion.');
   if (execution.ownedPaths && step !== 'implement') {
     lines.push(`Exact implementation allowlist: ${JSON.stringify(execution.ownedPaths)}.`);
-    lines.push(step === 'repair'
-      ? 'Repair may add paths needed for recorded blocking findings; report the entire updated chunk path list.'
-      : 'Do not change source paths outside this allowlist. A no-op is success.');
+    lines.push('Do not change source paths outside this allowlist. A no-op is success.');
   }
   return lines.join('\n');
 }
@@ -607,7 +533,7 @@ async function prepareStepExecution(state: WorkflowState): Promise<string | unde
         return await checkExecutionCommit(state, { step: 'commit', commit: head });
       }
     }
-    if (step.id === 'implement' || step.id === 'repair') {
+    if (step.id === 'implement') {
       await executionChanges(state.execution, state.taskDir);
     } else {
       await validateExecutionScope(state.execution, state.taskDir, state.execution.ownedPaths ?? []);
@@ -633,7 +559,7 @@ async function checkExecutionCompletion(
     }
     if (input.step === 'commit') return await checkExecutionCommit(state, input);
     const changed = await executionChanges(execution, state.taskDir);
-    if (input.step === 'implement' || input.step === 'repair') {
+    if (input.step === 'implement') {
       const reported = [...new Set(input.changedPaths ?? [])].sort();
       if (JSON.stringify(reported) !== JSON.stringify([...changed].sort())) {
         return `Reported --changed-path paths must match chunk changes: ${JSON.stringify(changed)}`;
@@ -732,12 +658,6 @@ const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
     'absolute path of the repository working tree you edited (the git worktree root that ' +
     'holds the changed files, which may differ from the task directory). Report the path ' +
     '`git -C <directory containing an edited file> rev-parse --show-toplevel` prints, not a guess.',
-  validate:
-    'You are the adversary, not the author. Presume the implementation is wrong and try to ' +
-    'break it. Judge from the diff, the selected implementation artifact, the ticket, and the design discussion (including ' +
-    'its Scale section); do NOT read step summaries in workflow-state.json or trust the ' +
-    'implementer\'s claims.',
-  [SELF_LEARN_STEP_ID]: 'This gate is advisory. Do not fail, amend, or rewrite the commit.',
 };
 
 /**
@@ -749,15 +669,6 @@ function workRootClause(workRoot: string): string {
     `The changes to commit are in \`${workRoot}\`. Run every git command with ` +
     `\`-C ${workRoot}\`. If that repository has no chunk changes, report the existing HEAD as a successful no-op. Do not ` +
     'search other directories, and never commit from a repository you were not given.'
-  );
-}
-
-function editingWorkRootClause(workRoot: string): string {
-  return (
-    `The implementation repository is \`${workRoot}\`, which may differ from the task directory. ` +
-    'Read and edit source files there, and run verification commands from that directory. ' +
-    `Run every git command with \`-C ${workRoot}\`. Do not edit source files in the task ` +
-    'directory unless it is the same repository.'
   );
 }
 
@@ -800,34 +711,19 @@ function buildStepPrompt(
 
   if (execution) sections.push(executionPrompt(definition.id, execution));
 
-  if (workRoot) {
-    if (definition.completionKind === 'commit') sections.push(workRootClause(workRoot));
-    if (definition.id === 'simplify' || definition.id === REPAIR_STEP_ID) {
-      sections.push(editingWorkRootClause(workRoot));
-    }
-  }
+  if (workRoot && definition.completionKind === 'commit') sections.push(workRootClause(workRoot));
 
   return sections.join('\n\n');
-}
-
-function isSelfLearnEnabled(taskDir: string): boolean {
-  const projectRoot = findProjectRootForTaskDir(taskDir);
-  if (!projectRoot) return false;
-  return readProjectConfig(projectRoot)?.flow?.self_learn === true;
 }
 
 function buildFlowStepPaths(taskDir: string): FlowStepPaths {
   return {
     taskDir,
     ticket: path.join(taskDir, 'ticket.md'),
-    problemValidation: path.join(taskDir, 'problem-validation.md'),
     researchQuestions: path.join(taskDir, 'research-questions.md'),
     research: path.join(taskDir, 'research.md'),
     designDiscussion: path.join(taskDir, 'design-discussion.md'),
     structureOutline: path.join(taskDir, 'structure-outline.md'),
-    designReview: path.join(taskDir, 'design-review.md'),
-    validation: path.join(taskDir, 'validation.md'),
-    selfLearn: path.join(taskDir, 'self-learn.md'),
   };
 }
 
@@ -854,43 +750,9 @@ function buildStepDefinition(
   };
 }
 
-const REPAIR_CYCLE_SPECS = [REPAIR_STEP_DEFINITION_SPEC, VALIDATE_STEP_DEFINITION_SPEC] as const;
-
-/** The [repair, validate] pair one FAIL splices in, stamped with its 1-based attempt. */
-function repairCycleDefinitions(
-  taskDir: string,
-  attempt: number,
-  profile: FlowProfile
-): StepDefinition[] {
+function buildStepDefinitions(taskDir: string, profile: FlowProfile): StepDefinition[] {
   const paths = buildFlowStepPaths(taskDir);
-  return REPAIR_CYCLE_SPECS.map((spec) => ({
-    ...buildStepDefinition(spec, paths, profile),
-    attempt,
-  }));
-}
-
-function buildStepDefinitions(
-  taskDir: string,
-  repairAttempts: number,
-  profile: FlowProfile
-): StepDefinition[] {
-  const paths = buildFlowStepPaths(taskDir);
-  const specs = isSelfLearnEnabled(taskDir)
-    ? [...BASE_STEP_DEFINITION_SPECS, SELF_LEARN_STEP_DEFINITION_SPEC]
-    : BASE_STEP_DEFINITION_SPECS;
-  const definitions: StepDefinition[] = specs.map((spec) =>
-    buildStepDefinition(spec, paths, profile)
-  );
-  if (repairAttempts === 0) return definitions;
-
-  // Every cycle lands as one block right after the base validate, so the flat
-  // list reads: validate, then (repair, validate) once per attempt.
-  const cycles = Array.from({ length: repairAttempts }, (_, index) =>
-    repairCycleDefinitions(taskDir, index + 1, profile)
-  ).flat();
-  const validateIndex = definitions.findIndex((definition) => definition.id === VALIDATE_STEP_ID);
-  definitions.splice(validateIndex + 1, 0, ...cycles);
-  return definitions;
+  return BASE_STEP_DEFINITION_SPECS.map((spec) => buildStepDefinition(spec, paths, profile));
 }
 
 function stepFromDefinition(
@@ -907,13 +769,12 @@ function stepFromDefinition(
     expectedOutput: definition.expectedOutput,
     status,
     result,
-    attempt: definition.attempt,
   };
 }
 
 function createInitialState(taskDir: string, profile: FlowProfile): WorkflowState {
   const timestamp = nowIso();
-  const definitions = buildStepDefinitions(taskDir, 0, profile);
+  const definitions = buildStepDefinitions(taskDir, profile);
   return {
     version: 2,
     profile,
@@ -922,7 +783,6 @@ function createInitialState(taskDir: string, profile: FlowProfile): WorkflowStat
     steps: definitions.map((definition, index) =>
       stepFromDefinition(definition, index === 0 ? 'ready' : 'pending')
     ),
-    repairAttempts: 0,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -935,27 +795,19 @@ function storedStepId(step: unknown): string | undefined {
   return typeof id === 'string' ? id : undefined;
 }
 
+function firstRemovedStepId(stored: unknown): string | undefined {
+  const steps = (stored as Partial<WorkflowState> | null)?.steps;
+  if (!Array.isArray(steps)) return;
+  return steps.map(storedStepId).find((id) => id !== undefined && REMOVED_STEP_IDS.includes(id));
+}
+
+function isFinishedState(stored: unknown): boolean {
+  const { status, steps } = stored as Partial<WorkflowState>;
+  return status === 'complete' && Array.isArray(steps) && steps.length > 0 && steps.every(isCompletedStep);
+}
+
 function isCompletedStep(step: unknown): step is FlowStep {
   return storedStepId(step) !== undefined && (step as Partial<FlowStep>).status === 'completed';
-}
-
-function occurrenceKey(id: string, occurrence: number): string {
-  return `${id}#${occurrence}`;
-}
-
-/**
- * Keys a step by how many same-id steps preceded it, so the repeated `validate`
- * of a repair cycle cannot inherit the first occurrence's completed result.
- * Mutates `counts`, which must be walked in list order.
- */
-function takeOccurrenceKey(counts: Map<string, number>, id: string): string {
-  const occurrence = counts.get(id) ?? 0;
-  counts.set(id, occurrence + 1);
-  return occurrenceKey(id, occurrence);
-}
-
-function shouldSkipProblemValidationForLegacyState(completed: Map<string, FlowStep>): boolean {
-  return completed.size > 0 && !completed.has(occurrenceKey(PROBLEM_VALIDATION_STEP_ID, 0));
 }
 
 function inferLegacyProfile(stored: unknown): DetectedProfile | undefined {
@@ -1006,41 +858,25 @@ function normalizeState(
   if (!stored || typeof stored !== 'object') return initial;
 
   const candidate = stored as Partial<WorkflowState>;
-  const repairAttempts =
-    typeof candidate.repairAttempts === 'number' && candidate.repairAttempts > 0
-      ? Math.floor(candidate.repairAttempts)
-      : 0;
   const storedSteps = Array.isArray(candidate.steps) ? candidate.steps : [];
-  const completedByKey = new Map<string, FlowStep>();
-  const storedByKey = new Map<string, Partial<FlowStep>>();
-  const storedOccurrences = new Map<string, number>();
+  const completedById = new Map<string, FlowStep>();
+  const storedById = new Map<string, Partial<FlowStep>>();
   for (const step of storedSteps) {
     const id = storedStepId(step);
     if (id === undefined) continue;
-    const key = takeOccurrenceKey(storedOccurrences, id);
-    storedByKey.set(key, step as Partial<FlowStep>);
-    if (isCompletedStep(step)) completedByKey.set(key, step);
+    storedById.set(id, step as Partial<FlowStep>);
+    if (isCompletedStep(step)) completedById.set(id, step);
   }
 
-  const definitions = buildStepDefinitions(taskDir, repairAttempts, profile);
-  const skipProblemValidation = shouldSkipProblemValidationForLegacyState(completedByKey);
-  const definitionOccurrences = new Map<string, number>();
+  const definitions = buildStepDefinitions(taskDir, profile);
   const steps = definitions.map((definition) => {
-    const key = takeOccurrenceKey(definitionOccurrences, definition.id);
-    const completed = completedByKey.get(key);
-    if (!completed && definition.id === PROBLEM_VALIDATION_STEP_ID && skipProblemValidation) {
-      return stepFromDefinition(definition, 'completed', {
-        summary: 'Skipped for legacy workflow state created before validate-problem existed.',
-        completedAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
-      });
-    }
-
+    const completed = completedById.get(definition.id);
     const step = stepFromDefinition(
       definition,
       completed ? 'completed' : 'pending',
       completed?.result
     );
-    const stored = storedByKey.get(key);
+    const stored = storedById.get(definition.id);
     const interactions = readStoredInteractions(stored?.interactions);
     const routed = profile === 'auto' || completed || interactions
       ? withPersistedRoute(step, stored)
@@ -1054,7 +890,6 @@ function normalizeState(
     taskDir,
     status: 'ready',
     steps,
-    repairAttempts,
     execution: candidate.execution,
     createdAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : initial.createdAt,
     updatedAt: initial.updatedAt,
@@ -1148,16 +983,6 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Unknown workflow step:')) return 'unknown_step';
   if (reason.startsWith('Expected output path ')) return 'wrong_output_path';
   if (reason.startsWith('Expected output file is missing or empty for step ')) return 'missing_output';
-  if (reason.includes('must set Flow Decision to proceed')) return 'flow_decision_not_proceed';
-  if (reason.includes('repair attempts')) return 'repair_attempts_exhausted';
-  if (reason.startsWith(`Step ${DESIGN_REVIEW_STEP_ID} recorded a FAIL verdict`)) {
-    return 'design_review_verdict_fail';
-  }
-  if (reason.startsWith(`Step ${DESIGN_REVIEW_STEP_ID} has no readable verdict`)) {
-    return 'design_review_verdict_unreadable';
-  }
-  if (reason.includes('recorded a FAIL verdict')) return 'validation_verdict_fail';
-  if (reason.includes('has no readable verdict')) return 'validation_verdict_unreadable';
   if (reason.includes('must provide a non-empty --summary')) return 'missing_summary';
   if (reason.includes('must provide a commit SHA')) return 'missing_commit';
   if (reason.includes('must provide an absolute --work-root')) return 'invalid_work_root';
@@ -1198,7 +1023,6 @@ async function recordFlowResponse(
     event.completedStep = completed.id;
     event.runner = completed.runner;
     event.model = completed.model;
-    if (completed.attempt !== undefined) event.attempt = completed.attempt;
   }
   if (response.reason) {
     event.code = flowBlockCode(response.reason);
@@ -1242,12 +1066,13 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
   try {
     const raw = await fs.readFile(statePath, 'utf-8');
     const stored: unknown = JSON.parse(raw);
-    if (stored && typeof stored === 'object' && 'steps' in stored &&
-        Array.isArray(stored.steps) && stored.steps.some((step) => storedStepId(step) === 'plan')) {
+    const removedId = firstRemovedStepId(stored);
+    const finishedLegacy = removedId !== undefined && isFinishedState(stored);
+    if (removedId && !finishedLegacy) {
       return {
         taskDir,
         statePath,
-        reason: 'Unsupported workflow state: the plan step has been removed. Start a new task directory with ticket.md.',
+        reason: `Unsupported workflow state: the ${removedId} step has been removed. Start a new task directory with ticket.md.`,
       };
     }
     if (stored && typeof stored === 'object' && 'execution' in stored &&
@@ -1257,6 +1082,10 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
     const resolved = resolveStateProfile(stored, requested.profile);
     if (!resolved.profile) {
       return { taskDir, statePath, reason: resolved.reason! };
+    }
+    if (finishedLegacy) {
+      const state = { ...(stored as WorkflowState), taskDir, profile: resolved.profile };
+      return { taskDir, statePath, state, readOnly: true };
     }
     return {
       taskDir,
@@ -1285,7 +1114,7 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
 }
 
 function getDefinitionById(state: WorkflowState, stepId: string): StepDefinition | undefined {
-  return buildStepDefinitions(state.taskDir, state.repairAttempts, state.profile).find(
+  return buildStepDefinitions(state.taskDir, state.profile).find(
     (definition) => definition.id === stepId
   );
 }
@@ -1318,7 +1147,7 @@ function withStepPrompt(
   };
 }
 
-/** The most recently recorded work root: repair can move the work after implement. */
+/** The most recently recorded work root. */
 function recordedWorkRoot(state: WorkflowState): string | undefined {
   let workRoot: string | undefined;
   for (const step of state.steps) {
@@ -1392,46 +1221,19 @@ function answeredOutputDraftPath(
   return `${output}.before-answers-step-${state.steps.indexOf(step) + 1}-round-${interaction.round}.draft`;
 }
 
-async function completedArtifactExists(state: WorkflowState, step: FlowStep, output: string): Promise<boolean> {
-  if (await pathIsNonEmptyFile(output)) return true;
-  const current = getCurrentStep(state);
-  if (step.id !== VALIDATE_STEP_ID || current?.id !== VALIDATE_STEP_ID) return false;
-  // Repeated validation shares one output; an earlier question round can hold its evidence.
-  for (const interaction of current.interactions ?? []) {
-    if (interaction.resolvedAt && await pathIsNonEmptyFile(answeredOutputDraftPath(state, current, interaction, output))) return true;
-  }
-  return false;
-}
-
 async function validateCompletedArtifacts(state: WorkflowState): Promise<string | undefined> {
-  const definitions = buildStepDefinitions(state.taskDir, state.repairAttempts, state.profile);
-  const finalValidateIndex = state.steps.map((step) => step.id).lastIndexOf(VALIDATE_STEP_ID);
+  const definitions = buildStepDefinitions(state.taskDir, state.profile);
 
-  for (const [index, step] of state.steps.entries()) {
+  for (const step of state.steps) {
     if (step.status !== 'completed') continue;
 
     const definition = definitions.find((candidate) => candidate.id === step.id);
     if (definition?.completionKind !== 'file' || !definition.expectedOutput) continue;
     if (!step.result?.output) continue;
 
-    if (!(await completedArtifactExists(state, step, definition.expectedOutput))) {
+    if (!(await pathIsNonEmptyFile(definition.expectedOutput))) {
       return `Missing completed artifact for step ${step.id}: ${definition.expectedOutput}`;
     }
-
-    // The gates self-guard on step id. Re-running them keeps a completed
-    // artifact that was edited after completion from carrying the flow forward.
-    const decisionError = await validateProblemValidationFlowDecision(definition);
-    if (decisionError) return decisionError;
-
-    const designReviewError = await validateDesignReviewVerdict(definition);
-    if (designReviewError) return designReviewError;
-
-    // The verdict gate fires only on the final validate occurrence: an earlier
-    // completed validate legitimately holds a FAIL artifact mid-cycle.
-    if (step.id === VALIDATE_STEP_ID && index !== finalValidateIndex) continue;
-
-    const verdictError = await validateValidationVerdict(definition);
-    if (verdictError) return verdictError;
   }
 }
 
@@ -1464,11 +1266,7 @@ async function resolveReadyStepRoute(state: WorkflowState): Promise<void> {
   const stepId = ready.id as RoutedStepId;
   const runners = AUTO_CANDIDATES_BY_STEP[stepId].map((candidate) => candidate.runner);
   const reports = await probeHarnesses(runners);
-  const { route } = selectAutoRoute(
-    stepId,
-    await withOmpIsolation(reports, state.taskDir),
-    state.steps.slice(0, index)
-  );
+  const { route } = selectAutoRoute(stepId, await withOmpIsolation(reports, state.taskDir));
   state.steps[index] = withPersistedRoute(ready, route);
 }
 
@@ -1583,109 +1381,6 @@ async function answeredArtifactFreshnessError(
   return `Step ${definition.id} must regenerate its output after answering questions: ${definition.expectedOutput}`;
 }
 
-function extractMarkdownSection(content: string, heading: string): string {
-  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = content.match(
-    new RegExp(`(?:^|\\n)##\\s+${escapedHeading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|$)`, 'i')
-  );
-  return match?.[1]?.trim() ?? '';
-}
-
-/** First non-blank trimmed line of a `## <heading>` section, or '' when there is none. */
-function firstSectionLine(content: string, heading: string): string {
-  return (
-    extractMarkdownSection(content, heading)
-      .split('\n')
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? ''
-  );
-}
-
-function flowDecisionAllowsProceed(content: string): boolean {
-  return /^`?proceed`?\b/i.test(firstSectionLine(content, 'Flow Decision'));
-}
-
-/** Undefined when the artifact cannot be read: the callers treat that as a failed gate. */
-async function readArtifact(targetPath: string): Promise<string | undefined> {
-  try {
-    return await fs.readFile(targetPath, 'utf-8');
-  } catch {
-    return;
-  }
-}
-
-async function validateProblemValidationFlowDecision(
-  definition: StepDefinition
-): Promise<string | undefined> {
-  if (definition.id !== PROBLEM_VALIDATION_STEP_ID || !definition.expectedOutput) return;
-
-  const content = await readArtifact(definition.expectedOutput);
-  if (content !== undefined && flowDecisionAllowsProceed(content)) return;
-
-  return `Step ${PROBLEM_VALIDATION_STEP_ID} must set Flow Decision to proceed before the flow can continue: ${definition.expectedOutput}`;
-}
-
-type Verdict = 'PASS' | 'FAIL';
-
-const DESIGN_REVIEW_FRONTMATTER_PATTERN =
-  /^---\ntype: design-review\nverdict: (PASS|FAIL)\n---(?:\n|$)/;
-
-/** Pure. The review contract permits only the exact, ordered frontmatter fields. */
-function readDesignReviewVerdict(content: string): Verdict | undefined {
-  const normalized = content.replace(/\r\n/g, '\n');
-  const match = normalized.match(DESIGN_REVIEW_FRONTMATTER_PATTERN);
-  return match?.[1] as Verdict | undefined;
-}
-
-function parseVerdictValue(raw: string): Verdict | undefined {
-  const value = raw
-    .replace(/^[`'"]+|[`'"]+$/g, '')
-    .trim()
-    .toUpperCase();
-  return value === 'PASS' || value === 'FAIL' ? value : undefined;
-}
-
-/** Raw value of the first frontmatter `verdict:` line, or undefined when there is none. */
-function frontmatterVerdictValue(normalized: string): string | undefined {
-  if (!normalized.startsWith('---\n')) return;
-
-  const closingIndex = normalized.indexOf('\n---', 4);
-  if (closingIndex === -1) return;
-
-  for (const line of normalized.slice(4, closingIndex).split('\n')) {
-    const match = line.match(/^verdict\s*:\s*(.+?)\s*$/i);
-    if (match) return match[1];
-  }
-}
-
-/** Pure. Returns undefined when no verdict is readable. */
-function readValidationVerdict(content: string): Verdict | undefined {
-  const normalized = content.replace(/\r\n/g, '\n');
-
-  // An explicit frontmatter verdict is the machine-facing contract:
-  // an unrecognized value is unreadable — no body fallback.
-  const declared = frontmatterVerdictValue(normalized);
-  if (declared !== undefined) return parseVerdictValue(declared);
-
-  const match = firstSectionLine(normalized, 'Validation Verdict')
-    .replace(/[*`]/g, '')
-    .match(/^(?:verdict\s*:?\s*)?(PASS|FAIL)\b/i);
-  return match ? parseVerdictValue(match[1]!) : undefined;
-}
-
-async function validateValidationVerdict(definition: StepDefinition): Promise<string | undefined> {
-  if (definition.id !== VALIDATE_STEP_ID || !definition.expectedOutput) return;
-
-  const content = await readArtifact(definition.expectedOutput);
-  const verdict = content === undefined ? undefined : readValidationVerdict(content);
-  if (verdict === 'PASS') return;
-  if (verdict === 'FAIL') {
-    return `Step ${VALIDATE_STEP_ID} recorded a FAIL verdict: ${definition.expectedOutput}`;
-  }
-
-  return `Step ${VALIDATE_STEP_ID} has no readable verdict (expected PASS or FAIL): ${definition.expectedOutput}`;
-}
-
 /** Stdout of a git invocation, or undefined when git is missing or exits nonzero. */
 async function runGit(
   workRoot: string,
@@ -1781,21 +1476,6 @@ async function completeCommitResult(
   };
 }
 
-async function validateDesignReviewVerdict(
-  definition: StepDefinition
-): Promise<string | undefined> {
-  if (definition.id !== DESIGN_REVIEW_STEP_ID || !definition.expectedOutput) return;
-
-  const content = await readArtifact(definition.expectedOutput);
-  const verdict = content === undefined ? undefined : readDesignReviewVerdict(content);
-  if (verdict === 'PASS') return;
-  if (verdict === 'FAIL') {
-    return `Step ${DESIGN_REVIEW_STEP_ID} recorded a FAIL verdict: ${definition.expectedOutput}`;
-  }
-
-  return `Step ${DESIGN_REVIEW_STEP_ID} has no readable verdict (expected strict frontmatter with type: design-review and verdict: PASS or FAIL): ${definition.expectedOutput}`;
-}
-
 async function completeStepResult(
   definition: StepDefinition,
   input: FlowCompleteInput,
@@ -1808,15 +1488,6 @@ async function completeStepResult(
     if (!(await pathIsNonEmptyFile(definition.expectedOutput!))) {
       return `Expected output file is missing or empty for step ${definition.id}: ${definition.expectedOutput}`;
     }
-
-    const decisionError = await validateProblemValidationFlowDecision(definition);
-    if (decisionError) return decisionError;
-
-    const designReviewError = await validateDesignReviewVerdict(definition);
-    if (designReviewError) return designReviewError;
-
-    const verdictError = await validateValidationVerdict(definition);
-    if (verdictError) return verdictError;
 
     return {
       output: definition.expectedOutput,
@@ -1846,85 +1517,6 @@ async function completeStepResult(
   }
 
   return completeCommitResult(definition, input, recordedRoot);
-}
-
-function repairAttemptsExhaustedReason(expectedOutput: string): string {
-  return `Step ${VALIDATE_STEP_ID} exhausted ${MAX_REPAIR_ATTEMPTS} repair attempts and still records a FAIL verdict: ${expectedOutput}`;
-}
-
-/**
- * A FAIL with attempts remaining is a successful transition, not a block:
- * blocked responses are ephemeral and could never advance the flow to repair.
- * The validate step completes against its recorded artifact, the [repair,
- * validate] pair extends the flat step list, and the state file is written.
- */
-async function spliceRepairCycle(
-  state: WorkflowState,
-  currentStep: FlowStep,
-  definition: StepDefinition
-): Promise<FlowResponse> {
-  currentStep.status = 'completed';
-  currentStep.result = { output: definition.expectedOutput, completedAt: nowIso() };
-
-  state.repairAttempts += 1;
-  const spliced = repairCycleDefinitions(
-    state.taskDir,
-    state.repairAttempts,
-    state.profile
-  ).map(
-    (cycleDefinition) => stepFromDefinition(cycleDefinition, 'pending')
-  );
-  state.steps.splice(state.steps.indexOf(currentStep) + 1, 0, ...spliced);
-
-  markNextStepReady(state);
-  await writeState(state);
-  return buildResponse(state, { completedStep: currentStep });
-}
-
-/** Epoch ms of the latest completed repair step, or undefined when none completed. */
-function lastRepairCompletedAt(state: WorkflowState): number | undefined {
-  let latest: number | undefined;
-  for (const step of state.steps) {
-    if (step.id !== REPAIR_STEP_ID || step.status !== 'completed') continue;
-    const completedAt = Date.parse(step.result?.completedAt ?? '');
-    if (!Number.isNaN(completedAt) && (latest === undefined || completedAt > latest)) {
-      latest = completedAt;
-    }
-  }
-  return latest;
-}
-
-/**
- * Query-side terminal check, re-derived from disk on every call (blocked is
- * ephemeral, so the exhausting completion leaves no stored trace). Fires only
- * for a FAIL recorded at or after the last repair completed: the stale FAIL
- * left by the previous validate run must not block dispatching the final
- * validate occurrence.
- */
-async function exhaustedRepairBlockReason(state: WorkflowState): Promise<string | undefined> {
-  if (state.repairAttempts < MAX_REPAIR_ATTEMPTS) return;
-
-  const current = getCurrentStep(state);
-  if (current?.id !== VALIDATE_STEP_ID) return;
-  const interaction = current.interactions?.at(-1);
-  if (unansweredQuestions(current).length > 0 || (interaction?.resolvedAt && !interaction.outputInvalidated)) return;
-
-  const repairCompletedAt = lastRepairCompletedAt(state);
-  if (repairCompletedAt === undefined) return;
-
-  const output = buildFlowStepPaths(state.taskDir).validation;
-  let recordedAt: number;
-  try {
-    recordedAt = (await fs.stat(output)).mtimeMs;
-  } catch {
-    return; // Absent artifact: the step is simply re-offered, as today.
-  }
-  if (recordedAt < repairCompletedAt) return; // Stale FAIL from before the final repair.
-
-  const content = await readArtifact(output);
-  if (content === undefined || readValidationVerdict(content) !== 'FAIL') return;
-
-  return repairAttemptsExhaustedReason(output);
 }
 
 function questionPacketPathError(taskDir: string, packetPath: string): string | undefined {
@@ -2138,13 +1730,6 @@ export async function getFlowStatus(taskDirInput: string): Promise<FlowResponse>
     return response;
   }
 
-  const exhausted = await exhaustedRepairBlockReason(loaded.state);
-  if (exhausted) {
-    const response = blockedResponse(loaded.state, exhausted);
-    await recordFlowResponse(response, 'flow_status');
-    return response;
-  }
-
   const response = buildResponse(loaded.state);
   await recordFlowResponse(response, 'flow_status');
   return response;
@@ -2166,11 +1751,11 @@ export async function getFlowNext(taskDirInput: string): Promise<FlowResponse> {
     return response;
   }
 
-  const exhausted = await exhaustedRepairBlockReason(loaded.state);
-  if (exhausted) {
-    const response = blockedResponse(loaded.state, exhausted);
-    await recordFlowResponse(response, 'flow_next');
-    return response;
+  if (loaded.readOnly) {
+    const response = buildResponse(loaded.state);
+    const nextResponse = { ...response, step: response.nextStep };
+    await recordFlowResponse(nextResponse, 'flow_next');
+    return nextResponse;
   }
 
   const invalidationError = await invalidateAnsweredOutput(loaded.state);
@@ -2264,20 +1849,7 @@ export async function completeFlowStep(
 
   const result = await completeStepResult(definition, input, loaded.state.execution?.workRoot ?? recordedWorkRoot(loaded.state));
   if (typeof result === 'string') {
-    // Only the validate step can produce this code, so expectedOutput is set.
-    const isValidationFail =
-      currentStep.id === VALIDATE_STEP_ID && flowBlockCode(result) === 'validation_verdict_fail';
-
-    if (isValidationFail && loaded.state.repairAttempts < MAX_REPAIR_ATTEMPTS) {
-      const response = await spliceRepairCycle(loaded.state, currentStep, definition);
-      await recordFlowResponse(response, 'flow_complete');
-      return response;
-    }
-
-    const response = blockedResponse(
-      loaded.state,
-      isValidationFail ? repairAttemptsExhaustedReason(definition.expectedOutput!) : result
-    );
+    const response = blockedResponse(loaded.state, result);
     await recordFlowResponse(response, 'flow_complete');
     return response;
   }

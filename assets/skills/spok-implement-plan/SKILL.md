@@ -13,8 +13,7 @@ exists. Outside the flow, accept an explicit reviewed outline path, or use
 `<task-dir>/structure-outline.md` when given a task directory.
 
 Read the selected outline fully; below, “plan” means this reviewed outline.
-Read the resolved `design-discussion.md` and passing `design-review.md`;
-missing review evidence is a blocker. The design owns behavior and the outline
+Read the resolved `design-discussion.md`. The design owns behavior and the outline
 owns executable decomposition. Ignore any unrelated stale `plan.md`.
 Implement the selected artifact's phases in order,
 starting at the first unchecked item when resuming. Verify completed work when
