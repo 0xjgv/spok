@@ -101,7 +101,7 @@ describe('spok-flow prompt dispatch contract', () => {
     expect(body).not.toContain('**Agent** tool');
   });
 
-  it('captures durable questions and redispatches the same step without approval gates', async () => {
+  it('captures durable questions and redispatches the same step, with the CLI review questions as the phase gates', async () => {
     const body = await readFlowSkill();
 
     expect(body).toContain('NEEDS_INPUT: <absolute-question-packet-path>');
@@ -112,7 +112,10 @@ describe('spok-flow prompt dispatch contract', () => {
     expect(body).toContain('Do not scan\n   the task directory for packets');
     expect(body).toContain('redispatch the same step');
     expect(body).toContain('Never call `spok flow complete` for the child reply');
-    expect(body).toContain('Do not ask for approval between stages.');
+    expect(body).toContain('These review questions ARE the phase');
+    expect(body).toContain('never the bare option id `revise`');
+    expect(body).toContain('After a review answer returns `ready`, run `spok flow next`');
+    expect(body).not.toContain('Do not ask for approval between stages.');
     expect(body).not.toContain(
       'Raise questions or concerns about objectives, design, or plan to the user at any time'
     );

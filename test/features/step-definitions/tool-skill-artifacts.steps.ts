@@ -85,6 +85,28 @@ async function runStagedFlowComplete(
   );
 }
 
+/** Completing a gated phase asks for review; approving it records the completion. */
+async function approveStagedReview(world: SkillArtifactWorld, gated: RunCLIResult): Promise<RunCLIResult> {
+  assert.ok(world.projectDir && world.flowTaskDir);
+  assert.equal(gated.exitCode, 0, gated.stdout + gated.stderr);
+  const question = JSON.parse(gated.stdout).question as { id: string };
+  assert.ok(question, `a review question is required: ${gated.stdout}`);
+  const approved = await runCLI(
+    ['flow', 'answer', world.flowTaskDir, '--question', question.id, '--answer', 'approve', '--json'],
+    { cwd: world.projectDir }
+  );
+  assert.equal(approved.exitCode, 0, approved.stdout + approved.stderr);
+  return approved;
+}
+
+async function runStagedFlowCompleteApproved(
+  world: SkillArtifactWorld,
+  step: string,
+  args: readonly string[]
+): Promise<RunCLIResult> {
+  return approveStagedReview(world, await runStagedFlowComplete(world, step, args));
+}
+
 Given('a new project', async function (this: SkillArtifactWorld) {
   this.projectDir = path.join(os.tmpdir(), `spok-acceptance-${randomUUID()}`);
   this.codexHome = path.join(this.projectDir, 'codex-home');
@@ -260,27 +282,29 @@ Given('a staged flow task in a primary checkout reached through an alias', async
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n');
 });
 
-Given('the staged flow task is completed through research', async function (
-  this: SkillArtifactWorld
-) {
-  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
-  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+Given(
+  'the staged flow task is completed through research',
+  { timeout: 15_000 },
+  async function (this: SkillArtifactWorld) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
 
-  const completedSteps = [
-    ['research-questions', 'research-questions.md', '# Research Questions\n'],
-    ['research', 'research.md', '# Research\n'],
-  ] as const;
+    const completedSteps = [
+      ['research-questions', 'research-questions.md', '# Research Questions\n'],
+      ['research', 'research.md', '# Research\n'],
+    ] as const;
 
-  for (const [step, filename, content] of completedSteps) {
-    const output = path.join(this.flowTaskDir, filename);
-    await fs.writeFile(output, content, 'utf-8');
-    const result = await runCLI(
-      ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
-      { cwd: this.projectDir }
-    );
-    assert.equal(result.exitCode, 0, result.stderr);
+    for (const [step, filename, content] of completedSteps) {
+      const output = path.join(this.flowTaskDir, filename);
+      await fs.writeFile(output, content, 'utf-8');
+      const result = await runCLI(
+        ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
+        { cwd: this.projectDir }
+      );
+      await approveStagedReview(this, result);
+    }
   }
-});
+);
 
 Given('a two-question design-discussion packet', async function (this: SkillArtifactWorld) {
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
@@ -331,29 +355,31 @@ Given('a two-question design-discussion packet', async function (this: SkillArti
   );
 });
 
-Given('the staged flow task is completed through structure outline', async function (
-  this: SkillArtifactWorld
-) {
-  assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
-  assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+Given(
+  'the staged flow task is completed through structure outline',
+  { timeout: 15_000 },
+  async function (this: SkillArtifactWorld) {
+    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
+    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
 
-  const completedSteps = [
-    ['research-questions', 'research-questions.md', '# Research Questions\n'],
-    ['research', 'research.md', '# Research\n'],
-    ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
-    ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
-  ] as const;
+    const completedSteps = [
+      ['research-questions', 'research-questions.md', '# Research Questions\n'],
+      ['research', 'research.md', '# Research\n'],
+      ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
+      ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
+    ] as const;
 
-  for (const [step, filename, content] of completedSteps) {
-    const output = path.join(this.flowTaskDir, filename);
-    await fs.writeFile(output, content, 'utf-8');
-    const result = await runCLI(
-      ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
-      { cwd: this.projectDir }
-    );
-    assert.equal(result.exitCode, 0, result.stderr);
+    for (const [step, filename, content] of completedSteps) {
+      const output = path.join(this.flowTaskDir, filename);
+      await fs.writeFile(output, content, 'utf-8');
+      const result = await runCLI(
+        ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
+        { cwd: this.projectDir }
+      );
+      await approveStagedReview(this, result);
+    }
   }
-});
+);
 
 Given(
   'the staged flow task is ready to implement',
@@ -376,7 +402,7 @@ Given(
         ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
         { cwd: this.projectDir }
       );
-      assert.equal(result.exitCode, 0, result.stderr);
+      await approveStagedReview(this, result);
     }
   }
 );
@@ -1268,7 +1294,7 @@ When('I complete implementation using the work-root spelling {string}', async fu
     assert.equal(spelling, 'padded');
     workRoot = `  ${this.flowWorkRoot}  `;
   }
-  this.cliResult = await runStagedFlowComplete(this, 'implement', [
+  this.cliResult = await runStagedFlowCompleteApproved(this, 'implement', [
     '--summary', 'No source changes needed.', '--work-root', workRoot,
   ]);
 });
@@ -1308,7 +1334,7 @@ Then('the sibling execution retains the original worktree and commit', async fun
 When('I implement a new owned file in the recorded work root', async function (this: SkillArtifactWorld) {
   assert.ok(this.flowWorkRoot);
   await fs.writeFile(path.join(this.flowWorkRoot, 'owned.txt'), 'chunk implementation\n', 'utf-8');
-  this.cliResult = await runStagedFlowComplete(this, 'implement', ['--summary', 'Created owned.txt', '--changed-path', 'owned.txt']);
+  this.cliResult = await runStagedFlowCompleteApproved(this, 'implement', ['--summary', 'Created owned.txt', '--changed-path', 'owned.txt']);
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stdout + this.cliResult.stderr);
 });
 

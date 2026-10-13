@@ -204,6 +204,16 @@ const FlowQuestionAnswerSchema = z
   })
   .strict();
 
+const FlowStepResultSchema = z
+  .object({
+    completedAt: z.string().min(1),
+    summary: z.string().optional(),
+    output: z.string().optional(),
+    commit: z.string().optional(),
+    workRoot: z.string().optional(),
+  })
+  .strict();
+
 const FlowInteractionSchema = z
   .object({
     round: z.number().int().positive(),
@@ -211,6 +221,8 @@ const FlowInteractionSchema = z
     resolvedAt: z.string().min(1).optional(),
     outputInvalidated: z.boolean().optional(),
     outputDraft: z.string().min(1).optional(),
+    /** Present only on a CLI-authored review gate: the result recorded when the reviewer approves. */
+    reviewResult: FlowStepResultSchema.optional(),
     questions: z.array(FlowQuestionSchema).min(1),
     answers: z.array(FlowQuestionAnswerSchema),
   })
@@ -565,8 +577,6 @@ async function checkExecutionCompletion(
         return `Reported --changed-path paths must match chunk changes: ${JSON.stringify(changed)}`;
       }
       execution.ownedPaths = changed;
-    } else {
-      await validateExecutionScope(execution, state.taskDir, execution.ownedPaths ?? []);
     }
   } catch (error) {
     return (error as Error).message;
@@ -609,9 +619,18 @@ function unansweredQuestions(step: FlowStep | undefined): FlowQuestion[] {
     .filter((question) => !answered.has(question.id));
 }
 
-function answeredQuestionsClause(interactions: FlowInteraction[] | undefined): string | undefined {
+function reviewArtifactLabel(definition: StepDefinition): string {
+  return definition.expectedOutput ?? 'the implementation';
+}
+
+function answeredQuestionsClause(
+  interactions: FlowInteraction[] | undefined,
+  artifact: string
+): string | undefined {
   const answers = interactionAnswers(interactions);
   if (answers.length === 0) return;
+  const lastRound = interactions?.at(-1);
+  const reviewRevision = lastRound?.reviewResult !== undefined && lastRound.resolvedAt !== undefined;
   return [
     'Human answers to earlier open questions. Treat these as authoritative:',
     ...answers.map((answer) => {
@@ -622,9 +641,22 @@ function answeredQuestionsClause(interactions: FlowInteraction[] | undefined): s
     ...interactions?.filter((round) => round.outputDraft).map((round) =>
       `Review the preserved pre-answer draft at ${round.outputDraft} while applying these answers.`
     ) ?? [],
-    'Regenerate the stage output after applying these answers. Do not treat an output created before this resumed attempt as complete.',
+    reviewRevision
+      ? `A reviewer requested changes to ${artifact}. Revise it in place to address the feedback; keep settled decisions unless the feedback changes them.`
+      : 'Regenerate the stage output after applying these answers. Do not treat an output created before this resumed attempt as complete.',
   ].join('\n');
 }
+
+const PACKET_CONTRACT_CLAUSES = (packetPath: string): string[] => [
+  'The packet must be strict JSON with a non-empty `questions` array. Every question needs unique, ' +
+    'stable `id` and non-empty `prompt` fields. An `input` question has `kind: "input"`. A `choice` ' +
+    'question has `kind: "choice"`, two or three `options`, and may have `recommendedOptionId`; every ' +
+    'option needs unique, non-empty `id`, `label`, and `consequence` fields. Never reuse a question id ' +
+    'from an earlier round.',
+  'For that outcome, do not create the stage completion artifact or return a completion summary. End ' +
+    'your reply with a final line exactly `NEEDS_INPUT: <absolute-question-packet-path>`, replacing the ' +
+    `placeholder with \`${packetPath}\`. The NEEDS_INPUT outcome and normal completion are mutually exclusive.`,
+];
 
 function openQuestionClause(
   taskDir: string,
@@ -633,20 +665,21 @@ function openQuestionClause(
 ): string {
   const round = (interactions?.length ?? 0) + 1;
   const packetPath = path.join(taskDir, 'open-questions', `${stepId}-round-${round}.json`);
+  const packetLocation = `create or overwrite this exact packet path: \`${packetPath}\`. Create its parent directory when needed.`;
+  const designDiscussion = stepId === 'design-discussion';
   return [
-    'Work autonomously. Resolve code-answerable uncertainty from the repository and supplied artifacts. ' +
-      'Do not ask the user directly and do not ask for approval between stages.',
-    'Use your judgment to ask questions when the answer would help. Resolve decisions autonomously when evidence is sufficient; do not require human review. If you choose to ask, ' +
-      `create or overwrite this exact packet path: \`${packetPath}\`. Create its parent directory when needed.`,
-    'The packet must be strict JSON with a non-empty `questions` array. Every question needs unique, ' +
-      'stable `id` and non-empty `prompt` fields. An `input` question has `kind: "input"`. A `choice` ' +
-      'question has `kind: "choice"`, two or three `options`, and may have `recommendedOptionId`; every ' +
-      'option needs unique, non-empty `id`, `label`, and `consequence` fields. Never reuse a question id ' +
-      'from an earlier round.',
-    'For that outcome, do not create the stage completion artifact or return a completion summary. End ' +
-      'your reply with a final line exactly `NEEDS_INPUT: <absolute-question-packet-path>`, replacing the ' +
-      `placeholder with \`${packetPath}\`. The NEEDS_INPUT outcome and normal completion are mutually exclusive.`,
-    'If you choose not to ask a question, do not create a question packet and complete the stage normally.',
+    designDiscussion
+      ? 'Resolve code-answerable uncertainty from the repository and supplied artifacts. Every consequential ' +
+        'design question stays OPEN for the user: never resolve one yourself and do not ask the user directly. ' +
+        'Write each one to the question packet, preferring choice questions with options, consequences, and a ' +
+        `recommendation; only the user's answers resolve them. To ask, ${packetLocation}`
+      : 'Resolve code-answerable uncertainty from the repository and supplied artifacts. Do not ask the user ' +
+        'directly. Ask through the question packet when an answer would help. ' +
+        `To ask, ${packetLocation}`,
+    ...PACKET_CONTRACT_CLAUSES(packetPath),
+    designDiscussion
+      ? 'If no consequential design question is open, do not create a question packet and complete the stage normally.'
+      : 'If you choose not to ask a question, do not create a question packet and complete the stage normally.',
   ].join('\n');
 }
 
@@ -706,7 +739,7 @@ function buildStepPrompt(
   const clause = STEP_PROMPT_CLAUSES[definition.id];
   if (clause) sections.push(clause);
 
-  const answers = answeredQuestionsClause(interactions);
+  const answers = answeredQuestionsClause(interactions, reviewArtifactLabel(definition));
   if (answers) sections.push(answers);
 
   if (execution) sections.push(executionPrompt(definition.id, execution));
@@ -1354,7 +1387,8 @@ async function preserveAnsweredDraft(output: string, draft: string): Promise<boo
 async function invalidateAnsweredOutput(state: WorkflowState): Promise<string | undefined> {
   const step = getCurrentStep(state);
   const interaction = step?.interactions?.at(-1);
-  if (!step || !interaction?.resolvedAt || interaction.outputInvalidated) return;
+  // A review revision updates the existing artifact in place; only child-raised rounds archive it.
+  if (!step || !interaction?.resolvedAt || interaction.outputInvalidated || interaction.reviewResult) return;
   const definition = getDefinitionById(state, step.id);
   if (definition?.completionKind !== 'file' || !definition.expectedOutput) return;
 
@@ -1519,6 +1553,78 @@ async function completeStepResult(
   return completeCommitResult(definition, input, recordedRoot);
 }
 
+/** Phases the user reviews before the flow advances. Commit is not gated. */
+const REVIEW_GATED_STEP_IDS = new Set([
+  'research-questions',
+  'research',
+  'design-discussion',
+  'structure-outline',
+  'implement',
+]);
+
+function isReviewApproval(answer: string): boolean {
+  return answer.trim().toLowerCase() === 'approve';
+}
+
+function buildReviewQuestion(definition: StepDefinition, round: number): FlowQuestion {
+  const subject = definition.expectedOutput ?? 'the implementation';
+  return {
+    id: `${definition.id}-review-${round}`,
+    prompt: `Review ${subject}. Approve it to continue, or describe the changes you want.`,
+    kind: 'choice',
+    options: [
+      { id: 'approve', label: 'Approve', consequence: 'Continue to the next phase.' },
+      { id: 'revise', label: 'Request changes', consequence: 'The phase reruns with your feedback.' },
+    ],
+    recommendedOptionId: 'approve',
+  };
+}
+
+/** The step stays unfinished: its verified result waits on the reviewer's answer. */
+async function gateForReview(
+  state: WorkflowState,
+  step: FlowStep,
+  definition: StepDefinition,
+  result: FlowStepResult
+): Promise<FlowResponse> {
+  const round = (step.interactions?.length ?? 0) + 1;
+  step.interactions = [
+    ...(step.interactions ?? []),
+    {
+      round,
+      pausedAt: nowIso(),
+      questions: [buildReviewQuestion(definition, round)],
+      answers: [],
+      reviewResult: result,
+    },
+  ];
+  markNextStepReady(state);
+  await writeState(state);
+  return buildResponse(state);
+}
+
+/**
+ * Approving re-verifies what completion verified: a file phase's artifact, and the
+ * implementation's execution scope. A mismatch blocks without writing, so the reviewer
+ * can still answer with revision feedback; the recorded ownedPaths are never recomputed.
+ */
+async function approvalError(state: WorkflowState, step: FlowStep): Promise<string | undefined> {
+  const definition = getDefinitionById(state, step.id);
+  if (definition?.completionKind === 'file' && definition.expectedOutput &&
+      !(await pathIsNonEmptyFile(definition.expectedOutput))) {
+    return `Expected output file is missing or empty for step ${step.id}: ${definition.expectedOutput}`;
+  }
+  if (step.id !== 'implement' || !state.execution) return;
+  try {
+    const changed = await executionChanges(state.execution, state.taskDir);
+    const owned = [...(state.execution.ownedPaths ?? [])].sort();
+    if (JSON.stringify(changed) === JSON.stringify(owned)) return;
+    return `The implementation changed after it was submitted for review: reviewed ${JSON.stringify(owned)}, now ${JSON.stringify(changed)}. Answer with feedback to rerun implement.`;
+  } catch (error) {
+    return `${(error as Error).message}. Answer with feedback to rerun implement.`;
+  }
+}
+
 function questionPacketPathError(taskDir: string, packetPath: string): string | undefined {
   const relative = path.relative(taskDir, packetPath);
   const outside = relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
@@ -1619,6 +1725,17 @@ export async function pauseFlowStep(
     await recordFlowResponse(response, 'flow_pause');
     return response;
   }
+  const reserved = questions.find((question) =>
+    new RegExp(`^${currentStep.id}-review-\\d+$`).test(question.id)
+  )?.id;
+  if (reserved) {
+    const response = blockedResponse(
+      loaded.state,
+      `Question id ${reserved} is reserved for the review gates of step ${currentStep.id}.`
+    );
+    await recordFlowResponse(response, 'flow_pause');
+    return response;
+  }
   const repeated = repeatedQuestionId(currentStep, questions);
   if (repeated) {
     const response = blockedResponse(
@@ -1698,18 +1815,38 @@ export async function answerFlowQuestion(
     return response;
   }
 
+  if (interaction.reviewResult && answer.toLowerCase() === 'revise') {
+    const response = blockedResponse(
+      loaded.state,
+      `Question ${expected.id} needs feedback text to request changes.`
+    );
+    await recordFlowResponse(response, 'flow_answer');
+    return response;
+  }
+  const approving = interaction.reviewResult !== undefined && isReviewApproval(answer);
+  const reviewError = approving ? await approvalError(loaded.state, currentStep) : undefined;
+  if (reviewError) {
+    const response = blockedResponse(loaded.state, reviewError);
+    await recordFlowResponse(response, 'flow_answer');
+    return response;
+  }
+
   const timestamp = nowIso();
   interaction.answers.push({ questionId: expected.id, answer, answeredAt: timestamp });
   const answered = new Set(interaction.answers.map((item) => item.questionId));
   if (interaction.questions.every((question) => answered.has(question.id))) {
     interaction.resolvedAt = timestamp;
   }
+  if (approving) {
+    currentStep.status = 'completed';
+    currentStep.result = interaction.reviewResult;
+  }
   markNextStepReady(loaded.state);
   await writeState(loaded.state);
   const invalidationError = await invalidateAnsweredOutput(loaded.state);
   const response = invalidationError
     ? blockedResponse(loaded.state, invalidationError)
-    : buildResponse(loaded.state);
+    : buildResponse(loaded.state, approving ? { completedStep: currentStep } : {});
   await recordFlowResponse(response, 'flow_answer');
   return response;
 }
@@ -1852,6 +1989,12 @@ export async function completeFlowStep(
     const response = blockedResponse(loaded.state, result);
     await recordFlowResponse(response, 'flow_complete');
     return response;
+  }
+
+  if (REVIEW_GATED_STEP_IDS.has(currentStep.id)) {
+    const gated = await gateForReview(loaded.state, currentStep, definition, result);
+    await recordFlowResponse(gated, 'flow_complete');
+    return gated;
   }
 
   currentStep.status = 'completed';

@@ -182,13 +182,6 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "host-owned `general-purpose`"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next --json is the source of truth"
 
-  Scenario: Flow relays design-review human decisions on FAIL and unreadable verdicts
-    Given a new project
-    When I initialize Spok for the tools "claude"
-    Then the workflow skill "spok-flow" under ".claude/skills" mentions "Step design-review recorded a FAIL verdict"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "Step design-review has no readable verdict"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "## Human Decisions Required"
-
   Scenario: Design review makes the discussion the final design authority
     Given a new project
     When I initialize Spok for the tools "claude"
@@ -305,7 +298,8 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow answer"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "response.question"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "redispatch the same step"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "Do not ask for approval between stages."
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "These review questions ARE the phase"
+    And the workflow skill "spok-flow" under ".claude/skills" does not mention "Do not ask for approval between stages."
     And the workflow skill "spok-flow" under ".claude/skills" does not mention "Raise questions or concerns about objectives, design, or plan to the user at any time"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Resolve code-answerable decisions from repository and research evidence."
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Do not ask or wait for the user directly."

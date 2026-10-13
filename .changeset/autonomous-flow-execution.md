@@ -2,7 +2,7 @@
 "spok": minor
 ---
 
-Align Spok planning and execution with autonomous RPI decisions: preserve research context, compare the smallest viable control, and require verified visual evidence without mandatory human review.
+Align Spok planning and execution with autonomous RPI decisions: preserve research context, compare the smallest viable control, and require verified visual evidence, with a user review after every flow phase.
 
 Preserve pre-existing edits while agents work in an isolated checkout, and resume interrupted work without losing completed chunks or duplicating commits.
 

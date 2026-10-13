@@ -25,6 +25,7 @@ import {
   getFlowNext,
   getFlowStatus,
   pauseFlowStep,
+  type FlowCompleteInput,
   type FlowStep,
   type FlowInteraction,
   WORKFLOW_STATE_FILE,
@@ -159,6 +160,18 @@ async function readFlowEvents(taskDir: string): Promise<Array<Record<string, unk
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+type FlowResponse = Awaited<ReturnType<typeof completeFlowStep>>;
+
+/** Approves the review gate a completed phase raised; returns the answer response. */
+async function approveGate(taskDir: string, gated: FlowResponse): Promise<FlowResponse> {
+  expect(gated.state, gated.reason).toBe('needs-input');
+  return answerFlowQuestion(taskDir, { question: gated.question!.id, answer: 'approve' });
+}
+
+function completeAndApprove(taskDir: string, input: FlowCompleteInput): Promise<FlowResponse> {
+  return completeFlowStep(taskDir, input).then((gated) => approveGate(taskDir, gated));
+}
+
 function routing(step: FlowStep | undefined) {
   return { runner: step?.runner, model: step?.model, effort: step?.effort, route: step?.route };
 }
@@ -244,20 +257,23 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
+  async function approveReview(gated: FlowResponse) {
+    const approved = await approveGate(taskDir, gated);
+    expect(approved.state, approved.reason).toBe('ready');
+  }
+
   async function completeFileStep(step: string, filename: string) {
     await getFlowNext(taskDir);
     const output = path.join(taskDir, filename);
     await fs.writeFile(output, `# ${step}\n`, 'utf-8');
-    const result = await completeFlowStep(taskDir, { step, output });
-    expect(result.state).not.toBe('blocked');
+    await approveReview(await completeFlowStep(taskDir, { step, output }));
   }
 
   async function completeSummaryStep(step: string, summary: string) {
     const next = await getFlowNext(taskDir);
     expect(next.state, next.reason).toBe('ready');
     expect(next.step?.id).toBe(step);
-    const result = await completeFlowStep(taskDir, { step, summary });
-    expect(result.state).not.toBe('blocked');
+    await approveReview(await completeFlowStep(taskDir, { step, summary }));
   }
 
   async function advanceToImplement() {
@@ -337,16 +353,23 @@ describe('deterministic workflow step state', () => {
     expect(events.at(-1)?.timestamp).toEqual(expect.any(String));
   });
 
-  it('records the completed step routing in the flow_complete event', async () => {
+  it('records the completed step routing in the approving flow_answer event', async () => {
     await flow.completeFileStep('research-questions', 'research-questions.md');
 
-    expect((await readFlowEvents(flow.taskDir)).at(-1)).toMatchObject({
-      event: 'flow_complete',
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      event: 'flow_answer',
       completedStep: 'research-questions',
       step: 'research',
       runner: 'claude',
       model: 'opus',
     });
+    expect(events.at(-2)).toMatchObject({
+      event: 'flow_complete',
+      state: 'needs-input',
+      step: 'research-questions',
+    });
+    expect(events.at(-2)).not.toHaveProperty('completedStep');
   });
 
   it('routes every step to GPT-5.6 models with Codex efforts when CODEX_HOME is set', async () => {
@@ -364,6 +387,11 @@ describe('deterministic workflow step state', () => {
       { id: 'commit', runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
     ]);
   });
+
+});
+
+describe('deterministic workflow profile detection', () => {
+  const flow = useFlowHarness();
 
   it('detects Codex Desktop from CODEX_THREAD_ID without CODEX_HOME', async () => {
     process.env.CODEX_THREAD_ID = `thread-${randomUUID()}`;
@@ -861,7 +889,7 @@ describe('auto flow current fallback', () => {
     await flow.completeFileStep('research-questions', 'research-questions.md');
     const events = await readFlowEvents(flow.taskDir);
     const completion = events.find(
-      (event) => event.event === 'flow_complete' && event.completedStep === 'research-questions'
+      (event) => event.event === 'flow_answer' && event.completedStep === 'research-questions'
     );
     expect(completion).toMatchObject({ runner: 'current' });
     expect(completion).not.toHaveProperty('model');
@@ -1004,7 +1032,7 @@ describe('deterministic workflow state resumption', () => {
     const output = path.join(flow.taskDir, 'research-questions.md');
     await fs.writeFile(output, '# Research Questions\n', 'utf-8');
 
-    const result = await completeFlowStep(flow.taskDir, {
+    const result = await completeAndApprove(flow.taskDir, {
       step: 'research-questions',
       output,
     });
@@ -1039,6 +1067,11 @@ describe('deterministic workflow state resumption', () => {
       expectedOutput: path.join(flow.taskDir, 'design-discussion.md'),
     });
   });
+
+});
+
+describe('deterministic workflow legacy state', () => {
+  const flow = useFlowHarness();
 
   it('normalizes legacy workflow-state.json with model values', async () => {
     const createdAt = '2026-01-01T00:00:00.000Z';
@@ -1185,6 +1218,269 @@ describe('removed workflow steps', () => {
     expect(await fs.readFile(statePath, 'utf-8')).toBe(original);
   });
 
+});
+
+const MEMORY_HEADER = '# Memory\n\nProse for humans only.\n\n## Rules\n\n';
+
+async function completeResearchQuestions(taskDir: string): Promise<FlowResponse> {
+  await getFlowNext(taskDir);
+  const output = path.join(taskDir, 'research-questions.md');
+  await fs.writeFile(output, '# Research Questions\n', 'utf-8');
+  return completeFlowStep(taskDir, { step: 'research-questions', output });
+}
+
+describe('phase review gate', () => {
+  const flow = useFlowHarness();
+
+  it('asks one review question instead of completing a gated step', async () => {
+    const gated = await completeResearchQuestions(flow.taskDir);
+
+    expect(gated.state).toBe('needs-input');
+    expect(gated.completedStep).toBeUndefined();
+    expect(gated.nextStep).toMatchObject({ id: 'research-questions', status: 'ready' });
+    expect(gated.questions).toHaveLength(1);
+    expect(gated.question).toEqual({
+      id: 'research-questions-review-1',
+      prompt: expect.stringContaining(path.join(flow.taskDir, 'research-questions.md')),
+      kind: 'choice',
+      options: [
+        { id: 'approve', label: 'Approve', consequence: 'Continue to the next phase.' },
+        { id: 'revise', label: 'Request changes', consequence: 'The phase reruns with your feedback.' },
+      ],
+      recommendedOptionId: 'approve',
+    });
+    const status = await getFlowStatus(flow.taskDir);
+    expect(status.state).toBe('needs-input');
+    expect(status.question?.id).toBe('research-questions-review-1');
+    expect(status.steps[0]?.status).not.toBe('completed');
+  });
+
+  it('keeps the flow on the gated step until the reviewer answers', async () => {
+    await completeResearchQuestions(flow.taskDir);
+
+    const again = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+    expect(again.state).toBe('blocked');
+    expect(again.reason).toContain('unanswered questions');
+    const wrong = await answerFlowQuestion(flow.taskDir, { question: 'other', answer: 'approve' });
+    expect(wrong.state).toBe('blocked');
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.state).toBe('needs-input');
+    expect(next.step?.id).toBe('research-questions');
+  });
+
+  it.each(['approve', '  Approve  ', 'APPROVE'])('treats %j as approval and advances', async (answer) => {
+    const gated = await completeResearchQuestions(flow.taskDir);
+
+    const approved = await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer });
+
+    expect(approved.state).toBe('ready');
+    expect(approved.completedStep).toMatchObject({
+      id: 'research-questions',
+      status: 'completed',
+      result: { output: path.join(flow.taskDir, 'research-questions.md') },
+    });
+    expect(approved.nextStep?.id).toBe('research');
+  });
+
+  it('blocks approval when the reviewed artifact has disappeared, writing nothing', async () => {
+    const gated = await completeResearchQuestions(flow.taskDir);
+    await fs.rm(path.join(flow.taskDir, 'research-questions.md'));
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const before = await fs.readFile(statePath, 'utf-8');
+
+    const approved = await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer: 'approve' });
+
+    expect(approved.state).toBe('blocked');
+    expect(approved.reason).toContain('Expected output file is missing or empty');
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(before);
+  });
+
+});
+
+describe('phase review revision', () => {
+  const flow = useFlowHarness();
+
+  it('reruns the step with the feedback and revises the existing artifact in place', async () => {
+    const gated = await completeResearchQuestions(flow.taskDir);
+    const output = path.join(flow.taskDir, 'research-questions.md');
+
+    const revised = await answerFlowQuestion(flow.taskDir, {
+      question: gated.question!.id,
+      answer: 'Tighten the scope section',
+    });
+
+    expect(revised.state).toBe('ready');
+    expect(revised.completedStep).toBeUndefined();
+    expect(revised.nextStep).toMatchObject({ id: 'research-questions', status: 'ready' });
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.step?.prompt).toContain('Human answers to earlier open questions');
+    expect(next.step?.prompt).toContain('Tighten the scope section');
+    expect(next.step?.prompt).toContain(
+      `A reviewer requested changes to ${output}. Revise it in place to address the feedback; keep settled decisions unless the feedback changes them.`
+    );
+    expect(next.step?.prompt).not.toContain('Regenerate the stage output');
+    expect(await fs.readFile(output, 'utf-8')).toBe('# Research Questions\n');
+    const stored = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
+    expect(stored.steps[0].interactions[0]).not.toHaveProperty('outputInvalidated');
+    expect(stored.steps[0].interactions[0]).not.toHaveProperty('outputDraft');
+
+    const regated = await completeFlowStep(flow.taskDir, { step: 'research-questions', output });
+    expect(regated.state).toBe('needs-input');
+    expect(regated.question?.id).toBe('research-questions-review-2');
+  });
+
+  it('keeps archiving the artifact for a child-raised round after a review revision', async () => {
+    const gated = await completeResearchQuestions(flow.taskDir);
+    const output = path.join(flow.taskDir, 'research-questions.md');
+    await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer: 'More detail' });
+    await getFlowNext(flow.taskDir);
+    const packetPath = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[0]] });
+    await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packetPath });
+
+    await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
+    const next = await getFlowNext(flow.taskDir);
+
+    await expect(fs.stat(output)).rejects.toThrow();
+    expect(next.step?.prompt).toContain('Regenerate the stage output');
+    expect(next.step?.prompt).not.toContain('A reviewer requested changes');
+    const regated = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+    expect(regated.state).toBe('blocked');
+    await fs.writeFile(output, '# Regenerated\n', 'utf-8');
+    const final = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+    expect(final.question?.id).toBe('research-questions-review-3');
+  });
+
+});
+
+describe('phase review child rounds', () => {
+  const flow = useFlowHarness();
+
+  it('rejects a child question id that claims a review gate id, writing nothing', async () => {
+    const gated = await completeResearchQuestions(flow.taskDir);
+    await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer: 'More detail' });
+    await getFlowNext(flow.taskDir);
+    const packet = await writeQuestionPacket(flow.taskDir, {
+      questions: [{ id: 'research-questions-review-3', prompt: 'Sneaky?', kind: 'input' }],
+    });
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const before = await fs.readFile(statePath, 'utf-8');
+
+    const paused = await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+
+    expect(paused.state).toBe('blocked');
+    expect(paused.reason).toContain('research-questions-review-3');
+    expect(paused.reason).toContain('reserved');
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(before);
+  });
+
+  it('blocks a child pause while the review question is pending', async () => {
+    await completeResearchQuestions(flow.taskDir);
+    const packet = await writeQuestionPacket(flow.taskDir);
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const before = await fs.readFile(statePath, 'utf-8');
+
+    const paused = await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+
+    expect(paused.state).toBe('blocked');
+    expect(paused.reason).toContain('already has unanswered questions');
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(before);
+  });
+
+  it.each(['revise', '  Revise  ', 'REVISE'])('rejects the bare option id %j as empty feedback', async (answer) => {
+    const gated = await completeResearchQuestions(flow.taskDir);
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const before = await fs.readFile(statePath, 'utf-8');
+
+    const result = await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toBe(
+      'Question research-questions-review-1 needs feedback text to request changes.'
+    );
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(before);
+    const retried = await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer: 'Add examples' });
+    expect(retried.state).toBe('ready');
+  });
+
+  it('does not tell the child a reviewer requested changes while the gate is pending', async () => {
+    await getFlowNext(flow.taskDir);
+    const packet = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[0]] });
+    await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+    await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
+    await getFlowNext(flow.taskDir);
+    await fs.writeFile(path.join(flow.taskDir, 'research-questions.md'), '# Answered\n', 'utf-8');
+    const gated = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+    expect(gated.question?.id).toBe('research-questions-review-2');
+
+    const pending = await getFlowStatus(flow.taskDir);
+
+    expect(pending.state).toBe('needs-input');
+    expect(pending.nextStep?.prompt).toContain('interface: webhook');
+    expect(pending.nextStep?.prompt).not.toContain('A reviewer requested changes');
+  });
+
+});
+
+describe('phase review end to end', () => {
+  const flow = useFlowHarness();
+
+  it('does not complete the step when approve answers a child-raised choice question', async () => {
+    await completeResearchQuestions(flow.taskDir);
+    await answerFlowQuestion(flow.taskDir, { question: 'research-questions-review-1', answer: 'Add examples' });
+    await getFlowNext(flow.taskDir);
+    const packet = await writeQuestionPacket(flow.taskDir, {
+      questions: [{
+        id: 'scope',
+        prompt: 'Pick a scope',
+        kind: 'choice',
+        options: [
+          { id: 'approve', label: 'Approve scope', consequence: 'Use the narrow scope.' },
+          { id: 'broad', label: 'Broad', consequence: 'Use the broad scope.' },
+        ],
+      }],
+    });
+    await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+
+    const answered = await answerFlowQuestion(flow.taskDir, { question: 'scope', answer: 'approve' });
+
+    expect(answered.state).toBe('ready');
+    expect(answered.completedStep).toBeUndefined();
+    expect(answered.nextStep).toMatchObject({ id: 'research-questions', status: 'ready' });
+    expect(answered.steps[0]?.status).not.toBe('completed');
+  });
+
+  it('carries a revision, a child round, and the final approval end to end', async () => {
+    const output = path.join(flow.taskDir, 'research-questions.md');
+    const first = await completeResearchQuestions(flow.taskDir);
+    await answerFlowQuestion(flow.taskDir, { question: first.question!.id, answer: 'Add examples' });
+    await getFlowNext(flow.taskDir);
+    const packet = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[0]] });
+    await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+    await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
+    const rerun = await getFlowNext(flow.taskDir);
+    expect(rerun.step?.prompt).toContain('Add examples');
+    expect(rerun.step?.prompt).toContain('interface: webhook');
+    expect(rerun.step?.prompt).toContain('Regenerate the stage output');
+    expect(rerun.step?.prompt).not.toContain('A reviewer requested changes');
+    await fs.writeFile(output, '# Revised\n', 'utf-8');
+
+    const regated = await completeFlowStep(flow.taskDir, { step: 'research-questions', output });
+    expect(regated.question?.id).toBe('research-questions-review-3');
+    const approved = await answerFlowQuestion(flow.taskDir, { question: regated.question!.id, answer: 'approve' });
+
+    expect(approved.state).toBe('ready');
+    expect(approved.completedStep).toMatchObject({ id: 'research-questions', status: 'completed' });
+    expect(approved.nextStep?.id).toBe('research');
+  });
+
+  it('does not gate the commit step', async () => {
+    await flow.completeThroughImplement();
+
+    const done = await completeFlowStep(flow.taskDir, { step: 'commit', commit: 'HEAD' });
+
+    expect(done.state).toBe('complete');
+    expect(done.completedStep?.id).toBe('commit');
+  });
 });
 
 describe('deterministic workflow blockers', () => {
@@ -1454,7 +1750,9 @@ describe('flow open questions', () => {
     expect(stale.reason).toContain('must regenerate its output after answering questions');
 
     await fs.writeFile(output, '# Answered Design Discussion\n', 'utf-8');
-    const completed = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
+    const gated = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
+    expect(gated.question?.id).toBe('design-discussion-review-2');
+    const completed = await approveGate(flow.taskDir, gated);
     expect(completed.state).toBe('ready');
     expect(completed.completedStep?.id).toBe('design-discussion');
   });
@@ -1522,7 +1820,7 @@ describe('flow open questions', () => {
     await getFlowNext(flow.taskDir);
     await getFlowNext(flow.taskDir);
     expect(await fs.readFile(output, 'utf-8')).toBe(content);
-    const completed = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
+    const completed = await completeAndApprove(flow.taskDir, { step: 'design-discussion', output });
     expect(completed.completedStep?.id).toBe('design-discussion');
   });
 
@@ -1552,7 +1850,7 @@ describe('flow open questions', () => {
     expect(interaction.outputInvalidated).toBe(true);
     expect(await fs.readFile(interaction.outputDraft!, 'utf-8')).toBe('# Pre-answer draft\n');
     expect(await fs.readFile(output, 'utf-8')).toBe('# Regenerated design\n');
-    expect((await completeFlowStep(flow.taskDir, { step: 'design-discussion', output })).completedStep?.id)
+    expect((await completeAndApprove(flow.taskDir, { step: 'design-discussion', output })).completedStep?.id)
       .toBe('design-discussion');
   });
 
@@ -1651,8 +1949,6 @@ describe('flow open questions', () => {
 describe('flow step prompt composition', () => {
   const flow = useFlowHarness();
 
-  const MEMORY_HEADER = '# Memory\n\nProse for humans only.\n\n## Rules\n\n';
-
   it('composes a dispatchable prompt without a memory file', async () => {
     const result = await getFlowNext(flow.taskDir);
 
@@ -1665,11 +1961,32 @@ describe('flow step prompt composition', () => {
       path.join(flow.taskDir, 'open-questions', 'research-questions-round-1.json')
     );
     expect(result.step?.prompt).toContain('Do not ask the user directly');
-    expect(result.step?.prompt).toContain('do not ask for approval between stages');
+    expect(result.step?.prompt).not.toContain('approval between stages');
+    expect(result.step?.prompt).not.toContain('stays OPEN for the user');
+    expect(result.step?.prompt).not.toContain('do not require human review');
     expect(result.step?.prompt).not.toContain('MEMORY.md');
     expect(result.memoryPath).toBeUndefined();
     expect(result.memoryWarning).toBeUndefined();
   });
+
+  it('keeps every consequential design question open for the user in the design-discussion prompt', async () => {
+    await flow.completeFileStep('research-questions', 'research-questions.md');
+    await flow.completeFileStep('research', 'research.md');
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step?.id).toBe('design-discussion');
+    expect(result.step?.prompt).toContain('Every consequential design question stays OPEN for the user');
+    expect(result.step?.prompt).toContain('never resolve one yourself');
+    expect(result.step?.prompt).toContain('only the user\'s answers resolve them');
+    expect(result.step?.prompt).toContain('`NEEDS_INPUT: <absolute-question-packet-path>`');
+    expect(result.step?.prompt).not.toContain('Resolve decisions autonomously');
+  });
+
+});
+
+describe('flow step prompt memory rules', () => {
+  const flow = useFlowHarness();
 
   it('inlines conforming rules and drops surrounding prose', async () => {
     await writeMemory(flow.projectRoot, `${MEMORY_HEADER}- \`flow-ts-first\` — Read flow.ts before editing steps.\n`);

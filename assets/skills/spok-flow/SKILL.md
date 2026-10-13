@@ -1,6 +1,6 @@
 ---
 name: spok-flow
-description: end-to-end problem validation → research → design → outline → design review → implement → simplify → validate → commit workflow for a single chunk, with native, hybrid, or automatic model routing and an optional post-commit self-learn gate. Driven by spok-apply.
+description: end-to-end research questions → research → design discussion → outline → implement → commit workflow for a single chunk, with a user review after every phase and native, hybrid, or automatic model routing. Driven by spok-apply.
 argument-hint: "[hybrid|auto] <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)"
 version: 0.9.0
 ---
@@ -46,13 +46,19 @@ Auto equivalent:
 SPOK_FLOW_PROFILE=auto spok flow status "<task-dir>" --json
 ```
 
-If it returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches. If it returns `state: "needs-input"`, use the question-handling loop below before requesting the next step.
+If it returns `state: "blocked"`, halt and report the `reason` exactly. If it returns `state: "needs-input"`, use the question-handling loop below before requesting the next step.
 
 ### Question-handling loop
 
 Only a CLI response with `state: "needs-input"` authorizes a user question.
-Do not ask for approval between stages. Do not ask a question because a child
-expressed uncertainty in prose; the durable CLI state is the source of truth.
+The user reviews after every phase, and the CLI owns those gates: when a gated
+phase (`research-questions`, `research`, `design-discussion`, `structure-outline`,
+`implement`) completes, `spok flow complete` returns `needs-input` with a review
+question whose id is `<step-id>-review-<n>`. These review questions ARE the phase
+gates; present them through this loop and never add a gate of your own. The
+`commit` step has no gate. A child can also raise open questions through its
+`NEEDS_INPUT` marker. Do not ask a question because a child expressed uncertainty
+in prose; the durable CLI state is the source of truth.
 
 For each `needs-input` response:
 
@@ -78,6 +84,21 @@ For each `needs-input` response:
    spawn("spok", args, { shell: false, env: profileEnvironment });
    ```
 
+   For a `choice` question, pass the chosen option's `id` exactly (for example
+   `approve`). For free-form feedback, pass the user's own words as the answer.
+   A review question has the options `approve` and `revise`: pass `approve` to
+   approve the phase; to request changes, pass the user's feedback text itself,
+   never the bare option id `revise`. The CLI treats the answer `approve`
+   (trimmed, case-insensitive) as approval and every other answer as revision
+   feedback.
+   When the user picks Request changes without giving text, ask them for the
+   feedback (a follow-up for that same review question is allowed in this loop)
+   before calling `spok flow answer`; the CLI blocks a bare `revise`.
+   An `approve` answer to a review question can be blocked because the artifact or
+   implementation changed after it was submitted. Report that `reason` exactly and
+   ask the same review question again; the user may answer with feedback. This is
+   the only blocked answer that does not halt the flow.
+
    Pass the answer as one unmodified string argument, including quotes, dollar
    signs, backslashes, and newlines. Wait for process completion and parse its
    JSON output. Set the selected profile in the child environment as described
@@ -86,6 +107,13 @@ For each `needs-input` response:
    `state: "needs-input"`, repeat with that response's singular question. If it
    returns `state: "ready"`, leave the question-handling loop. Any other state or
    a malformed question is a protocol error; halt without completing a step.
+
+   After a review answer returns `ready`, run `spok flow next` and dispatch the
+   returned prompt verbatim. An approval returns the next step. A revision returns
+   the same step again, with the feedback in its prompt under "Human answers to
+   earlier open questions" and a clause to revise the existing artifact in place;
+   dispatch it like any other step, then complete it again to reach the next
+   review question.
 
 Then repeat this loop until the CLI returns `state: "complete"`:
 
@@ -101,7 +129,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
    SPOK_FLOW_PROFILE=hybrid spok flow next "<task-dir>" --json
    ```
 
-2. If `next` returns `state: "blocked"`, halt and report the `reason` exactly, applying the design-review clause in step 6 when it matches. If it returns `state: "complete"`, return success to `spok-apply`. If it returns `state: "needs-input"`, run the question-handling loop, then call `spok flow next` again instead of dispatching the stale response.
+2. If `next` returns `state: "blocked"`, halt and report the `reason` exactly. If it returns `state: "complete"`, return success to `spok-apply`. If it returns `state: "needs-input"`, run the question-handling loop, then call `spok flow next` again instead of dispatching the stale response.
 
 3. Read the returned `step` object:
    - `id` is the workflow step id.
@@ -246,9 +274,7 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      Prefix this command with `SPOK_FLOW_PROFILE=hybrid` for a hybrid run, as
      described above.
 
-   - `validate` additionally has its recorded verdict read from `validation.md` by the CLI: `PASS` completes the step. A `FAIL` with repair attempts remaining is a *successful* completion that routes to a `repair` step and then back to `validate` — the CLI may return `validate` more than once; complete every occurrence with the same bare `--step validate`. When repair attempts are exhausted and the verdict is still `FAIL`, `complete` (and subsequent `next`/`status`) return `state: "blocked"` with an exhausted-repair reason: report it exactly as returned — do not retry the step and do not edit `validation.md` to unblock it. An unreadable verdict blocks as before.
-
-   - `implement`, `simplify`, and `repair` (dispatched like any other step when the CLI returns it):
+   - `implement`:
 
      ```bash
      spok flow complete "<task-dir>" --step "<id>" --summary "<summary>" --json
@@ -261,14 +287,13 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      exclusive: a question response ends only with its question marker.
      Complete using the recorded execution root. `--work-root` is optional and,
      when supplied, must equal that root; never use it to change repositories.
-     For `implement` and `repair`, pass the child's full current chunk path list
+     For `implement`, pass the child's full current chunk path list
      with `--changed-path <paths...>` using an argv-capable process call. This is
-     cumulative after resume or repair, not only paths edited during this dispatch.
+     cumulative after a resume or a review revision, not only paths edited during this dispatch.
      Never interpolate paths into a shell command. Omit the flag only for a no-op
      with no changed paths. The CLI compares this list with actual changes against
      its baseline and blocks a mismatch; it supplies the resulting exact allowlist
-     to subsequent steps. `simplify` needs no changed-path flag and remains bound
-     to the existing allowlist. Retain every changed path and exact check exit code
+     to subsequent steps. Retain every changed path and exact check exit code
      in the implementation summary.
 
    - `commit`:
@@ -281,11 +306,12 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      and blocks when it is not a commit reachable from `HEAD` there. Report such
      a block exactly; do not retry with a different SHA.
 
-   - `self-learn` is an optional file-producing advisory gate returned only when
-     project config enables `flow.self_learn: true`. Complete it like any other
-     file-producing step. Its findings do not fail or amend the commit.
+   A gated phase does not complete on this call: the CLI verifies the artifact or
+   summary, then returns `state: "needs-input"` with the review question. Run the
+   question-handling loop with it. The phase is recorded as completed only when the
+   reviewer approves.
 
-6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly. When the `reason` starts with `Step design-review recorded a FAIL verdict`, read `<task-dir>/design-review.md` and present its `## Human Decisions Required` section verbatim alongside the reason, then halt — do not retry the step and do not edit `design-review.md` to unblock it. When the `reason` starts with `Step design-review has no readable verdict`, read `<task-dir>/design-review.md` if it exists and present its `## Human Decisions Required` section verbatim alongside the reason if that section is present, then halt and report as a generic blocked state.
+6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly.
 
 Do not restate or assume the step order — `spok flow next` is the only source of truth.
 Do not derive or override runner or model routing inside this skill — `spok flow next --json` is the source of truth, including `step.runner`, `step.model`, and `step.effort`.
@@ -296,7 +322,7 @@ into `step.prompt` by the CLI. Do not restate them.
 <guidance>
 ## Important guidelines
 
-- Ask the user only through the question-handling loop for a CLI-recorded open question. Never add an approval gate between stages.
+- Ask the user only through the question-handling loop for a CLI-recorded question. The CLI's review questions are the phase gates; never add a gate of your own.
 - Run step subagents **sequentially in the foreground** because each step depends on the previous step's validated artifact or recorded result.
 - Let `spok flow next` choose the next step. Let `spok flow complete` validate step completion.
 - Use a **TaskList** to track the steps and their status.
