@@ -1,0 +1,2 @@
+# Check out text files with LF on every platform: skills ship verbatim and tests match LF text.
+* text=auto eol=lf

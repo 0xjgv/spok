@@ -2533,7 +2533,7 @@ describe('flow command output details', () => {
     });
 
     expect(logs).toEqual([`Flow complete: ${flow.taskDir}`]);
-  });
+  }, 30_000); // walks all nine steps with git; Windows runners exceed the 10s default
 
   it('prints JSON output when requested', async () => {
     await flowStatusCommand(flow.taskDir, { json: true });

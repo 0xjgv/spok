@@ -24,7 +24,7 @@ Spok is built around four workflow skills you give your AI coding assistant:
 /spok-explore  ->  /spok-propose  ->  /spok-apply  ->  /spok-archive
 ```
 
-That's the whole surface. Explore is a thinking-only mode for investigating ideas before a proposal. Propose creates a change with a chunked tasks list, apply ships one chunk end-to-end at a time, and archive folds your delta specs into the main specs.
+Explore is a thinking-only mode for investigating ideas before a proposal. Propose creates a change with a chunked tasks list, apply ships one chunk end-to-end at a time, and archive folds your delta specs into the main specs. For smaller work, [Spok Lite](#spok-lite) replaces all four with `/spok-interview` and `/spok-execute`.
 
 <p align="center">
   Follow <a href="https://x.com/0xjgv">@0xjgv on X</a> for updates.
@@ -39,13 +39,6 @@ Install or update the latest release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/0xjgv/spok/main/install.sh | sh
-```
-
-While the repository is private, fetch the installer through the GitHub CLI
-instead; the installer then downloads the release through `gh` as well:
-
-```sh
-gh api repos/0xjgv/spok/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
 ```
 
 The installer downloads `spok-<version>.tgz` and `checksums.txt` from
@@ -84,7 +77,22 @@ Now tell your AI coding assistant:
 
 Use `/spok-explore <topic>` first when you want to think through an idea before proposing work.
 
-`spok init` configures your AI coding assistants, installs the four workflow skills (`spok-explore`, `spok-propose`, `spok-apply`, `spok-archive`), and vendors the helper skills they call (`spok-flow`, `spok-create-scoped-chunks`, and the rest of the closure).
+`spok init` configures your AI coding assistants, installs the four workflow skills (`spok-explore`, `spok-propose`, `spok-apply`, `spok-archive`) and the two Spok Lite skills (`spok-interview`, `spok-execute`), and vendors the helper skills they call (`spok-flow`, `spok-create-scoped-chunks`, and the rest of the closure).
+
+### Spok Lite
+
+For smaller work, skip the proposal and change folder. Spok Lite is two skills and one file:
+
+```text
+/spok-interview <topic>      # answer questions until a spec exists, then sign it off
+/spok-execute <spec-title>   # in a fresh session: build the spec one slice at a time
+```
+
+`/spok-interview` asks questions until a fresh session could build without asking you anything. It writes `spok/specs/<spec-title>.md` with goal, numbered requirements, non-goals, constraints, acceptance checks, and an ordered `## Slices` checklist. Each slice is one user-visible outcome with its own check. Your sign-off on that spec is the only human gate.
+
+`/spok-execute` hands each unchecked slice to a fresh subagent. The subagent finds the relevant code, writes a short plan, writes a failing test, implements the slice, runs the slice check and your project gate, and commits. The slice flips to `[x] (<sha>)`. After two failed fix attempts it flips to `[!]` with the exact error, and the loop stops. When every slice is done, it runs the spec's acceptance checks.
+
+Use Spok Lite when you can approve the whole spec up front. Use `/spok-propose` and `/spok-apply` when the design needs review between research and implementation, or when you want delta specs and an archive. See [Workflows](docs/workflows.md#lite-path-interview-then-execute) for the comparison.
 
 > [!NOTE]
 > Not sure if your tool is supported? [View the full list](docs/supported-tools.md). Spok supports 25+ tools and growing.
@@ -105,7 +113,7 @@ AI:  Created spok/changes/add-dark-mode/
 
 You: /spok-apply
 AI:  Shipping chunk 1: Add theme context + CSS variables
-     [runs research -> design -> plan -> implement -> review -> commit]
+     [runs research -> cause check -> design -> outline -> implement -> simplify -> review -> commit]
      + Chunk shipped. 2/3 remaining.
 
 You: /spok-apply
@@ -128,6 +136,7 @@ Spok keeps planning artifacts next to your code:
 ```text
 spok/
 ├── specs/                  # Source-of-truth behavior specs
+│   └── <spec-title>.md     # Spok Lite spec with its slice checklist
 ├── changes/
 │   └── add-dark-mode/
 │       ├── proposal.md     # Intent, scope, and approach
@@ -146,7 +155,8 @@ AI coding assistants are powerful, but they get unpredictable when requirements 
 - **Agree before you build** - capture intent, requirements, and design before code changes.
 - **Stay organized** - keep every proposed change in its own folder with specs, design, and tasks.
 - **Explore before proposing** - use `/spok-explore` as a thinking-only mode when the direction is still unclear.
-- **Ship one chunk at a time** - `/spok-apply` runs a full research -> design -> plan -> implement -> review -> commit loop for one chunk, then stops.
+- **Ship one chunk at a time** - `/spok-apply` runs a full research -> cause check -> design -> outline -> implement -> simplify -> review -> commit loop for one chunk, then stops.
+- **Go light when it fits** - `/spok-interview` and `/spok-execute` turn one signed-off spec into one commit per slice.
 - **Use your tools** - Spok works with 25+ AI coding tools and does not lock you into one IDE or model.
 
 ## Docs
@@ -182,9 +192,7 @@ AI coding assistants are powerful, but they get unpredictable when requirements 
 
 Rerun the installer; it replaces the installed version and reports the change.
 
-Refresh agent instructions:
-
-Run this inside each project to regenerate AI guidance and ensure the latest skills are active:
+Then run this inside each project to refresh the installed skills:
 
 ```bash
 spok update
@@ -215,6 +223,7 @@ When writing proposals, keep the Spok philosophy in mind: we serve a wide variet
 - Point global `spok` at this checkout: `ln -sf "$PWD/bin/spok.js" ~/.bun/bin/spok`
 - Keep the linked CLI current while editing: run `bun run dev` in one terminal, then use `spok ...` in another
 - `make help` lists the release targets: `make install`, `make test`, `make check`, `make package`, `make release`
+- Commit messages: short and imperative, one line ("Add verdict gate", not "feat: added verdict gates")
 
 ### Releases
 
@@ -232,7 +241,6 @@ Both halves are idempotent. When `HEAD` already carries a release tag,
 workflow leaves it alone if every asset is present and otherwise re-uploads the
 full set. To republish a tag by hand, run the Release workflow with that tag as
 its input.
-- Commit messages: short and imperative, one line ("Add verdict gate", not "feat: added verdict gates")
 
 ## Other
 
@@ -244,13 +252,6 @@ Spok collects anonymous usage stats.
 We collect only command names and version to understand usage patterns. No arguments, paths, content, or PII. Automatically disabled in CI.
 
 **Opt-out:** `export SPOK_TELEMETRY=0` or `export DO_NOT_TRACK=1`
-
-</details>
-
-<details>
-<summary><strong>Maintainers & Advisors</strong></summary>
-
-See [MAINTAINERS.md](MAINTAINERS.md) for the list of core maintainers and advisors who help guide the project.
 
 </details>
 

@@ -131,7 +131,8 @@ describe('flow execution isolation', () => {
     expect(next.execution?.workRoot).not.toBe(primary);
     expect(next.execution?.baselineHead).toBe(sourceHead);
     expect((await readState(taskDir)).execution).toEqual(next.execution);
-    expect(next.step?.prompt).toContain(next.execution!.workRoot);
+    // The prompt quotes the root as JSON, so Windows backslashes arrive escaped.
+    expect(next.step?.prompt).toContain(`Execution work root: ${JSON.stringify(next.execution!.workRoot)}`);
     expect(git(primary, 'branch', '--show-current')).toBe('main');
     expect(git(primary, 'rev-parse', 'HEAD')).toBe(sourceHead);
     expect(await fs.readFile(path.join(primary, 'seed.ts'), 'utf8')).toBe('caller edits\n');
@@ -198,7 +199,7 @@ describe('flow execution simplify and review scope', () => {
     const workRoot = await implement(taskDir);
     const simplify = await getFlowNext(taskDir);
     expect(simplify.step?.id, simplify.reason).toBe('simplify');
-    expect(simplify.step?.prompt).toContain(workRoot);
+    expect(simplify.step?.prompt).toContain(`Execution work root: ${JSON.stringify(workRoot)}`);
     expect(simplify.step?.prompt).toContain('Exact implementation allowlist: ["owned.ts"]');
     expect(simplify.step?.prompt).toContain('Run every agent and test run in the foreground');
     await completeFlowStep(taskDir, { step: 'simplify', summary: 'Nothing to simplify.' });
