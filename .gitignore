@@ -169,3 +169,6 @@ spok/changes/
 
 # Bob
 .bob/
+
+# Release assets (make package)
+dist-release/

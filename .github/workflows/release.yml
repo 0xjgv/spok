@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to (re)publish, e.g. v1.4.1
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check that the tag is on main and matches package.json
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          version=$(node -p 'require("./package.json").version')
+          echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          test "$RELEASE_TAG" = "v$version"
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run test
+
+      - name: Build release assets
+        run: sh scripts/package-release.sh
+
+      - name: Smoke-test the installer against the assets
+        run: |
+          export BUN_INSTALL="$RUNNER_TEMP/bun" SPOK_HOME="$RUNNER_TEMP/spok" DO_NOT_TRACK=1
+          SPOK_DOWNLOAD_BASE="$PWD/dist-release" SPOK_VERSION="$RELEASE_TAG" sh install.sh
+          test "$("$BUN_INSTALL/bin/spok" version)" = "$RELEASE_VERSION"
+
+      - name: Publish the release (idempotent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            have=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
+            for asset in dist-release/*; do
+              printf '%s\n' "$have" | grep -qx "$(basename "$asset")" || missing=1
+            done
+            if [ -n "${missing:-}" ]; then
+              # Replace the whole set so checksums.txt always matches the archive.
+              gh release upload "$RELEASE_TAG" dist-release/* --clobber
+              echo "Release $RELEASE_TAG existed with missing assets; uploaded a consistent set."
+            else
+              echo "Release $RELEASE_TAG is already published with every asset."
+            fi
+          else
+            gh release create "$RELEASE_TAG" dist-release/* --verify-tag \
+              --title "spok $RELEASE_TAG" --generate-notes
+          fi

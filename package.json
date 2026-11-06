@@ -63,8 +63,7 @@
     "postinstall": "bun run scripts/postinstall.js",
     "check:pack-version": "bun run scripts/pack-version-check.mjs",
     "eval:skills": "node scripts/eval-flow-skills.mjs",
-    "release": "bun run release:ci",
-    "release:ci": "bun run check:pack-version && bunx changeset publish",
+    "release": "make release",
     "changeset": "changeset"
   },
   "engines": {

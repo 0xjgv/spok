@@ -30,26 +30,46 @@ That's the whole surface. Explore is a thinking-only mode for investigating idea
   Follow <a href="https://x.com/0xjgv">@0xjgv on X</a> for updates.
 </p>
 
-## Quick Start
+## Install
 
-**Requires [Bun](https://bun.sh) 1.3.0 or higher.**
+Spok needs [Bun](https://bun.sh) 1.3.0 or newer. The installer is a POSIX shell
+script for macOS, Linux, and WSL.
 
-The npm package has not been published. Install Spok from source:
+Install or update the latest release:
 
-```bash
-mkdir -p "$HOME/.local/share"
-git clone https://github.com/0xjgv/spok.git "$HOME/.local/share/spok"
-cd "$HOME/.local/share/spok"
-bun install
-bun run build
-mkdir -p "$HOME/.bun/bin"
-ln -sf "$PWD/bin/spok.js" "$HOME/.bun/bin/spok"
+```sh
+curl -fsSL https://raw.githubusercontent.com/0xjgv/spok/main/install.sh | sh
+```
+
+While the repository is private, fetch the installer through the GitHub CLI
+instead; the installer then downloads the release through `gh` as well:
+
+```sh
+gh api repos/0xjgv/spok/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+```
+
+The installer downloads `spok-<version>.tgz` and `checksums.txt` from
+[GitHub Releases](https://github.com/0xjgv/spok/releases), verifies the
+archive's SHA-256, keeps it under `~/.local/share/spok/releases`, and installs
+it with `bun add -g`. The `spok` command lands in Bun's global bin directory
+(`bun pm bin -g`, usually `~/.bun/bin`); put that directory on your `PATH`.
+Set `SPOK_VERSION` to pin a release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/0xjgv/spok/main/install.sh | SPOK_VERSION=v1.4.1 sh
 spok version
 ```
 
-Keep the source checkout at `$HOME/.local/share/spok`; the global `spok` command links to it.
+For a manual install, download the archive and `checksums.txt` from a release,
+compare `shasum -a 256 spok-<version>.tgz` with its entry, then run
+`bun add -g ./spok-<version>.tgz`. To uninstall, run `bun remove -g spok`.
 
-Then initialize Spok inside your project:
+To install from a source checkout, run `make install`. It builds the checkout,
+packages it the same way a release does, and installs that package.
+
+## Quick Start
+
+Initialize Spok inside your project:
 
 ```bash
 cd your-project
@@ -160,14 +180,7 @@ AI coding assistants are powerful, but they get unpredictable when requirements 
 
 ## Updating Spok
 
-Pull and rebuild the source checkout:
-
-```bash
-cd "$HOME/.local/share/spok"
-git pull --ff-only
-bun install
-bun run build
-```
+Rerun the installer; it replaces the installed version and reports the change.
 
 Refresh agent instructions:
 
@@ -201,6 +214,24 @@ When writing proposals, keep the Spok philosophy in mind: we serve a wide variet
 - Develop CLI locally: `bun run dev` or `bun run dev:cli`
 - Point global `spok` at this checkout: `ln -sf "$PWD/bin/spok.js" ~/.bun/bin/spok`
 - Keep the linked CLI current while editing: run `bun run dev` in one terminal, then use `spok ...` in another
+- `make help` lists the release targets: `make install`, `make test`, `make check`, `make package`, `make release`
+
+### Releases
+
+Run `make release` from a clean `main` that is up to date with `origin`. It
+takes the higher of the latest `vX.Y.Z` tag and the `package.json` version,
+bumps the patch number (`make release BUMP=minor` or `BUMP=major` for the
+others), commits the new `package.json` version as `chore(release): vX.Y.Z`,
+tags it, and pushes `main` and the tag together. The tag starts the Release
+workflow. It tests the tag, builds the package with `make package`,
+smoke-tests `install.sh` against it, and publishes the GitHub release with
+`spok-<version>.tgz`, `install.sh`, and `checksums.txt`.
+
+Both halves are idempotent. When `HEAD` already carries a release tag,
+`make release` only pushes that tag again. When the release already exists, the
+workflow leaves it alone if every asset is present and otherwise re-uploads the
+full set. To republish a tag by hand, run the Release workflow with that tag as
+its input.
 - Commit messages: short and imperative, one line ("Add verdict gate", not "feat: added verdict gates")
 
 ## Other
