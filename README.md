@@ -180,14 +180,6 @@ AI coding assistants are powerful, but they get unpredictable when requirements 
 -> scalable from personal projects to enterprises
 ```
 
-### How we compare
-
-**vs. [Spec Kit](https://github.com/github/spec-kit)** (GitHub) - Thorough but heavyweight. Rigid phase gates, lots of Markdown, Python setup. Spok is lighter and lets you iterate freely.
-
-**vs. [Kiro](https://kiro.dev)** (AWS) - Powerful but you're locked into their IDE and limited to Claude models. Spok works with the tools you already use.
-
-**vs. nothing** - AI coding without specs means vague prompts and unpredictable results. Spok brings predictability without the ceremony.
-
 ## Updating Spok
 
 Rerun the installer; it replaces the installed version and reports the change.
@@ -200,7 +192,7 @@ spok update
 
 ## Usage Notes
 
-**Model selection**: Spok works best with high-reasoning models. We recommend Codex 5.5 and Opus 4.7 for both planning and implementation.
+**Model selection**: `spok flow` picks the model and effort for each step; `spok flow next` prints them. With Claude Code, every step runs on Opus (design at `xhigh` effort, review at `high`) and the commit on Sonnet. With Codex, steps run on GPT-6.1 Sol, the review on GPT-6 Astra, and the commit on GPT-6.1 Terra. `SPOK_FLOW_PROFILE=hybrid` runs research, implementation, review, and commit on Codex and the cause check, design, outline, and simplify on Claude.
 
 **Context hygiene**: Spok benefits from a clean context window. Clear your context before starting implementation and maintain good context hygiene throughout your session.
 
