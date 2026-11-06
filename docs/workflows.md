@@ -25,29 +25,62 @@ Spok exposes four user-facing workflow skills. `/spok-explore` is optional think
 
 - **`/spok-explore`** helps investigate ideas, compare approaches, inspect Spok artifacts, and summarize findings without writing implementation code.
 - **`/spok-propose`** scaffolds the change folder, creates the planning artifacts (proposal, specs, design), and writes a `tasks.md` that is a list of chunks. A chunk is one thin, end-to-end-testable slice of work.
-- **`/spok-apply`** picks the first unchecked chunk, stages a ticket under `.flow/<chunk-slug>/`, runs research → design → outline → design review → implement → simplify → validate → commit on it via the vendored `spok-flow` skill, then flips the chunk's checkbox to `[x]`. One chunk per invocation. When `flow.self_learn` is enabled, `spok-flow` also runs an advisory post-commit review and writes `.flow/<chunk-slug>/self-learn.md`.
+- **`/spok-apply`** picks the first unchecked chunk, stages a ticket under `.flow/<chunk-slug>/`, runs research → cause check → design (gate) → outline → implement → simplify → review → commit on it via the vendored `spok-flow` skill, then flips the chunk's checkbox to `[x]`. One chunk per invocation. The design discussion is the one human gate; everything after it runs unattended, and the PR is the review point.
 - **`/spok-archive`** applies any delta specs to the main specs and moves the change into `spok/changes/archive/YYYY-MM-DD-<name>/`. Sync is folded in — there is no separate sync step.
 
 The patterns below are about how you sequence these skills across real-world situations.
 
-Flows implement the reviewed `structure-outline.md` directly. Design review
-checks that each phase names the required behavior, affected areas and interfaces,
-tests, and exact repository-supported verification commands. Unresolved design or
-readiness gaps block progression; a passing review proceeds to implementation.
+The flow follows RPI: research questions → research → cause check → design
+discussion → structure outline → implement → simplify → correctness review →
+commit. The cause check writes `evidence/causal-paths.md` (or `N/A: no defect`
+for new behavior); the design places the fix at the first wrong step it names.
+The design discussion is the one human gate: every open design question comes to
+you, each option stating the premise it rests on and whether that premise is
+verified, and then you approve or request changes. Implementation runs in a
+worktree, simplify stays inside the implementation allowlist, and the review must
+record `verdict: PASS` in `review.md` before the commit.
 
-Saved flows that contain a `plan` step are unsupported. The CLI blocks them
-without rewriting their state or task documents. Start a new task directory with
-`ticket.md` to use the current flow; keep the old directory as a record.
+Saved flows that contain a removed step (`plan`, `validate-problem`,
+`design-review`, `validate`, `repair`, `self-learn`) are unsupported. The CLI
+blocks them without rewriting their state or task documents. Start a new task
+directory with `ticket.md` to use the current flow; keep the old directory as a
+record. Finished flows load read-only.
 
 The CLI names `structure-outline.md` in every implementation, simplification,
-validation, repair, and commit prompt. An unrelated `plan.md` does not change
-that selection. Execution ownership, durable questions, bounded repair, and
-commit boundaries remain enforced.
+review, and commit prompt. An unrelated `plan.md` does not change that selection.
 
-`spok-create-plan` has been removed. `spok update` removes its installed directory
-from configured project tools; `spok update --global` removes it from configured
-home-scoped tools. Custom skills are preserved. Direct implementation and
-validation skill invocations with a task directory also use the reviewed outline.
+Retired helper skills (`spok-create-plan`, `spok-review-design`, `spok-self-learn`,
+`spok-validate-implementation`, `spok-validate-problem`) are removed by
+`spok update` from configured project tools and by `spok update --global` from
+home-scoped tools. Custom skills are preserved.
+
+---
+
+## Lite path: interview, then execute
+
+Two skills, no CLI state. The spec file is the state machine.
+
+```text
+/spok-interview <topic>     ← grill until a spec exists, slice it, you sign off
+     │   writes spok/specs/<spec-title>.md
+     ▼
+/spok-execute <spec-title>  ← fresh session; one subagent per slice, no human gates
+```
+
+- **`/spok-interview`** asks questions until a fresh session could build without asking you anything. It writes Goal, Requirements, Non-goals, Constraints (including the project gate), Acceptance checks, and an ordered `## Slices` checklist. Each slice is one user-visible outcome with its own check. A cold-read subagent finds gaps; you answer them, then approve the spec.
+- **`/spok-execute`** takes the first `[ ]` slice and hands it to a fresh subagent: locate code, write a short plan under the slice, failing test first, implement, run the slice check and the project gate, commit. Two fix attempts on a red check, then it stops. The slice flips to `[x] (<sha>)` or `[!]` with the exact error. A blocked slice stops the loop. When every slice is done, it runs the spec's acceptance checks and commits the spec status.
+
+Lite specs are flat files (`spok/specs/<spec-title>.md`); `spok list --specs` and `spok validate` read only `spok/specs/<capability>/spec.md` directories and ignore them.
+
+**When to use which:**
+
+| Use lite | Use the full flow (`/spok-propose` → `/spok-apply`) |
+| --- | --- |
+| You can sign off on the whole spec up front | Design needs review between research and implementation |
+| Slices are small and mostly independent | Chunks need model routing (claude/codex/hybrid) or resume across harnesses |
+| One session can run all slices | You want proposal/design artifacts, delta specs, and archive |
+
+To resume after a block: fix the cause, reset the slice to `[ ]`, and re-run `/spok-execute <spec-title>`.
 
 ---
 
@@ -77,7 +110,7 @@ AI:  Created spok/changes/add-logout-button/
 You: /spok-apply
 
 AI:  Shipping chunk 1: Add logout endpoint + session clearing
-     [research → design → outline → design review → implement → simplify → validate → commit]
+     [research → cause check → design (gate) → outline → implement → simplify → review → commit]
      ✓ Chunk shipped.
      Remaining: 1/2. Next: Wire logout button to header.
 
@@ -248,20 +281,7 @@ implement-2fa                  wip
 
 Put your tech stack, conventions, and non-obvious constraints in `spok/config.toml` under `context`. Spok injects that into every artifact instruction, so `/spok-propose` doesn't need to be reminded every time. See [Concepts](concepts.md#project-configuration) for the structure.
 
-### Enable post-commit workflow learning
-
-Spok project settings live at `<project-root>/spok/config.toml`. Existing `config.yaml` and `config.yml` files are still accepted.
-
-For a post-commit advisory review of workflow friction, weak evidence, and follow-up improvements, opt in with:
-
-```toml
-[flow]
-self_learn = true
-```
-
-When enabled, each successful `/spok-apply` chunk runs a final `spok-self-learn` gate after the commit and writes `.flow/<chunk-slug>/self-learn.md`. Findings are advisory; they do not fail, amend, or rewrite the commit. `flow.self_learn` stays opt-in.
-
-### Promote recurring findings into `spok/MEMORY.md`
+### Keep repository rules in `spok/MEMORY.md`
 
 `spok/MEMORY.md` is optional and presence-based: if the file exists, `spok flow next` inlines its rules into every step prompt. Nothing to configure.
 
@@ -280,7 +300,7 @@ Everything outside the rule lines is for humans and never reaches a prompt.
 
 Headings, paragraphs, and notes are ignored by design, so the file can explain itself at any length. At most 20 rules are inlined; anything past the cap, plus any bullet that fails the grammar, is reported in `memoryWarning` rather than dropped silently.
 
-`spok-self-learn` proposes promotions — a candidate rule seen in two or more chunks — but never writes `spok/MEMORY.md`. Pasting a rule in, and deleting one that stopped being true, stays yours.
+Spok never writes `spok/MEMORY.md`. Adding a rule, and deleting one that stopped being true, stays yours.
 
 ---
 

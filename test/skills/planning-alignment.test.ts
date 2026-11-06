@@ -79,6 +79,7 @@ describe('planning artifact alignment', () => {
 
     for (const heading of [
       '## Smallest Viable Control', '## System Design', '## Program Design', '## Visual Evidence',
+      '## Proposed End State Architecture', '## Design Questions', '## Resolved Design Questions',
     ]) {
       expect(template).toContain(heading);
       expect(body).toContain(heading);
@@ -87,8 +88,33 @@ describe('planning artifact alignment', () => {
     expect(template).toMatch(/^# Design Discussion$/m);
     expect(template).toMatch(/^## Context$/m);
     expect(template).toMatch(/^### Scale$/m);
-    expect(template).toMatch(/^## Resolved Design Decisions$/m);
-    expect(template).not.toContain('### Design Questions');
+    expect(template).toMatch(/^## Design Questions$/m);
+    expect(template).toMatch(/^## Resolved Design Questions$/m);
+    expect(template).toContain('Rests on: [weakest premise] (verified|unverified)');
+    expect(template).toContain('Options not chosen:');
+  });
+
+  it('keeps every consequential design question open for the user', async () => {
+    const body = await readAsset('spok-create-design-discussion');
+
+    expect(body).toContain('Only the user resolves a design question.');
+    expect(body).toContain('never resolve a consequential question yourself');
+    expect(body).toContain('`Rests on: <weakest premise> (verified|unverified)`');
+    expect(body).toContain('Move each answered question to `## Resolved Design Questions`');
+    expect(body).toContain('add it under `## Design Questions` as open');
+    expect(body).toContain('Verify feedback before applying it');
+    expect(body).not.toContain('There is no mandatory human approval or review gate.');
+  });
+
+  it('places a defect fix at the first wrong step from the causal-paths note', async () => {
+    const body = await readAsset('spok-create-design-discussion');
+
+    expect(body).toContain('<task-dir>/evidence/causal-paths.md');
+    expect(body).toContain('at the writer that produces the bad state, at a shared boundary, and at the reader');
+    expect(body).toContain('name the consumers it leaves wrong');
+    expect(body).toContain('steps below it get at most a guard');
+    expect(body).toContain('Never present a location as right "whichever path" caused the defect.');
+    expect(body).toContain('Small scope never moves the fix from the cause to where the symptom shows.');
   });
 
   it('records an autonomous visual decision after verification without an approval gate', async () => {
@@ -97,7 +123,6 @@ describe('planning artifact alignment', () => {
     expect(body).toContain('set `status` to `verified`');
     expect(body).toContain('"selectedBy": "agent"');
     expect(body).toContain('Render and verify the comparison');
-    expect(body).toContain('may ask questions when they would improve the result');
     expect(body).not.toContain('obtain explicit approval');
     expect(body).not.toContain('"approvedBy"');
   });

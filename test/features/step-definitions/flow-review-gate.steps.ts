@@ -24,6 +24,7 @@ interface ReviewResponse {
   steps: ReviewStep[];
   nextStep?: ReviewStep;
   execution?: { workRoot: string; ownedPaths?: string[] };
+  reason?: string;
 }
 
 interface ReviewWorld {
@@ -38,11 +39,25 @@ function response(world: ReviewWorld): ReviewResponse {
   return JSON.parse(world.cliResult.stdout) as ReviewResponse;
 }
 
-async function run(world: ReviewWorld, args: string[]): Promise<void> {
+async function tryRun(world: ReviewWorld, args: string[]): Promise<void> {
   world.cliResult = await runCLI(['flow', ...args, '--json'], { cwd: world.projectDir });
-  assert.equal(world.cliResult.exitCode, 0, world.cliResult.stdout + world.cliResult.stderr);
   const execution = response(world).execution;
   if (execution) world.reviewWorkRoot = execution.workRoot;
+}
+
+async function run(world: ReviewWorld, args: string[]): Promise<void> {
+  await tryRun(world, args);
+  assert.equal(world.cliResult?.exitCode, 0, world.cliResult!.stdout + world.cliResult!.stderr);
+}
+
+function simplifyArgs(world: ReviewWorld): string[] {
+  return ['complete', world.flowTaskDir, '--step', 'simplify', '--summary', 'Simplified.'];
+}
+
+async function writeReview(world: ReviewWorld, verdict: string): Promise<string[]> {
+  const review = `---\ntype: correctness-review\nverdict: ${verdict}\n---\n\n# Review\n`;
+  await fs.writeFile(path.join(world.flowTaskDir, 'review.md'), review);
+  return ['complete', world.flowTaskDir, '--step', 'review'];
 }
 
 function workRoot(world: ReviewWorld): string {
@@ -78,6 +93,28 @@ When(
     ]);
   }
 );
+
+When('the review flow completes simplify', async function (this: ReviewWorld) {
+  await run(this, simplifyArgs(this));
+});
+
+When('the review flow tries to complete simplify', async function (this: ReviewWorld) {
+  await tryRun(this, simplifyArgs(this));
+});
+
+When('the review flow records a {string} review', async function (this: ReviewWorld, verdict: string) {
+  await run(this, await writeReview(this, verdict));
+});
+
+When('the review flow tries to record a {string} review', async function (this: ReviewWorld, verdict: string) {
+  await tryRun(this, await writeReview(this, verdict));
+});
+
+Then('the review flow is blocked with {string}', function (this: ReviewWorld, expected: string) {
+  const result = response(this);
+  assert.equal(result.state, 'blocked');
+  assert.ok(result.reason?.includes(expected), result.reason);
+});
 
 When('the review flow commits the owned paths', async function (this: ReviewWorld) {
   const root = workRoot(this);

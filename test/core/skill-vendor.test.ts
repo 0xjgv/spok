@@ -18,7 +18,7 @@ describe('retired skill cleanup', () => {
     fs.mkdirSync(path.join(sourceDir, 'spok-flow'), { recursive: true });
     fs.writeFileSync(path.join(sourceDir, 'spok-flow/SKILL.md'), 'current');
     for (const tool of ['.claude', '.cursor']) {
-      for (const skill of ['spok-create-plan', 'spok-custom', 'custom']) {
+      for (const skill of ['spok-create-plan', 'spok-self-learn', 'spok-custom', 'custom']) {
         const resources = path.join(tempDir, tool, 'skills', skill, 'references');
         fs.mkdirSync(resources, { recursive: true });
         fs.writeFileSync(path.join(resources, 'resource.md'), 'keep');
@@ -39,6 +39,7 @@ describe('retired skill cleanup', () => {
 
       expect(result).toEqual({ installedSkills: ['spok-flow'], skipped: false });
       expect(fs.existsSync(path.join(skillsRoot, 'spok-create-plan'))).toBe(false);
+      expect(fs.existsSync(path.join(skillsRoot, 'spok-self-learn'))).toBe(false);
       const flowPath = path.join(skillsRoot, 'spok-flow/SKILL.md');
       expect(fs.readFileSync(flowPath, 'utf8')).toBe('current');
       for (const skill of ['spok-custom', 'custom']) {
@@ -129,6 +130,14 @@ describe('skill-vendor', () => {
   });
 
   describe('installVendoredSkills', () => {
+    it('installs only the requested vendored skills', async () => {
+      const projectRoot = path.join(tempDir, 'project');
+      const result = await installVendoredSkills(projectRoot, '.claude', sourceDir, ['spok-helper']);
+
+      expect(result).toEqual({ installedSkills: ['spok-helper'], skipped: false });
+      expect(fs.existsSync(path.join(projectRoot, '.claude/skills/spok-flow'))).toBe(false);
+    });
+
     it('copies vendored skills into <projectRoot>/<toolSkillsDir>/skills', async () => {
       const projectRoot = path.join(tempDir, 'project');
       fs.mkdirSync(projectRoot, { recursive: true });

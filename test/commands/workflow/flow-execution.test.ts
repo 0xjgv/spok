@@ -30,7 +30,7 @@ async function readState(taskDir: string): Promise<WorkflowState> {
   return JSON.parse(await fs.readFile(path.join(taskDir, WORKFLOW_STATE_FILE), 'utf8'));
 }
 
-/** Completing a gated phase asks for review; approving it records the completion. */
+/** Completing the design discussion asks for review; approving it records the completion. */
 async function approveReview(
   taskDir: string,
   gated: Awaited<ReturnType<typeof completeFlowStep>>
@@ -45,15 +45,28 @@ async function completeFile(taskDir: string, step: string, content: string): Pro
   const next = await getFlowNext(taskDir);
   expect(next.step?.id, next.reason).toBe(step);
   const output = next.step!.expectedOutput!;
-  await fs.writeFile(output, content);
-  await approveReview(taskDir, await completeFlowStep(taskDir, { step, output }));
+  await write(path.dirname(output), path.basename(output), content);
+  const completed = await completeFlowStep(taskDir, { step, output });
+  if (step === 'design-discussion') await approveReview(taskDir, completed);
+  else expect(completed.state, completed.reason).toBe('ready');
 }
 
 async function reachImplementation(taskDir: string): Promise<void> {
   await write(taskDir, 'ticket.md', '# Add one owned file\n');
-  for (const step of ['research-questions', 'research', 'design-discussion', 'structure-outline']) {
+  for (const step of ['research-questions', 'research', 'cause-check', 'design-discussion', 'structure-outline']) {
     await completeFile(taskDir, step, `# ${step}\n`);
   }
+}
+
+const PASS_REVIEW = '---\ntype: correctness-review\nverdict: PASS\n---\n\n# Review\n';
+
+/** Completes simplify and a PASS review; commit is next. */
+async function passReview(taskDir: string): Promise<void> {
+  const simplify = await getFlowNext(taskDir);
+  expect(simplify.step?.id, simplify.reason).toBe('simplify');
+  const simplified = await completeFlowStep(taskDir, { step: 'simplify', summary: 'Nothing to simplify.' });
+  expect(simplified.state, simplified.reason).toBe('ready');
+  await completeFile(taskDir, 'review', PASS_REVIEW);
 }
 
 async function implement(taskDir: string): Promise<string> {
@@ -61,14 +74,17 @@ async function implement(taskDir: string): Promise<string> {
   expect(next.step?.id, next.reason).toBe('implement');
   const workRoot = next.execution!.workRoot;
   await write(workRoot, 'owned.ts', 'export const owned = true;\n');
-  await approveReview(taskDir, await completeFlowStep(taskDir, {
+  const completed = await completeFlowStep(taskDir, {
     step: 'implement', summary: 'Added the owned file.', changedPaths: ['owned.ts'],
-  }));
+  });
+  expect(completed.state, completed.reason).toBe('ready');
+  expect(completed.nextStep?.id).toBe('simplify');
   return workRoot;
 }
 
 async function reachCommit(taskDir: string): Promise<string> {
   const workRoot = await implement(taskDir);
+  await passReview(taskDir);
   expect((await getFlowNext(taskDir)).step?.id).toBe('commit');
   return workRoot;
 }
@@ -143,9 +159,10 @@ describe('flow execution isolation', () => {
     expect(initial.execution?.workRoot).toBe(linked);
     expect(Object.keys(initial.execution!.baselineChanges)).toEqual(expect.arrayContaining([
       'caller.txt',
-      '.agents/skills/spok-flow/SKILL.md',
-      '.claude/skills/spok-flow/SKILL.md',
+      '.agents/skills/spok-implement-plan/SKILL.md',
+      '.claude/skills/spok-review-correctness/SKILL.md',
     ]));
+    expect(Object.keys(initial.execution!.baselineChanges)).not.toContain('.claude/skills/spok-flow/SKILL.md');
     await write(linked, 'owned.ts', 'new implementation\n');
     const questions = [{
       id: 'format', kind: 'choice', prompt: 'Which output format?',
@@ -165,106 +182,64 @@ describe('flow execution isolation', () => {
     expect(resumed.step?.prompt).toContain('Which output format?');
     expect(resumed.step?.prompt).toContain('Machine-readable output.');
     expect(resumed.step?.prompt).toContain('format: json');
-    const completed = await approveReview(taskDir, await completeFlowStep(taskDir, {
+    const completed = await completeFlowStep(taskDir, {
       step: 'implement', summary: 'Implemented JSON output.', changedPaths: ['owned.ts'],
-    }));
+    });
+    expect(completed.state, completed.reason).toBe('ready');
     expect(completed.execution?.ownedPaths).toEqual(['owned.ts']);
     expect(completed.execution?.baselineChanges).toEqual(initial.execution?.baselineChanges);
   });
 
 });
 
-describe('flow execution review revision', () => {
-  it('keeps the changed-path list cumulative across an implement revision', async () => {
+describe('flow execution simplify and review scope', () => {
+  it('carries the execution clauses and allowlist on the simplify and review prompts', async () => {
     await reachImplementation(taskDir);
-    const next = await getFlowNext(taskDir);
-    const workRoot = next.execution!.workRoot;
-    await write(workRoot, 'one.ts', 'export const one = 1;\n');
-    const gated = await completeFlowStep(taskDir, {
-      step: 'implement', summary: 'Added one.', changedPaths: ['one.ts'],
-    });
-    expect(gated.question?.id).toBe('implement-review-1');
-    expect(gated.question?.prompt).toContain('implementation');
-    expect((await readState(taskDir)).steps.find((step) => step.id === 'implement')?.status).not.toBe('completed');
-
-    const revised = await answerFlowQuestion(taskDir, {
-      question: gated.question!.id, answer: 'Also add two.ts',
-    });
-    expect(revised.state, revised.reason).toBe('ready');
-    const rerun = await getFlowNext(taskDir);
-    expect(rerun.step?.id).toBe('implement');
-    expect(rerun.step?.prompt).toContain('Also add two.ts');
-    expect(rerun.step?.prompt).toContain('A reviewer requested changes to the implementation.');
-    await write(workRoot, 'two.ts', 'export const two = 2;\n');
-
-    const partial = await completeFlowStep(taskDir, {
-      step: 'implement', summary: 'Added two.', changedPaths: ['two.ts'],
-    });
-    expect(partial.state).toBe('blocked');
-    expect(partial.reason).toContain('Reported --changed-path paths must match chunk changes');
-
-    const regated = await completeFlowStep(taskDir, {
-      step: 'implement', summary: 'Added one and two.', changedPaths: ['one.ts', 'two.ts'],
-    });
-    expect(regated.question?.id).toBe('implement-review-2');
-    const approved = await answerFlowQuestion(taskDir, { question: regated.question!.id, answer: 'approve' });
-    expect(approved.state, approved.reason).toBe('ready');
-    expect(approved.completedStep?.result?.summary).toBe('Added one and two.');
-    expect(approved.execution?.ownedPaths).toEqual(['one.ts', 'two.ts']);
-    expect((await readState(taskDir)).execution?.ownedPaths).toEqual(['one.ts', 'two.ts']);
-    expect(approved.nextStep?.id).toBe('commit');
+    const workRoot = await implement(taskDir);
+    const simplify = await getFlowNext(taskDir);
+    expect(simplify.step?.id, simplify.reason).toBe('simplify');
+    expect(simplify.step?.prompt).toContain(workRoot);
+    expect(simplify.step?.prompt).toContain('Exact implementation allowlist: ["owned.ts"]');
+    expect(simplify.step?.prompt).toContain('Run every agent and test run in the foreground');
+    await completeFlowStep(taskDir, { step: 'simplify', summary: 'Nothing to simplify.' });
+    const review = await getFlowNext(taskDir);
+    expect(review.step?.id, review.reason).toBe('review');
+    expect(review.step?.prompt).toContain('Exact implementation allowlist: ["owned.ts"]');
+    expect(review.step?.prompt).toContain('Run every agent and test run in the foreground');
+    expect(review.step?.prompt).toContain('`review.md` must begin with exactly');
   });
-});
 
-describe('flow execution review approval', () => {
-  async function gateImplement(): Promise<{ workRoot: string; gated: Awaited<ReturnType<typeof completeFlowStep>> }> {
+  it('blocks simplify completion after a change outside the implementation allowlist', async () => {
     await reachImplementation(taskDir);
-    const next = await getFlowNext(taskDir);
-    const workRoot = next.execution!.workRoot;
-    await write(workRoot, 'one.ts', 'export const one = 1;\n');
-    const gated = await completeFlowStep(taskDir, {
-      step: 'implement', summary: 'Added one.', changedPaths: ['one.ts'],
-    });
-    expect(gated.state, gated.reason).toBe('needs-input');
-    return { workRoot, gated };
-  }
-
-  it.each([
-    ['a stray file', async (workRoot: string) => write(workRoot, 'stray.ts', 'stray\n'), 'stray.ts'],
-    ['an extra commit', async (workRoot: string) => {
-      await write(workRoot, 'extra.ts', 'extra\n');
-      git(workRoot, 'add', 'extra.ts');
-      git(workRoot, 'commit', '-m', 'extra');
-    }, 'HEAD'],
-    ['a reverted owned file', async (workRoot: string) => fs.rm(path.join(workRoot, 'one.ts')), 'one.ts'],
-  ])('blocks approval after %s and still accepts revision feedback', async (_label, tamper, mention) => {
-    const { workRoot, gated } = await gateImplement();
-    await tamper(workRoot);
+    const workRoot = await implement(taskDir);
+    expect((await getFlowNext(taskDir)).step?.id).toBe('simplify');
+    await write(workRoot, 'stray.ts', 'stray\n');
     const statePath = path.join(taskDir, WORKFLOW_STATE_FILE);
     const before = await fs.readFile(statePath, 'utf8');
 
-    const approved = await answerFlowQuestion(taskDir, { question: gated.question!.id, answer: 'approve' });
+    const result = await completeFlowStep(taskDir, { step: 'simplify', summary: 'Simplified.' });
 
-    expect(approved.state).toBe('blocked');
-    expect(approved.reason).toContain(mention);
-    expect(approved.reason).toContain('feedback');
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toBe('Changes outside execution scope: stray.ts');
     expect(await fs.readFile(statePath, 'utf8')).toBe(before);
-    expect((await readState(taskDir)).execution?.ownedPaths).toEqual(['one.ts']);
-
-    const revised = await answerFlowQuestion(taskDir, {
-      question: gated.question!.id, answer: 'Account for the extra change',
-    });
-    expect(revised.state, revised.reason).toBe('ready');
-    expect(revised.nextStep?.id).toBe('implement');
+    await fs.rm(path.join(workRoot, 'stray.ts'));
+    const recovered = await completeFlowStep(taskDir, { step: 'simplify', summary: 'Simplified.' });
+    expect(recovered.state, recovered.reason).toBe('ready');
+    expect(recovered.nextStep?.id).toBe('review');
   });
 
-  it('approves an untouched implementation', async () => {
-    const { gated } = await gateImplement();
+  it('blocks review completion after a change outside the implementation allowlist', async () => {
+    await reachImplementation(taskDir);
+    const workRoot = await implement(taskDir);
+    await completeFlowStep(taskDir, { step: 'simplify', summary: 'Nothing to simplify.' });
+    expect((await getFlowNext(taskDir)).step?.id).toBe('review');
+    await write(taskDir, 'review.md', PASS_REVIEW);
+    await write(workRoot, 'repair.ts', 'repair outside scope\n');
 
-    const approved = await answerFlowQuestion(taskDir, { question: gated.question!.id, answer: 'approve' });
+    const result = await completeFlowStep(taskDir, { step: 'review' });
 
-    expect(approved.state, approved.reason).toBe('ready');
-    expect(approved.nextStep?.id).toBe('commit');
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toBe('Changes outside execution scope: repair.ts');
   });
 });
 
@@ -312,9 +287,10 @@ describe('flow execution work-root identity', () => {
     await fs.symlink(workRoot, alias, 'junction');
     const suppliedRoot = spelling === 'alias' ? alias : `  ${workRoot}\t`;
     expect(realpathSync.native(suppliedRoot.trim())).toBe(realpathSync.native(workRoot));
-    const result = await approveReview(taskDir, await completeFlowStep(taskDir, {
+    const result = await completeFlowStep(taskDir, {
       step: 'implement', summary: 'No changes needed.', changedPaths: [], workRoot: suppliedRoot,
-    }));
+    });
+    expect(result.state, result.reason).toBe('ready');
     expect(realpathSync.native(result.execution!.workRoot)).toBe(realpathSync.native(workRoot));
     expect((await readState(taskDir)).execution).toEqual({
       ...next.execution, ownedPaths: [],
@@ -336,7 +312,7 @@ describe('flow execution work-root identity', () => {
 describe('flow execution scope', () => {
   it('puts the persisted root and exact implementation allowlist in the commit prompt', async () => {
     await reachImplementation(taskDir);
-    const workRoot = await implement(taskDir);
+    const workRoot = await reachCommit(taskDir);
     const commit = await getFlowNext(taskDir);
     expect(commit.step?.id, commit.reason).toBe('commit');
     expect(commit.step?.prompt).toContain(workRoot);
@@ -347,7 +323,7 @@ describe('flow execution scope', () => {
 
   it('blocks commit dispatch and completion after an out-of-scope source edit', async () => {
     await reachImplementation(taskDir);
-    const workRoot = await implement(taskDir);
+    const workRoot = await reachCommit(taskDir);
     await write(workRoot, 'outside.ts', 'out of scope\n');
     const dispatched = await getFlowNext(taskDir);
     expect(dispatched.state).toBe('blocked');
@@ -439,16 +415,18 @@ describe('flow execution planning-state ownership', () => {
     const workRoot = next.execution!.workRoot;
     await write(workRoot, 'owned.ts', 'export const owned = true;\n');
     await write(workRoot, 'spok/config.yaml', 'schema: spec-driven\n');
-    const completed = await approveReview(taskDir, await completeFlowStep(taskDir, {
+    const completed = await completeFlowStep(taskDir, {
       step: 'implement',
       summary: 'Added the owned file and its planning state.',
       changedPaths: ['owned.ts', 'spok/config.yaml'],
-    }));
+    });
+    expect(completed.state, completed.reason).toBe('ready');
     return workRoot;
   }
 
   async function reachCommitWithPlanningState(): Promise<string> {
     const workRoot = await implementWithPlanningState();
+    await passReview(taskDir);
     expect((await getFlowNext(taskDir)).step?.id).toBe('commit');
     return workRoot;
   }
@@ -504,9 +482,11 @@ describe('flow execution commit rename scope', () => {
     const workRoot = next.execution!.workRoot;
     const original = await fs.readFile(path.join(workRoot, 'seed.ts'), 'utf8');
     await write(workRoot, 'owned.ts', original);
-    const implemented = await approveReview(taskDir, await completeFlowStep(taskDir, {
+    const implemented = await completeFlowStep(taskDir, {
       step: 'implement', summary: 'Copy the seed.', changedPaths: ['owned.ts'],
-    }));
+    });
+    expect(implemented.state, implemented.reason).toBe('ready');
+    await passReview(taskDir);
     expect((await getFlowNext(taskDir)).step?.id).toBe('commit');
     await fs.rm(path.join(workRoot, 'seed.ts'));
     git(workRoot, 'add', 'seed.ts', 'owned.ts');
@@ -567,6 +547,8 @@ describe('flow execution legacy compatibility', () => {
     const legacy = await readState(taskDir);
     delete legacy.execution;
     await fs.writeFile(path.join(taskDir, WORKFLOW_STATE_FILE), JSON.stringify(legacy));
+    expect((await getFlowStatus(taskDir)).nextStep?.id).toBe('simplify');
+    await passReview(taskDir);
     expect((await getFlowStatus(taskDir)).nextStep?.id).toBe('commit');
     expect((await getFlowNext(taskDir)).execution).toBeUndefined();
     const completed = await completeFlowStep(taskDir, { step: 'commit', commit: 'legacy-commit' });

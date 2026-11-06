@@ -3,8 +3,9 @@
  *
  * Copies the vendored `spok-*` skill directories from `assets/skills/` into a
  * project's tool-specific skills directory (e.g. `<project>/.claude/skills/`).
- * The vendored set includes `spok-flow`, `spok-create-scoped-chunks`, and the
- * transitive helpers they invoke.
+ * `assets/skills/` holds exactly the skills Spok runs: `spok-flow` and its step
+ * skills, `spok-create-scoped-chunks`, and the lite `spok-interview` /
+ * `spok-execute` pair. Retired skills are removed from installed catalogs.
  *
  * Idempotent: removes the destination directory before writing so a re-run
  * overwrites stale content cleanly.
@@ -17,6 +18,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const ASSETS_SKILLS_DIR = path.resolve(__dirname, '../../assets/skills');
+
+/** Skills Spok once vendored and no longer runs; installs remove them. Custom skills are untouched. */
+const RETIRED_SKILL_NAMES = [
+  'spok-create-plan',
+  'spok-review-design',
+  'spok-self-learn',
+  'spok-validate-implementation',
+  'spok-validate-problem',
+] as const;
 
 export interface VendorInstallResult {
   installedSkills: string[];
@@ -56,11 +66,13 @@ export function getVendoredSkillNames(sourceDir: string = ASSETS_SKILLS_DIR): st
  * @param projectRoot   Absolute path to the project root.
  * @param toolSkillsDir Tool-relative path (e.g. `.claude`) where `skills/` lives.
  * @param sourceDir     Override for the vendored source dir (testing).
+ * @param only          Install just these vendored skills (e.g. an execution worktree's step skills).
  */
 export async function installVendoredSkills(
   projectRoot: string,
   toolSkillsDir: string,
-  sourceDir: string = ASSETS_SKILLS_DIR
+  sourceDir: string = ASSETS_SKILLS_DIR,
+  only?: readonly string[]
 ): Promise<VendorInstallResult> {
   if (!fs.existsSync(sourceDir)) {
     return {
@@ -70,7 +82,7 @@ export async function installVendoredSkills(
     };
   }
 
-  const skillNames = getVendoredSkillNames(sourceDir);
+  const skillNames = getVendoredSkillNames(sourceDir).filter((name) => !only || only.includes(name));
   if (skillNames.length === 0) {
     return {
       installedSkills: [],
@@ -81,10 +93,9 @@ export async function installVendoredSkills(
 
   const targetSkillsRoot = path.join(projectRoot, toolSkillsDir, 'skills');
   await fs.promises.mkdir(targetSkillsRoot, { recursive: true });
-  await fs.promises.rm(path.join(targetSkillsRoot, 'spok-create-plan'), {
-    recursive: true,
-    force: true,
-  });
+  for (const retired of RETIRED_SKILL_NAMES) {
+    await fs.promises.rm(path.join(targetSkillsRoot, retired), { recursive: true, force: true });
+  }
 
   const installed: string[] = [];
   for (const skillName of skillNames) {

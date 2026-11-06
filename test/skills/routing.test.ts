@@ -9,13 +9,12 @@ async function readFlowSkill(): Promise<string> {
 }
 
 const FORK_ARTIFACTS: Record<string, string> = {
-  'spok-validate-problem': 'problem-validation.md',
   'spok-create-research-questions': 'research-questions.md',
   'spok-create-research': 'research.md',
+  'spok-cause-check': 'evidence/causal-paths.md',
   'spok-create-design-discussion': 'design-discussion.md',
   'spok-create-structure-outline': 'structure-outline.md',
-  'spok-validate-implementation': 'validation.md',
-  'spok-self-learn': 'self-learn.md',
+  'spok-review-correctness': 'review.md',
 };
 
 const DATE_PREFIX_PATTERN = /\b\d{4}-\d{2}-\d{2}-/;
@@ -101,7 +100,7 @@ describe('spok-flow prompt dispatch contract', () => {
     expect(body).not.toContain('**Agent** tool');
   });
 
-  it('captures durable questions and redispatches the same step, with the CLI review questions as the phase gates', async () => {
+  it('captures durable questions and redispatches the same step, with the CLI design review as the one gate', async () => {
     const body = await readFlowSkill();
 
     expect(body).toContain('NEEDS_INPUT: <absolute-question-packet-path>');
@@ -112,7 +111,7 @@ describe('spok-flow prompt dispatch contract', () => {
     expect(body).toContain('Do not scan\n   the task directory for packets');
     expect(body).toContain('redispatch the same step');
     expect(body).toContain('Never call `spok flow complete` for the child reply');
-    expect(body).toContain('These review questions ARE the phase');
+    expect(body).toContain('The design discussion is the one human gate');
     expect(body).toContain('never the bare option id `revise`');
     expect(body).toContain('After a review answer returns `ready`, run `spok flow next`');
     expect(body).not.toContain('Do not ask for approval between stages.');
@@ -201,14 +200,20 @@ describe('spok-flow current and OMP dispatch contract', () => {
 });
 
 describe('spok-implement-plan model inheritance contract', () => {
-  it('implements inline inside a model-pinned flow step', async () => {
+  it('launches one implementer subagent per phase with the step model', async () => {
     const body = await fs.readFile(
       path.join(SKILLS_DIR, 'spok-implement-plan', 'SKILL.md'),
       'utf-8',
     );
 
-    expect(body).toContain('Do not launch `spok-implementer-agent` or any other nested agent.');
-    expect(body).toContain('The outer flow step already selected the runner, model, and effort.');
+    expect(body).not.toContain('Do not launch `spok-implementer-agent` or any other nested agent.');
+    expect(body).toContain('Launch one `spok-implementer-agent` per phase');
+    expect(body).toContain('the exact phase identifier and the full phase text');
+    expect(body).toContain('Rerun the automated checks yourself.');
+    expect(body).toContain('`## ✅ Phase N: Title`');
+    expect(body).toContain('Pass the step\'s model on every agent call, except `spok-codebase-locator`');
+    expect(body).toContain('Run every agent and test in the foreground');
+    expect(body).toContain('no per-phase or final commits');
   });
 });
 
@@ -237,22 +242,6 @@ describe('Spok-prefixed agent routing', () => {
         /subagent_type|Task tool|\*\*Agent\*\* tool/u,
       );
     }
-  });
-});
-
-describe('spok-self-learn promotion contract', () => {
-  it('emits capped, slugged candidate rules and human-approved promotions', async () => {
-    const body = await fs.readFile(
-      path.join(SKILLS_DIR, 'spok-self-learn', 'SKILL.md'),
-      'utf-8',
-    );
-
-    expect(body).toContain('## Candidate Rules');
-    expect(body).toContain('## Promotion Candidates');
-    expect(body).toContain('at most 3 entries');
-    expect(body).toContain('spok/changes/*/.flow/*/self-learn.md');
-    expect(body).toContain('twice or more');
-    expect(body).toContain('Do not edit `spok/MEMORY.md`');
   });
 });
 

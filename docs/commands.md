@@ -151,7 +151,7 @@ Ship exactly one unchecked chunk from `tasks.md` end-to-end.
 3. Parses `tasks.md` and finds the first chunk whose checkbox is `- [ ]`.
 4. Halts if the chunk's `**Prerequisites:**` field references slugs that are still unchecked.
 5. Stages a ticket at `<changeRoot>/.flow/<chunk-slug>/ticket.md` containing the chunk title, slug, layers, end-to-end test, rollback note, body, and pointers to the change's proposal, specs, and design.
-6. Invokes the vendored `spok-flow` skill (`Skill({skill: "spok-flow", args: "<absolute-ticket-dir>"})`), which drives research → design → outline → design review → implement → simplify → validate → commit on just that chunk. Flows implement the reviewed outline directly. Saved flows containing a removed `plan` step are blocked without rewriting their state; use a new task directory with `ticket.md` to start the current flow. Each step's subagent prompt is composed by `spok flow next` and dispatched verbatim; when `spok/MEMORY.md` exists, its conforming rule lines (up to 20) are inlined into every one of those prompts, and prose in the file is ignored by design. A failing validation routes through a bounded repair cycle — the `spok-repair` skill fixes the blocking findings and the flow re-validates, at most twice — before the commit step. If `flow.self_learn = true` is set in `spok/config.toml` — it stays opt-in — it also runs an advisory post-commit self-learn gate and writes `<ticket-dir>/self-learn.md`.
+6. Invokes the vendored `spok-flow` skill (`Skill({skill: "spok-flow", args: "<absolute-ticket-dir>"})`), which drives research → cause check → design (gate) → outline → implement → simplify → review → commit on just that chunk. Flows implement the reviewed outline directly. Saved flows containing a removed `plan` step are blocked without rewriting their state; use a new task directory with `ticket.md` to start the current flow. Each step's subagent prompt is composed by `spok flow next` and dispatched verbatim; when `spok/MEMORY.md` exists, its conforming rule lines (up to 20) are inlined into every one of those prompts, and prose in the file is ignored by design. The design discussion is the one human gate; implement, simplify, review, and commit run unattended. The correctness review repairs confirmed defects through `spok-repair` at most twice and must record `verdict: PASS` in `review.md` before the commit step.
 7. On success, flips `- [ ]` to `- [x]` for the chunk's line only. On failure, leaves the box unchecked and surfaces the error.
 8. Prints remaining chunk count and the next chunk title.
 
@@ -161,7 +161,7 @@ You: /spok-apply
 
 AI:  Using change: add-dark-mode
      Shipping chunk 1: Add theme context + CSS variables
-     [research → design → outline → design review → implement → simplify → validate (↺ repair on FAIL) → commit]
+     [research → cause check → design (gate) → outline → implement → simplify → review (↺ repair) → commit]
      ✓ Chunk shipped: Add theme context + CSS variables
 
      Remaining: 2/3 unchecked
@@ -252,20 +252,20 @@ Different AI tools surface slash commands slightly differently. The intent is th
 
 | Skill | Used by | Purpose |
 |-------|---------|---------|
-| `spok-flow` | `/spok-apply` | Drives research → design → outline → design review → implement → simplify → validate → commit for a single ticket |
+| `spok-flow` | `/spok-apply` | Drives research → cause check → design (gate) → outline → implement → simplify → review → commit for a single ticket |
 | `spok-create-scoped-chunks` | `/spok-propose` | Slices a design into cross-layer chunks and writes `tasks.md` |
-| `spok-validate-problem` | `spok-flow` | Reproduces the bug or baselines the behavior before research |
 | `spok-create-research-questions` | `spok-flow` | Generates research questions from a ticket |
 | `spok-create-research` | `spok-flow` | Executes research against the codebase |
+| `spok-cause-check` | `spok-flow` | Tells candidate causes apart and records the first wrong step in `evidence/causal-paths.md` (`N/A: no defect` for new behavior) |
 | `spok-create-design-discussion` | `spok-flow` | Opens a design discussion for the chunk |
 | `spok-create-structure-outline` | `spok-flow` | Produces executable phases with behavior, interfaces, tests, and verification commands |
-| `spok-review-design` | `spok-flow` | Reconciles the design and outline and records a PASS/FAIL implementation-readiness verdict |
 | `spok-implement-plan` | `spok-flow` | Implements the reviewed outline in phases |
 | `spok-simplify` | `spok-flow` | Behavior-preserving simplification of the chunk diff — removes duplication, unnecessary abstraction, and dead code, then re-runs the reviewed outline's checks |
-| `spok-validate-implementation` | `spok-flow` | Validates implementation against the selected artifact and resolved design |
-| `spok-repair` | `spok-flow` | Fixes the blocking findings from a failing validation so the flow can re-validate (at most two repair attempts) |
+| `spok-review-correctness` | `spok-flow` | Fresh read-only correctness review of the chunk; repairs confirmed defects (at most two rounds) and records a PASS/FAIL verdict in `review.md` |
+| `spok-repair` | `spok-review-correctness` | Fixes confirmed review findings inside the implementation allowlist |
 | `spok-ci-commit` | `spok-flow` | Commits the chunk with a conventional message |
-| `spok-self-learn` | `spok-flow` | Optionally reviews post-commit workflow friction and proposes rules to promote into `spok/MEMORY.md` (never writes it) |
+| `spok-interview` | user | Interviews until a sliced spec exists under `spok/specs/` (lite path) |
+| `spok-execute` | user | Executes a lite spec one vertical slice at a time |
 
 These are intentionally co-located with the user-facing skills so the closure travels with the tool. Don't edit them in-place; they are overwritten on `spok update`.
 

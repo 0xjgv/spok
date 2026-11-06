@@ -50,8 +50,9 @@ const ALL_HARNESSES_AVAILABLE: CapabilityReport[] = [
     runner: 'omp',
     available: true,
     models: new Map([
-      ['openai-codex/gpt-5.6-sol', OMP_THINKING],
-      ['openai-codex/gpt-5.6-terra', OMP_THINKING],
+      ['openai-codex/gpt-6.1-sol', OMP_THINKING],
+      ['openai-codex/gpt-6.1-terra', OMP_THINKING],
+      ['openai-codex/gpt-6-astra', OMP_THINKING],
     ]),
   },
 ];
@@ -91,15 +92,21 @@ function withCapabilityReports(overrides: CapabilityReport[]): CapabilityReport[
 interface FlowHarness {
   readonly projectRoot: string;
   readonly taskDir: string;
-  completeFileStep(step: string, filename: string): Promise<void>;
+  completeFileStep(step: string, filename: string, content?: string): Promise<void>;
   completeSummaryStep(step: string, summary: string): Promise<void>;
+  /** Completes research-questions through cause-check; design-discussion is next. */
+  advanceToDesignDiscussion(): Promise<void>;
   /** Completes research-questions through structure-outline; implement is next. */
   advanceToImplement(): Promise<void>;
   /** Gives the task a git work repository so implement can record its execution baseline. */
   seedRepository(): Promise<void>;
-  /** Seeds the work repository and completes implement; commit is next. */
+  /** Seeds the work repository and completes implement; simplify is next. */
   completeImplement(): Promise<void>;
   completeThroughImplement(): Promise<void>;
+  /** Completes simplify after implement; review is next. */
+  completeSimplify(): Promise<void>;
+  /** Completes through simplify and a PASS review; commit is next. */
+  completeThroughReview(): Promise<void>;
 }
 
 const OPEN_QUESTIONS = {
@@ -128,22 +135,30 @@ const OPEN_QUESTIONS = {
 } as const;
 
 const EXPECTED_STEP_ROUTING = [
-  { id: 'research-questions', model: 'opus', effort: 'medium' },
-  { id: 'research', model: 'sonnet', effort: 'medium' },
-  { id: 'design-discussion', model: 'fable', effort: 'xhigh' },
-  { id: 'structure-outline', model: 'fable', effort: 'xhigh' },
-  { id: 'implement', model: 'opus', effort: 'medium' },
-  { id: 'commit', model: 'haiku', effort: 'low' },
+  { id: 'research-questions', model: 'opus' },
+  { id: 'research', model: 'opus' },
+  { id: 'cause-check', model: 'opus' },
+  { id: 'design-discussion', model: 'opus', effort: 'xhigh' },
+  { id: 'structure-outline', model: 'opus' },
+  { id: 'implement', model: 'opus' },
+  { id: 'simplify', model: 'opus' },
+  { id: 'review', model: 'opus', effort: 'high' },
+  { id: 'commit', model: 'sonnet' },
 ];
 
 const EXPECTED_HYBRID_STEP_ROUTING = [
-  { id: 'research-questions', runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-  { id: 'research', runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-  { id: 'design-discussion', runner: 'claude', model: 'fable', effort: 'xhigh' },
-  { id: 'structure-outline', runner: 'claude', model: 'fable', effort: 'xhigh' },
-  { id: 'implement', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-  { id: 'commit', runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
+  { id: 'research-questions', runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+  { id: 'research', runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+  { id: 'cause-check', runner: 'claude', model: 'opus' },
+  { id: 'design-discussion', runner: 'claude', model: 'opus', effort: 'xhigh' },
+  { id: 'structure-outline', runner: 'claude', model: 'opus', effort: 'high' },
+  { id: 'implement', runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+  { id: 'simplify', runner: 'claude', model: 'opus', effort: 'high' },
+  { id: 'review', runner: 'codex', model: 'gpt-6-astra', effort: 'high' },
+  { id: 'commit', runner: 'codex', model: 'gpt-6.1-terra', effort: 'medium' },
 ];
+
+const PASS_REVIEW = '---\ntype: correctness-review\nverdict: PASS\n---\n\n# Review\n';
 
 function expectStepRouting(steps: Array<{ id: string; model?: string; effort?: string }>) {
   expect(steps.map(({ id, model, effort }) => ({ id, model, effort }))).toEqual(
@@ -162,7 +177,7 @@ async function readFlowEvents(taskDir: string): Promise<Array<Record<string, unk
 
 type FlowResponse = Awaited<ReturnType<typeof completeFlowStep>>;
 
-/** Approves the review gate a completed phase raised; returns the answer response. */
+/** Approves the review gate the completed design discussion raised; returns the answer response. */
 async function approveGate(taskDir: string, gated: FlowResponse): Promise<FlowResponse> {
   expect(gated.state, gated.reason).toBe('needs-input');
   return answerFlowQuestion(taskDir, { question: gated.question!.id, answer: 'approve' });
@@ -200,19 +215,100 @@ async function seedFlowRepository(root: string): Promise<void> {
   git(['commit', '--no-gpg-sign', '-m', 'seed']);
 }
 
-async function seedLegacyImplementation(taskDir: string, workRoot?: string): Promise<void> {
+/** Seeds a legacy flow whose implement, simplify, and PASS review are done; commit is next. */
+async function seedLegacyThroughReview(taskDir: string, workRoot?: string): Promise<void> {
   const statePath = path.join(taskDir, WORKFLOW_STATE_FILE);
   const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
   // Older completed implementations predate execution baselines and root freezing.
   delete state.execution;
-  const implement = state.steps.find((step: FlowStep) => step.id === 'implement');
-  implement.status = 'completed';
-  implement.result = {
-    summary: 'Implemented the plan.',
-    completedAt: new Date().toISOString(),
-    workRoot,
+  const completedAt = new Date().toISOString();
+  const review = path.join(taskDir, 'review.md');
+  await fs.writeFile(review, PASS_REVIEW, 'utf-8');
+  const results: Record<string, FlowStep['result']> = {
+    implement: { summary: 'Implemented the plan.', completedAt, workRoot },
+    simplify: { summary: 'Nothing to simplify.', completedAt },
+    review: { output: review, completedAt },
   };
+  for (const step of state.steps as FlowStep[]) {
+    if (!results[step.id]) continue;
+    step.status = 'completed';
+    step.result = results[step.id];
+  }
   await fs.writeFile(statePath, JSON.stringify(state), 'utf-8');
+}
+
+/** Step-completion helpers over the harness task directory; every phase but the design discussion completes directly. */
+function flowStepHelpers(taskDir: () => string): Omit<FlowHarness, 'projectRoot' | 'taskDir'> {
+  async function approveReview(gated: FlowResponse) {
+    const approved = await approveGate(taskDir(), gated);
+    expect(approved.state, approved.reason).toBe('ready');
+  }
+
+  async function completeFileStep(step: string, filename: string, content = `# ${step}\n`) {
+    await getFlowNext(taskDir());
+    const output = path.join(taskDir(), filename);
+    await fs.mkdir(path.dirname(output), { recursive: true });
+    await fs.writeFile(output, content, 'utf-8');
+    const completed = await completeFlowStep(taskDir(), { step, output });
+    if (step === 'design-discussion') await approveReview(completed);
+    else expect(completed.state, completed.reason).toBe('ready');
+  }
+
+  async function completeSummaryStep(step: string, summary: string) {
+    const next = await getFlowNext(taskDir());
+    expect(next.state, next.reason).toBe('ready');
+    expect(next.step?.id).toBe(step);
+    const completed = await completeFlowStep(taskDir(), { step, summary });
+    expect(completed.state, completed.reason).toBe('ready');
+  }
+
+  async function advanceToDesignDiscussion() {
+    await completeFileStep('research-questions', 'research-questions.md');
+    await completeFileStep('research', 'research.md');
+    await completeFileStep('cause-check', path.join('evidence', 'causal-paths.md'));
+  }
+
+  async function advanceToImplement() {
+    await advanceToDesignDiscussion();
+    await completeFileStep('design-discussion', 'design-discussion.md');
+    await completeFileStep('structure-outline', 'structure-outline.md');
+  }
+
+  async function seedRepository() {
+    await seedFlowRepository(path.resolve(taskDir(), '../../../../..'));
+  }
+
+  async function completeImplement() {
+    await seedRepository();
+    await completeSummaryStep('implement', 'Implemented the plan.');
+  }
+
+  async function completeThroughImplement() {
+    await advanceToImplement();
+    await completeImplement();
+  }
+
+  async function completeSimplify() {
+    await completeSummaryStep('simplify', 'Nothing to simplify.');
+  }
+
+  async function completeThroughReview() {
+    await completeThroughImplement();
+    await completeSimplify();
+    await completeFileStep('review', 'review.md', PASS_REVIEW);
+  }
+
+  return {
+    completeFileStep,
+    completeSummaryStep,
+    advanceToDesignDiscussion,
+    advanceToImplement,
+    seedRepository,
+    completeImplement,
+    completeThroughImplement,
+    completeSimplify,
+    completeThroughReview,
+  };
 }
 
 function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness {
@@ -257,46 +353,6 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  async function approveReview(gated: FlowResponse) {
-    const approved = await approveGate(taskDir, gated);
-    expect(approved.state, approved.reason).toBe('ready');
-  }
-
-  async function completeFileStep(step: string, filename: string) {
-    await getFlowNext(taskDir);
-    const output = path.join(taskDir, filename);
-    await fs.writeFile(output, `# ${step}\n`, 'utf-8');
-    await approveReview(await completeFlowStep(taskDir, { step, output }));
-  }
-
-  async function completeSummaryStep(step: string, summary: string) {
-    const next = await getFlowNext(taskDir);
-    expect(next.state, next.reason).toBe('ready');
-    expect(next.step?.id).toBe(step);
-    await approveReview(await completeFlowStep(taskDir, { step, summary }));
-  }
-
-  async function advanceToImplement() {
-    await completeFileStep('research-questions', 'research-questions.md');
-    await completeFileStep('research', 'research.md');
-    await completeFileStep('design-discussion', 'design-discussion.md');
-    await completeFileStep('structure-outline', 'structure-outline.md');
-  }
-
-  async function seedRepository() {
-    await seedFlowRepository(path.resolve(taskDir, '../../../../..'));
-  }
-
-  async function completeImplement() {
-    await seedRepository();
-    await completeSummaryStep('implement', 'Implemented the plan.');
-  }
-
-  async function completeThroughImplement() {
-    await advanceToImplement();
-    await completeImplement();
-  }
-
   return {
     get projectRoot() {
       return tempDir;
@@ -304,12 +360,7 @@ function useFlowHarness(options: { linkedWorktree?: boolean } = {}): FlowHarness
     get taskDir() {
       return taskDir;
     },
-    completeFileStep,
-    completeSummaryStep,
-    advanceToImplement,
-    seedRepository,
-    completeImplement,
-    completeThroughImplement,
+    ...flowStepHelpers(() => taskDir),
   };
 }
 
@@ -326,11 +377,11 @@ describe('deterministic workflow step state', () => {
       skill: 'spok-create-research-questions',
       runner: 'claude',
       model: 'opus',
-      effort: 'medium',
       argument: path.join(flow.taskDir, 'ticket.md'),
       expectedOutput: path.join(flow.taskDir, 'research-questions.md'),
       status: 'ready',
     });
+    expect(result.step?.effort).toBeUndefined();
     expectStepRouting(result.steps);
 
     const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
@@ -353,38 +404,56 @@ describe('deterministic workflow step state', () => {
     expect(events.at(-1)?.timestamp).toEqual(expect.any(String));
   });
 
-  it('records the completed step routing in the approving flow_answer event', async () => {
+  it('records the completed step routing in the flow_complete event of an ungated step', async () => {
     await flow.completeFileStep('research-questions', 'research-questions.md');
 
     const events = await readFlowEvents(flow.taskDir);
     expect(events.at(-1)).toMatchObject({
-      event: 'flow_answer',
+      event: 'flow_complete',
+      state: 'ready',
       completedStep: 'research-questions',
       step: 'research',
+      runner: 'claude',
+      model: 'opus',
+    });
+  });
+
+  it('records the design-discussion routing in the approving flow_answer event', async () => {
+    await flow.advanceToDesignDiscussion();
+    await flow.completeFileStep('design-discussion', 'design-discussion.md');
+
+    const events = await readFlowEvents(flow.taskDir);
+    expect(events.at(-1)).toMatchObject({
+      event: 'flow_answer',
+      completedStep: 'design-discussion',
+      step: 'structure-outline',
       runner: 'claude',
       model: 'opus',
     });
     expect(events.at(-2)).toMatchObject({
       event: 'flow_complete',
       state: 'needs-input',
-      step: 'research-questions',
+      step: 'design-discussion',
     });
     expect(events.at(-2)).not.toHaveProperty('completedStep');
   });
 
-  it('routes every step to GPT-5.6 models with Codex efforts when CODEX_HOME is set', async () => {
+  it('routes every step to the Codex model table when CODEX_HOME is set', async () => {
     process.env.CODEX_HOME = path.join(os.tmpdir(), `codex-${randomUUID()}`);
 
     const result = await getFlowNext(flow.taskDir);
 
     expect(result.profile).toBe('codex');
     expect(result.steps.map(({ id, runner, model, effort }) => ({ id, runner, model, effort }))).toEqual([
-      { id: 'research-questions', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-      { id: 'research', runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
-      { id: 'design-discussion', runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
-      { id: 'structure-outline', runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-      { id: 'implement', runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
-      { id: 'commit', runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
+      { id: 'research-questions', runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+      { id: 'research', runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+      { id: 'cause-check', runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+      { id: 'design-discussion', runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+      { id: 'structure-outline', runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+      { id: 'implement', runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+      { id: 'simplify', runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+      { id: 'review', runner: 'codex', model: 'gpt-6-astra', effort: 'high' },
+      { id: 'commit', runner: 'codex', model: 'gpt-6.1-terra', effort: 'medium' },
     ]);
   });
 
@@ -402,7 +471,7 @@ describe('deterministic workflow profile detection', () => {
     expect(result.step).toMatchObject({
       id: 'research-questions',
       runner: 'codex',
-      model: 'gpt-5.6-sol',
+      model: 'gpt-6.1-sol',
       effort: 'xhigh',
     });
   });
@@ -422,10 +491,10 @@ describe('deterministic workflow profile detection', () => {
       model: 'opus',
     });
     expect(result.step).toMatchObject({
-      id: 'design-discussion',
+      id: 'cause-check',
       runner: 'codex',
-      model: 'gpt-5.6-sol',
-      effort: 'max',
+      model: 'gpt-6.1-sol',
+      effort: 'xhigh',
     });
   });
 
@@ -454,7 +523,7 @@ describe('flow profile routing', () => {
     const resumed = await getFlowStatus(flow.taskDir);
 
     expect(resumed.profile).toBe('hybrid');
-    expect(resumed.nextStep).toMatchObject({ runner: 'codex', model: 'gpt-5.6-sol' });
+    expect(resumed.nextStep).toMatchObject({ runner: 'codex', model: 'gpt-6.1-sol' });
   });
 
   it('blocks an explicit profile change after state creation', async () => {
@@ -541,7 +610,6 @@ describe('auto flow profile state', () => {
       'skill',
       'runner',
       'model',
-      'effort',
       'argument',
       'expectedOutput',
       'status',
@@ -577,8 +645,8 @@ describe('auto flow profile', () => {
     expect(result.step).toMatchObject({
       id: 'research-questions',
       runner: 'codex',
-      model: 'gpt-5.6-sol',
-      effort: 'medium',
+      model: 'gpt-6.1-sol',
+      effort: 'xhigh',
       route: { policy: 'auto-v1', rejected: [] },
     });
     expect(probeHarnesses).toHaveBeenCalledTimes(1);
@@ -588,8 +656,8 @@ describe('auto flow profile', () => {
     );
     expect(stored.steps[0]).toMatchObject({
       runner: 'codex',
-      model: 'gpt-5.6-sol',
-      effort: 'medium',
+      model: 'gpt-6.1-sol',
+      effort: 'xhigh',
       route: { policy: 'auto-v1', rejected: [] },
     });
     expect(Object.keys(stored.steps[0])).toEqual([
@@ -618,15 +686,15 @@ describe('auto flow OMP eligibility', () => {
 
     expect(result.step).toMatchObject({
       runner: 'omp',
-      model: 'openai-codex/gpt-5.6-sol',
-      effort: 'medium',
+      model: 'openai-codex/gpt-6.1-sol',
+      effort: 'xhigh',
       route: {
         policy: 'auto-v1',
         rejected: [
           {
             runner: 'codex',
-            model: 'gpt-5.6-sol',
-            effort: 'medium',
+            model: 'gpt-6.1-sol',
+            effort: 'xhigh',
             code: 'not_authenticated',
             reason: CODEX_LOGGED_OUT.reason,
           },
@@ -786,7 +854,7 @@ describe('auto flow OMP isolation', () => {
               expectedOutput: path.join(flow.taskDir, 'research-questions.md'),
               status: 'ready',
               runner: 'omp',
-              model: 'openai-codex/gpt-5.6-sol',
+              model: 'openai-codex/gpt-6.1-sol',
               effort: 'xhigh',
               route: { policy: 'auto-v1', modelControl: 'selectable', rejected: [] },
             },
@@ -806,7 +874,7 @@ describe('auto flow OMP isolation', () => {
     // The route is immutable: the CLI neither reroutes nor blocks it; the skill halts at dispatch.
     expect(result.step).toMatchObject({
       runner: 'omp',
-      model: 'openai-codex/gpt-5.6-sol',
+      model: 'openai-codex/gpt-6.1-sol',
     });
     expect(probeHarnesses).not.toHaveBeenCalled();
   });
@@ -820,7 +888,7 @@ describe('auto flow OMP isolation', () => {
     expect(result.step).toMatchObject({
       id: 'research-questions',
       runner: 'codex',
-      model: 'gpt-5.6-sol',
+      model: 'gpt-6.1-sol',
     });
     expect(result.step?.route).toBeUndefined();
     expect(probeHarnesses).not.toHaveBeenCalled();
@@ -889,7 +957,7 @@ describe('auto flow current fallback', () => {
     await flow.completeFileStep('research-questions', 'research-questions.md');
     const events = await readFlowEvents(flow.taskDir);
     const completion = events.find(
-      (event) => event.event === 'flow_answer' && event.completedStep === 'research-questions'
+      (event) => event.event === 'flow_complete' && event.completedStep === 'research-questions'
     );
     expect(completion).toMatchObject({ runner: 'current' });
     expect(completion).not.toHaveProperty('model');
@@ -914,8 +982,8 @@ describe('auto flow route persistence', () => {
     expect(result.step).toMatchObject({
       id: 'research-questions',
       runner: 'codex',
-      model: 'gpt-5.6-sol',
-      effort: 'medium',
+      model: 'gpt-6.1-sol',
+      effort: 'xhigh',
     });
     expect(result.step?.route).toBeUndefined();
     expect(probeHarnesses).not.toHaveBeenCalled();
@@ -933,8 +1001,8 @@ describe('auto flow route persistence', () => {
     expect(result.step).toMatchObject({
       id: 'research',
       runner: 'codex',
-      model: 'gpt-5.6-sol',
-      effort: 'medium',
+      model: 'gpt-6.1-sol',
+      effort: 'high',
     });
     expect(probeHarnesses).toHaveBeenCalledTimes(2);
   });
@@ -1032,7 +1100,7 @@ describe('deterministic workflow state resumption', () => {
     const output = path.join(flow.taskDir, 'research-questions.md');
     await fs.writeFile(output, '# Research Questions\n', 'utf-8');
 
-    const result = await completeAndApprove(flow.taskDir, {
+    const result = await completeFlowStep(flow.taskDir, {
       step: 'research-questions',
       output,
     });
@@ -1042,7 +1110,7 @@ describe('deterministic workflow state resumption', () => {
     expect(result.nextStep).toMatchObject({
       id: 'research',
       skill: 'spok-create-research',
-      model: 'sonnet',
+      model: 'opus',
       argument: output,
       expectedOutput: path.join(flow.taskDir, 'research.md'),
       status: 'ready',
@@ -1058,14 +1126,34 @@ describe('deterministic workflow state resumption', () => {
     expect(result.state).toBe('ready');
     expect(result.profile).toBe('claude');
     expect(result.step).toMatchObject({
-      id: 'design-discussion',
+      id: 'cause-check',
       runner: 'claude',
-      skill: 'spok-create-design-discussion',
-      model: 'fable',
-      effort: 'xhigh',
+      skill: 'spok-cause-check',
+      model: 'opus',
       argument: flow.taskDir,
-      expectedOutput: path.join(flow.taskDir, 'design-discussion.md'),
+      expectedOutput: path.join(flow.taskDir, 'evidence', 'causal-paths.md'),
     });
+  });
+
+  it('completes cause-check with the evidence/causal-paths.md artifact', async () => {
+    await flow.completeFileStep('research-questions', 'research-questions.md');
+    await flow.completeFileStep('research', 'research.md');
+    await getFlowNext(flow.taskDir);
+    const output = path.join(flow.taskDir, 'evidence', 'causal-paths.md');
+    const misplaced = path.join(flow.taskDir, 'causal-paths.md');
+    await fs.writeFile(misplaced, '# Causal paths\n', 'utf-8');
+
+    const wrong = await completeFlowStep(flow.taskDir, { step: 'cause-check', output: misplaced });
+    expect(wrong.state).toBe('blocked');
+    expect(wrong.reason).toContain('Expected output path');
+
+    await fs.mkdir(path.dirname(output), { recursive: true });
+    await fs.writeFile(output, '# Causal paths\n', 'utf-8');
+    const result = await completeFlowStep(flow.taskDir, { step: 'cause-check' });
+
+    expect(result.state, result.reason).toBe('ready');
+    expect(result.completedStep?.result?.output).toBe(output);
+    expect(result.nextStep).toMatchObject({ id: 'design-discussion', status: 'ready' });
   });
 
 });
@@ -1119,9 +1207,8 @@ describe('deterministic workflow legacy state', () => {
 
     expect(result.state).toBe('ready');
     expect(result.step).toMatchObject({
-      id: 'design-discussion',
-      model: 'fable',
-      effort: 'xhigh',
+      id: 'cause-check',
+      model: 'opus',
       status: 'ready',
     });
     expectStepRouting(result.steps);
@@ -1130,6 +1217,33 @@ describe('deterministic workflow legacy state', () => {
     expectStepRouting(normalizedState.steps);
   });
 
+});
+
+describe('finished workflow states', () => {
+  const flow = useFlowHarness();
+
+  it.each(['next', 'status'])('reports a finished six-step flow as complete on %s without writing', async (operation) => {
+    const completedAt = '2026-01-01T00:00:00.000Z';
+    const ids = ['research-questions', 'research', 'design-discussion', 'structure-outline', 'implement', 'commit'];
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const original = `${JSON.stringify({
+      version: 2,
+      profile: 'claude',
+      taskDir: flow.taskDir,
+      status: 'complete',
+      steps: ids.map((id) => ({ id, status: 'completed', result: { summary: 'Done.', completedAt } })),
+      createdAt: completedAt,
+      updatedAt: completedAt,
+    }, null, 2)}\n`;
+    await fs.writeFile(statePath, original);
+
+    const result = operation === 'next' ? await getFlowNext(flow.taskDir) : await getFlowStatus(flow.taskDir);
+
+    expect(result.state).toBe('complete');
+    expect(result.steps.map((step) => step.id)).toEqual(ids);
+    expect(result.nextStep).toBeUndefined();
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(original);
+  });
 });
 
 describe('removed workflow steps', () => {
@@ -1192,7 +1306,7 @@ describe('removed workflow steps', () => {
     expect(await fs.readFile(statePath, 'utf-8')).toBe(original);
   });
 
-  const removedIds = ['plan', 'validate-problem', 'design-review', 'simplify', 'validate', 'repair', 'self-learn'];
+  const removedIds = ['plan', 'validate-problem', 'design-review', 'validate', 'repair', 'self-learn'];
   const removedCases = removedIds.flatMap((id) =>
     ['next', 'status', 'complete'].map((operation) => [id, operation])
   );
@@ -1222,26 +1336,28 @@ describe('removed workflow steps', () => {
 
 const MEMORY_HEADER = '# Memory\n\nProse for humans only.\n\n## Rules\n\n';
 
-async function completeResearchQuestions(taskDir: string): Promise<FlowResponse> {
-  await getFlowNext(taskDir);
-  const output = path.join(taskDir, 'research-questions.md');
-  await fs.writeFile(output, '# Research Questions\n', 'utf-8');
-  return completeFlowStep(taskDir, { step: 'research-questions', output });
+/** Advances to the design discussion and completes it, returning the gated response. */
+async function completeDesignDiscussion(flow: FlowHarness): Promise<FlowResponse> {
+  await flow.advanceToDesignDiscussion();
+  await getFlowNext(flow.taskDir);
+  const output = path.join(flow.taskDir, 'design-discussion.md');
+  await fs.writeFile(output, '# Design Discussion\n', 'utf-8');
+  return completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
 }
 
-describe('phase review gate', () => {
+describe('design review gate', () => {
   const flow = useFlowHarness();
 
-  it('asks one review question instead of completing a gated step', async () => {
-    const gated = await completeResearchQuestions(flow.taskDir);
+  it('asks one review question instead of completing the design discussion', async () => {
+    const gated = await completeDesignDiscussion(flow);
 
     expect(gated.state).toBe('needs-input');
     expect(gated.completedStep).toBeUndefined();
-    expect(gated.nextStep).toMatchObject({ id: 'research-questions', status: 'ready' });
+    expect(gated.nextStep).toMatchObject({ id: 'design-discussion', status: 'ready' });
     expect(gated.questions).toHaveLength(1);
     expect(gated.question).toEqual({
-      id: 'research-questions-review-1',
-      prompt: expect.stringContaining(path.join(flow.taskDir, 'research-questions.md')),
+      id: 'design-discussion-review-1',
+      prompt: expect.stringContaining(path.join(flow.taskDir, 'design-discussion.md')),
       kind: 'choice',
       options: [
         { id: 'approve', label: 'Approve', consequence: 'Continue to the next phase.' },
@@ -1251,40 +1367,40 @@ describe('phase review gate', () => {
     });
     const status = await getFlowStatus(flow.taskDir);
     expect(status.state).toBe('needs-input');
-    expect(status.question?.id).toBe('research-questions-review-1');
-    expect(status.steps[0]?.status).not.toBe('completed');
+    expect(status.question?.id).toBe('design-discussion-review-1');
+    expect(status.steps[3]?.status).not.toBe('completed');
   });
 
-  it('keeps the flow on the gated step until the reviewer answers', async () => {
-    await completeResearchQuestions(flow.taskDir);
+  it('keeps the flow on the design discussion until the reviewer answers', async () => {
+    await completeDesignDiscussion(flow);
 
-    const again = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+    const again = await completeFlowStep(flow.taskDir, { step: 'design-discussion' });
     expect(again.state).toBe('blocked');
     expect(again.reason).toContain('unanswered questions');
     const wrong = await answerFlowQuestion(flow.taskDir, { question: 'other', answer: 'approve' });
     expect(wrong.state).toBe('blocked');
     const next = await getFlowNext(flow.taskDir);
     expect(next.state).toBe('needs-input');
-    expect(next.step?.id).toBe('research-questions');
+    expect(next.step?.id).toBe('design-discussion');
   });
 
   it.each(['approve', '  Approve  ', 'APPROVE'])('treats %j as approval and advances', async (answer) => {
-    const gated = await completeResearchQuestions(flow.taskDir);
+    const gated = await completeDesignDiscussion(flow);
 
     const approved = await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer });
 
     expect(approved.state).toBe('ready');
     expect(approved.completedStep).toMatchObject({
-      id: 'research-questions',
+      id: 'design-discussion',
       status: 'completed',
-      result: { output: path.join(flow.taskDir, 'research-questions.md') },
+      result: { output: path.join(flow.taskDir, 'design-discussion.md') },
     });
-    expect(approved.nextStep?.id).toBe('research');
+    expect(approved.nextStep?.id).toBe('structure-outline');
   });
 
   it('blocks approval when the reviewed artifact has disappeared, writing nothing', async () => {
-    const gated = await completeResearchQuestions(flow.taskDir);
-    await fs.rm(path.join(flow.taskDir, 'research-questions.md'));
+    const gated = await completeDesignDiscussion(flow);
+    await fs.rm(path.join(flow.taskDir, 'design-discussion.md'));
     const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
     const before = await fs.readFile(statePath, 'utf-8');
 
@@ -1297,12 +1413,12 @@ describe('phase review gate', () => {
 
 });
 
-describe('phase review revision', () => {
+describe('design review revision', () => {
   const flow = useFlowHarness();
 
   it('reruns the step with the feedback and revises the existing artifact in place', async () => {
-    const gated = await completeResearchQuestions(flow.taskDir);
-    const output = path.join(flow.taskDir, 'research-questions.md');
+    const gated = await completeDesignDiscussion(flow);
+    const output = path.join(flow.taskDir, 'design-discussion.md');
 
     const revised = await answerFlowQuestion(flow.taskDir, {
       question: gated.question!.id,
@@ -1311,7 +1427,7 @@ describe('phase review revision', () => {
 
     expect(revised.state).toBe('ready');
     expect(revised.completedStep).toBeUndefined();
-    expect(revised.nextStep).toMatchObject({ id: 'research-questions', status: 'ready' });
+    expect(revised.nextStep).toMatchObject({ id: 'design-discussion', status: 'ready' });
     const next = await getFlowNext(flow.taskDir);
     expect(next.step?.prompt).toContain('Human answers to earlier open questions');
     expect(next.step?.prompt).toContain('Tighten the scope section');
@@ -1319,23 +1435,23 @@ describe('phase review revision', () => {
       `A reviewer requested changes to ${output}. Revise it in place to address the feedback; keep settled decisions unless the feedback changes them.`
     );
     expect(next.step?.prompt).not.toContain('Regenerate the stage output');
-    expect(await fs.readFile(output, 'utf-8')).toBe('# Research Questions\n');
+    expect(await fs.readFile(output, 'utf-8')).toBe('# Design Discussion\n');
     const stored = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
-    expect(stored.steps[0].interactions[0]).not.toHaveProperty('outputInvalidated');
-    expect(stored.steps[0].interactions[0]).not.toHaveProperty('outputDraft');
+    expect(stored.steps[3].interactions[0]).not.toHaveProperty('outputInvalidated');
+    expect(stored.steps[3].interactions[0]).not.toHaveProperty('outputDraft');
 
-    const regated = await completeFlowStep(flow.taskDir, { step: 'research-questions', output });
+    const regated = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
     expect(regated.state).toBe('needs-input');
-    expect(regated.question?.id).toBe('research-questions-review-2');
+    expect(regated.question?.id).toBe('design-discussion-review-2');
   });
 
   it('keeps archiving the artifact for a child-raised round after a review revision', async () => {
-    const gated = await completeResearchQuestions(flow.taskDir);
-    const output = path.join(flow.taskDir, 'research-questions.md');
+    const gated = await completeDesignDiscussion(flow);
+    const output = path.join(flow.taskDir, 'design-discussion.md');
     await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer: 'More detail' });
     await getFlowNext(flow.taskDir);
     const packetPath = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[0]] });
-    await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packetPath });
+    await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packetPath });
 
     await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
     const next = await getFlowNext(flow.taskDir);
@@ -1343,43 +1459,43 @@ describe('phase review revision', () => {
     await expect(fs.stat(output)).rejects.toThrow();
     expect(next.step?.prompt).toContain('Regenerate the stage output');
     expect(next.step?.prompt).not.toContain('A reviewer requested changes');
-    const regated = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
+    const regated = await completeFlowStep(flow.taskDir, { step: 'design-discussion' });
     expect(regated.state).toBe('blocked');
     await fs.writeFile(output, '# Regenerated\n', 'utf-8');
-    const final = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
-    expect(final.question?.id).toBe('research-questions-review-3');
+    const final = await completeFlowStep(flow.taskDir, { step: 'design-discussion' });
+    expect(final.question?.id).toBe('design-discussion-review-3');
   });
 
 });
 
-describe('phase review child rounds', () => {
+describe('design review child rounds', () => {
   const flow = useFlowHarness();
 
   it('rejects a child question id that claims a review gate id, writing nothing', async () => {
-    const gated = await completeResearchQuestions(flow.taskDir);
+    const gated = await completeDesignDiscussion(flow);
     await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer: 'More detail' });
     await getFlowNext(flow.taskDir);
     const packet = await writeQuestionPacket(flow.taskDir, {
-      questions: [{ id: 'research-questions-review-3', prompt: 'Sneaky?', kind: 'input' }],
+      questions: [{ id: 'design-discussion-review-3', prompt: 'Sneaky?', kind: 'input' }],
     });
     const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
     const before = await fs.readFile(statePath, 'utf-8');
 
-    const paused = await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+    const paused = await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packet });
 
     expect(paused.state).toBe('blocked');
-    expect(paused.reason).toContain('research-questions-review-3');
+    expect(paused.reason).toContain('design-discussion-review-3');
     expect(paused.reason).toContain('reserved');
     expect(await fs.readFile(statePath, 'utf-8')).toBe(before);
   });
 
   it('blocks a child pause while the review question is pending', async () => {
-    await completeResearchQuestions(flow.taskDir);
+    await completeDesignDiscussion(flow);
     const packet = await writeQuestionPacket(flow.taskDir);
     const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
     const before = await fs.readFile(statePath, 'utf-8');
 
-    const paused = await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+    const paused = await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packet });
 
     expect(paused.state).toBe('blocked');
     expect(paused.reason).toContain('already has unanswered questions');
@@ -1387,7 +1503,7 @@ describe('phase review child rounds', () => {
   });
 
   it.each(['revise', '  Revise  ', 'REVISE'])('rejects the bare option id %j as empty feedback', async (answer) => {
-    const gated = await completeResearchQuestions(flow.taskDir);
+    const gated = await completeDesignDiscussion(flow);
     const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
     const before = await fs.readFile(statePath, 'utf-8');
 
@@ -1395,7 +1511,7 @@ describe('phase review child rounds', () => {
 
     expect(result.state).toBe('blocked');
     expect(result.reason).toBe(
-      'Question research-questions-review-1 needs feedback text to request changes.'
+      'Question design-discussion-review-1 needs feedback text to request changes.'
     );
     expect(await fs.readFile(statePath, 'utf-8')).toBe(before);
     const retried = await answerFlowQuestion(flow.taskDir, { question: gated.question!.id, answer: 'Add examples' });
@@ -1403,14 +1519,15 @@ describe('phase review child rounds', () => {
   });
 
   it('does not tell the child a reviewer requested changes while the gate is pending', async () => {
+    await flow.advanceToDesignDiscussion();
     await getFlowNext(flow.taskDir);
     const packet = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[0]] });
-    await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+    await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packet });
     await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
     await getFlowNext(flow.taskDir);
-    await fs.writeFile(path.join(flow.taskDir, 'research-questions.md'), '# Answered\n', 'utf-8');
-    const gated = await completeFlowStep(flow.taskDir, { step: 'research-questions' });
-    expect(gated.question?.id).toBe('research-questions-review-2');
+    await fs.writeFile(path.join(flow.taskDir, 'design-discussion.md'), '# Answered\n', 'utf-8');
+    const gated = await completeFlowStep(flow.taskDir, { step: 'design-discussion' });
+    expect(gated.question?.id).toBe('design-discussion-review-2');
 
     const pending = await getFlowStatus(flow.taskDir);
 
@@ -1421,12 +1538,12 @@ describe('phase review child rounds', () => {
 
 });
 
-describe('phase review end to end', () => {
+describe('design review end to end', () => {
   const flow = useFlowHarness();
 
   it('does not complete the step when approve answers a child-raised choice question', async () => {
-    await completeResearchQuestions(flow.taskDir);
-    await answerFlowQuestion(flow.taskDir, { question: 'research-questions-review-1', answer: 'Add examples' });
+    await completeDesignDiscussion(flow);
+    await answerFlowQuestion(flow.taskDir, { question: 'design-discussion-review-1', answer: 'Add examples' });
     await getFlowNext(flow.taskDir);
     const packet = await writeQuestionPacket(flow.taskDir, {
       questions: [{
@@ -1439,23 +1556,23 @@ describe('phase review end to end', () => {
         ],
       }],
     });
-    await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+    await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packet });
 
     const answered = await answerFlowQuestion(flow.taskDir, { question: 'scope', answer: 'approve' });
 
     expect(answered.state).toBe('ready');
     expect(answered.completedStep).toBeUndefined();
-    expect(answered.nextStep).toMatchObject({ id: 'research-questions', status: 'ready' });
-    expect(answered.steps[0]?.status).not.toBe('completed');
+    expect(answered.nextStep).toMatchObject({ id: 'design-discussion', status: 'ready' });
+    expect(answered.steps[3]?.status).not.toBe('completed');
   });
 
   it('carries a revision, a child round, and the final approval end to end', async () => {
-    const output = path.join(flow.taskDir, 'research-questions.md');
-    const first = await completeResearchQuestions(flow.taskDir);
+    const output = path.join(flow.taskDir, 'design-discussion.md');
+    const first = await completeDesignDiscussion(flow);
     await answerFlowQuestion(flow.taskDir, { question: first.question!.id, answer: 'Add examples' });
     await getFlowNext(flow.taskDir);
     const packet = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[0]] });
-    await pauseFlowStep(flow.taskDir, { step: 'research-questions', questions: packet });
+    await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packet });
     await answerFlowQuestion(flow.taskDir, { question: 'interface', answer: 'webhook' });
     const rerun = await getFlowNext(flow.taskDir);
     expect(rerun.step?.prompt).toContain('Add examples');
@@ -1464,17 +1581,25 @@ describe('phase review end to end', () => {
     expect(rerun.step?.prompt).not.toContain('A reviewer requested changes');
     await fs.writeFile(output, '# Revised\n', 'utf-8');
 
-    const regated = await completeFlowStep(flow.taskDir, { step: 'research-questions', output });
-    expect(regated.question?.id).toBe('research-questions-review-3');
+    const regated = await completeFlowStep(flow.taskDir, { step: 'design-discussion', output });
+    expect(regated.question?.id).toBe('design-discussion-review-3');
     const approved = await answerFlowQuestion(flow.taskDir, { question: regated.question!.id, answer: 'approve' });
 
     expect(approved.state).toBe('ready');
-    expect(approved.completedStep).toMatchObject({ id: 'research-questions', status: 'completed' });
-    expect(approved.nextStep?.id).toBe('research');
+    expect(approved.completedStep).toMatchObject({ id: 'design-discussion', status: 'completed' });
+    expect(approved.nextStep?.id).toBe('structure-outline');
+  });
+
+  it('completes every phase but the design discussion without a review question', async () => {
+    await flow.completeThroughReview();
+
+    const stored = JSON.parse(await fs.readFile(path.join(flow.taskDir, WORKFLOW_STATE_FILE), 'utf-8'));
+    const gated = stored.steps.filter((step: FlowStep) => step.interactions?.length);
+    expect(gated.map((step: FlowStep) => step.id)).toEqual(['design-discussion']);
   });
 
   it('does not gate the commit step', async () => {
-    await flow.completeThroughImplement();
+    await flow.completeThroughReview();
 
     const done = await completeFlowStep(flow.taskDir, { step: 'commit', commit: 'HEAD' });
 
@@ -1610,7 +1735,7 @@ describe('deterministic workflow completion blockers', () => {
   });
 
   it('blocks commit completion without a commit SHA', async () => {
-    await flow.completeThroughImplement();
+    await flow.completeThroughReview();
 
     const status = await getFlowStatus(flow.taskDir);
     expect(status.nextStep?.id).toBe('commit');
@@ -1621,6 +1746,63 @@ describe('deterministic workflow completion blockers', () => {
 
     expect(result.state).toBe('blocked');
     expect(result.reason).toContain('commit SHA');
+  });
+});
+
+describe('review verdict', () => {
+  const flow = useFlowHarness();
+
+  async function writeReview(content: string): Promise<string> {
+    await flow.completeThroughImplement();
+    await flow.completeSimplify();
+    const next = await getFlowNext(flow.taskDir);
+    expect(next.step?.id, next.reason).toBe('review');
+    const review = path.join(flow.taskDir, 'review.md');
+    await fs.writeFile(review, content, 'utf-8');
+    return review;
+  }
+
+  it('advances to commit on a PASS verdict', async () => {
+    const review = await writeReview(PASS_REVIEW);
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'review' });
+
+    expect(result.state, result.reason).toBe('ready');
+    expect(result.completedStep?.result?.output).toBe(review);
+    expect(result.nextStep?.id).toBe('commit');
+  });
+
+  it('blocks on a FAIL verdict and keeps review ready', async () => {
+    const review = await writeReview('---\ntype: correctness-review\nverdict: FAIL\n---\n');
+    const statePath = path.join(flow.taskDir, WORKFLOW_STATE_FILE);
+    const before = await fs.readFile(statePath, 'utf-8');
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'review' });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toBe(
+      `Step review recorded a FAIL verdict: ${review}. Fix the confirmed defects, then run spok flow next to review again.`
+    );
+    expect((await readFlowEvents(flow.taskDir)).at(-1)).toMatchObject({ code: 'review_verdict_fail' });
+    expect(await fs.readFile(statePath, 'utf-8')).toBe(before);
+    expect((await getFlowNext(flow.taskDir)).step?.id).toBe('review');
+  });
+
+  it.each([
+    ['no frontmatter', '# Review\nverdict: PASS\n'],
+    ['an unknown verdict', '---\ntype: correctness-review\nverdict: MAYBE\n---\n'],
+    ['another artifact type', '---\ntype: validation\nverdict: PASS\n---\n'],
+  ])('blocks a review.md with %s as unreadable', async (_label, content) => {
+    const review = await writeReview(content);
+
+    const result = await completeFlowStep(flow.taskDir, { step: 'review' });
+
+    expect(result.state).toBe('blocked');
+    expect(result.reason).toBe(
+      'Step review has no readable verdict (expected frontmatter type: correctness-review and verdict: PASS or FAIL): ' +
+        review
+    );
+    expect((await readFlowEvents(flow.taskDir)).at(-1)).toMatchObject({ code: 'review_verdict_unreadable' });
   });
 });
 
@@ -1645,13 +1827,8 @@ describe('flow dispatch with unreadable memory', () => {
 describe('flow open questions', () => {
   const flow = useFlowHarness();
 
-  async function advanceToDesignDiscussion(): Promise<void> {
-    await flow.completeFileStep('research-questions', 'research-questions.md');
-    await flow.completeFileStep('research', 'research.md');
-  }
-
   it('persists questions without completing or rerouting the current step', async () => {
-    await advanceToDesignDiscussion();
+    await flow.advanceToDesignDiscussion();
     const ready = await getFlowNext(flow.taskDir);
     const packetPath = await writeQuestionPacket(flow.taskDir);
 
@@ -1698,7 +1875,7 @@ describe('flow open questions', () => {
   });
 
   it('answers questions in order and reruns the same step with durable answers', async () => {
-    await advanceToDesignDiscussion();
+    await flow.advanceToDesignDiscussion();
     const initial = await getFlowNext(flow.taskDir);
     expect(initial.step?.prompt).toContain(
       path.join(flow.taskDir, 'open-questions', 'design-discussion-round-1.json')
@@ -1735,7 +1912,7 @@ describe('flow open questions', () => {
   });
 
   it('rejects a stage artifact created before the final answer', async () => {
-    await advanceToDesignDiscussion();
+    await flow.advanceToDesignDiscussion();
     await getFlowNext(flow.taskDir);
     const packetPath = await writeQuestionPacket(flow.taskDir);
     await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packetPath });
@@ -1758,7 +1935,7 @@ describe('flow open questions', () => {
   });
 
   it.each(['alias', '..questions.json'])('accepts a contained packet through %s', async (kind) => {
-    await advanceToDesignDiscussion();
+    await flow.advanceToDesignDiscussion();
     const packet = await writeQuestionPacket(flow.taskDir);
     let inputPath = path.join(flow.taskDir, '..questions.json');
     if (kind === 'alias') {
@@ -1776,7 +1953,7 @@ describe('flow open questions', () => {
   });
 
   async function pauseForFinalAnswer(): Promise<string> {
-    await advanceToDesignDiscussion();
+    await flow.advanceToDesignDiscussion();
     const packet = await writeQuestionPacket(flow.taskDir, { questions: [OPEN_QUESTIONS.questions[0]] });
     await pauseFlowStep(flow.taskDir, { step: 'design-discussion', questions: packet });
     return path.join(flow.taskDir, 'design-discussion.md');
@@ -1900,7 +2077,7 @@ describe('flow open questions', () => {
 
   it('rejects a task-local packet symlink that resolves outside the task directory', async () => {
     if (process.platform === 'win32') return;
-    await advanceToDesignDiscussion();
+    await flow.advanceToDesignDiscussion();
     await getFlowNext(flow.taskDir);
     const outsidePacket = path.join(flow.projectRoot, 'outside-questions.json');
     await fs.writeFile(outsidePacket, JSON.stringify(OPEN_QUESTIONS), 'utf-8');
@@ -1918,7 +2095,7 @@ describe('flow open questions', () => {
   });
 
   it('blocks malformed packets and out-of-order answers without changing state', async () => {
-    await advanceToDesignDiscussion();
+    await flow.advanceToDesignDiscussion();
     await getFlowNext(flow.taskDir);
     const malformedPath = await writeQuestionPacket(flow.taskDir, {
       questions: [{ id: 'interface', prompt: 'Choose', kind: 'choice', options: [] }],
@@ -1970,8 +2147,7 @@ describe('flow step prompt composition', () => {
   });
 
   it('keeps every consequential design question open for the user in the design-discussion prompt', async () => {
-    await flow.completeFileStep('research-questions', 'research-questions.md');
-    await flow.completeFileStep('research', 'research.md');
+    await flow.advanceToDesignDiscussion();
 
     const result = await getFlowNext(flow.taskDir);
 
@@ -1979,8 +2155,29 @@ describe('flow step prompt composition', () => {
     expect(result.step?.prompt).toContain('Every consequential design question stays OPEN for the user');
     expect(result.step?.prompt).toContain('never resolve one yourself');
     expect(result.step?.prompt).toContain('only the user\'s answers resolve them');
+    expect(result.step?.prompt).toContain('`Rests on: <weakest premise> (verified|unverified)`');
+    expect(result.step?.prompt).toContain('Read `evidence/causal-paths.md` in the task directory');
     expect(result.step?.prompt).toContain('`NEEDS_INPUT: <absolute-question-packet-path>`');
     expect(result.step?.prompt).not.toContain('Resolve decisions autonomously');
+  });
+
+  it('ends a claude-runner prompt with the nested-agent model clause', async () => {
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step?.runner).toBe('claude');
+    expect(result.step?.prompt?.split('\n\n').at(-1)).toBe(
+      'Pass `model: opus` on every Agent call you make, except `spok-codebase-locator`, ' +
+        '`spok-codebase-analyzer`, and `spok-codebase-pattern-finder`, which get `model: sonnet`.'
+    );
+  });
+
+  it.each(['codex', 'auto'])('omits the nested-agent clause for a %s-profile codex runner', async (profile) => {
+    process.env.SPOK_FLOW_PROFILE = profile;
+
+    const result = await getFlowNext(flow.taskDir);
+
+    expect(result.step?.runner).toBe('codex');
+    expect(result.step?.prompt).not.toContain('on every Agent call');
   });
 
 });
@@ -2075,6 +2272,10 @@ describe('outline artifact selection', () => {
     await expectSelected('implement');
     await expectSelected('implement');
     await flow.completeSummaryStep('implement', 'Implemented the outline.');
+    await expectSelected('simplify');
+    await flow.completeSimplify();
+    await expectSelected('review');
+    await flow.completeFileStep('review', 'review.md', PASS_REVIEW);
     await expectSelected('commit');
   });
 });
@@ -2104,7 +2305,6 @@ describe('flow command output', () => {
       'Runner: claude',
       'Skill: spok-create-research-questions',
       'Model: opus',
-      'Effort: medium',
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
       `Expected output: ${path.join(flow.taskDir, 'research-questions.md')}`,
     ]);
@@ -2154,10 +2354,10 @@ describe('auto flow command output', () => {
       'Profile: auto',
       'Runner: omp',
       'Skill: spok-create-research-questions',
-      'Model: openai-codex/gpt-5.6-sol',
-      'Effort: medium',
+      'Model: openai-codex/gpt-6.1-sol',
+      'Effort: xhigh',
       'Policy: auto-v1',
-      'Rejected: codex gpt-5.6-sol medium — codex login status reported: Not logged in',
+      'Rejected: codex gpt-6.1-sol xhigh — codex login status reported: Not logged in',
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
       `Expected output: ${path.join(flow.taskDir, 'research-questions.md')}`,
     ]);
@@ -2218,9 +2418,9 @@ describe('auto flow current route output', () => {
       'Skill: spok-create-research-questions',
       'Policy: auto-v1',
       'Degraded: No explicit auto candidate is eligible; running on the current harness whose model identity is unavailable.',
-      'Rejected: codex gpt-5.6-sol medium — codex is not installed or not on PATH.',
-      'Rejected: omp openai-codex/gpt-5.6-sol medium — omp is not installed or not on PATH.',
-      'Rejected: claude opus medium — claude auth status --json reports loggedIn is not true.',
+      'Rejected: codex gpt-6.1-sol xhigh — codex is not installed or not on PATH.',
+      'Rejected: omp openai-codex/gpt-6.1-sol xhigh — omp is not installed or not on PATH.',
+      'Rejected: claude opus — claude auth status --json reports loggedIn is not true.',
       `Argument: ${path.join(flow.taskDir, 'ticket.md')}`,
       `Expected output: ${path.join(flow.taskDir, 'research-questions.md')}`,
     ]);
@@ -2325,7 +2525,7 @@ describe('flow command output details', () => {
   });
 
   it('prints completion in text mode', async () => {
-    await flow.completeThroughImplement();
+    await flow.completeThroughReview();
 
     await flowCompleteCommand(flow.taskDir, {
       step: 'commit',
@@ -2346,7 +2546,6 @@ describe('flow command output details', () => {
         id: 'research-questions',
         runner: 'claude',
         model: 'opus',
-        effort: 'medium',
       },
     });
     expectStepRouting(response.steps);
@@ -2423,7 +2622,7 @@ async function advanceToImplement(flow: FlowHarness): Promise<void> {
 
 async function advanceLegacyToCommit(flow: FlowHarness, workRoot: string): Promise<void> {
   await advanceToImplement(flow);
-  await seedLegacyImplementation(flow.taskDir, workRoot);
+  await seedLegacyThroughReview(flow.taskDir, workRoot);
 }
 
 describe('work root attribution', () => {
@@ -2556,8 +2755,8 @@ describe('commit SHA verification', () => {
   });
 
   it('warns and accepts any SHA when legacy state recorded no work root', async () => {
-    await flow.completeThroughImplement();
-    await seedLegacyImplementation(flow.taskDir);
+    await advanceToImplement(flow);
+    await seedLegacyThroughReview(flow.taskDir);
 
     const next = await getFlowNext(flow.taskDir);
     expect(next.step?.id).toBe('commit');
@@ -2569,8 +2768,8 @@ describe('commit SHA verification', () => {
   });
 
   it('verifies and records an explicitly supplied work root for legacy state', async () => {
-    await flow.completeThroughImplement();
-    await seedLegacyImplementation(flow.taskDir);
+    await advanceToImplement(flow);
+    await seedLegacyThroughReview(flow.taskDir);
 
     const result = await completeFlowStep(flow.taskDir, {
       step: 'commit',

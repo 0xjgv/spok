@@ -12,10 +12,12 @@ export type AutoModel =
   | 'sonnet'
   | 'opus'
   | 'fable'
-  | 'gpt-5.6-terra'
-  | 'gpt-5.6-sol'
-  | 'openai-codex/gpt-5.6-sol'
-  | 'openai-codex/gpt-5.6-terra';
+  | 'gpt-6.1-sol'
+  | 'gpt-6.1-terra'
+  | 'gpt-6-astra'
+  | 'openai-codex/gpt-6.1-sol'
+  | 'openai-codex/gpt-6.1-terra'
+  | 'openai-codex/gpt-6-astra';
 export type AutoEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type ModelControl = 'selectable' | 'fixed-known' | 'fixed-unknown';
 export type DegradedCode = 'model_identity_unavailable';
@@ -73,40 +75,56 @@ interface AutoRoute extends AutoCandidate {
   route: AutoRouteRecord;
 }
 
-const SOL = 'openai-codex/gpt-5.6-sol';
-const TERRA = 'openai-codex/gpt-5.6-terra';
+const SOL = 'openai-codex/gpt-6.1-sol';
+const TERRA = 'openai-codex/gpt-6.1-terra';
+const ASTRA = 'openai-codex/gpt-6-astra';
 
-/** Ordered candidates per step. OMP always follows the Codex candidate it mirrors. */
+/** Ordered candidates per step, RPI 0.10.0 cross-harness pick first. OMP always follows the Codex candidate it mirrors. */
 export const AUTO_V1_CANDIDATES_BY_ID = {
   'research-questions': [
-    { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-    { runner: 'omp', model: SOL, effort: 'medium' },
-    { runner: 'claude', model: 'opus', effort: 'medium' },
+    { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+    { runner: 'omp', model: SOL, effort: 'xhigh' },
+    { runner: 'claude', model: 'opus' },
   ],
   research: [
-    { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-    { runner: 'omp', model: SOL, effort: 'medium' },
-    { runner: 'claude', model: 'sonnet', effort: 'medium' },
+    { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+    { runner: 'omp', model: SOL, effort: 'high' },
+    { runner: 'claude', model: 'opus' },
+  ],
+  'cause-check': [
+    { runner: 'claude', model: 'opus' },
+    { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+    { runner: 'omp', model: SOL, effort: 'xhigh' },
   ],
   'design-discussion': [
-    { runner: 'claude', model: 'fable', effort: 'xhigh' },
-    { runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
-    { runner: 'omp', model: SOL, effort: 'max' },
+    { runner: 'claude', model: 'opus', effort: 'xhigh' },
+    { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+    { runner: 'omp', model: SOL, effort: 'xhigh' },
   ],
   'structure-outline': [
-    { runner: 'claude', model: 'fable', effort: 'xhigh' },
-    { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-    { runner: 'omp', model: SOL, effort: 'xhigh' },
+    { runner: 'claude', model: 'opus', effort: 'high' },
+    { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+    { runner: 'omp', model: SOL, effort: 'high' },
   ],
   implement: [
-    { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+    { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
     { runner: 'omp', model: SOL, effort: 'xhigh' },
-    { runner: 'claude', model: 'opus', effort: 'medium' },
+    { runner: 'claude', model: 'opus' },
+  ],
+  simplify: [
+    { runner: 'claude', model: 'opus', effort: 'high' },
+    { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+    { runner: 'omp', model: SOL, effort: 'high' },
+  ],
+  review: [
+    { runner: 'codex', model: 'gpt-6-astra', effort: 'high' },
+    { runner: 'omp', model: ASTRA, effort: 'high' },
+    { runner: 'claude', model: 'opus', effort: 'high' },
   ],
   commit: [
-    { runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
-    { runner: 'omp', model: TERRA, effort: 'low' },
-    { runner: 'claude', model: 'haiku', effort: 'low' },
+    { runner: 'codex', model: 'gpt-6.1-terra', effort: 'medium' },
+    { runner: 'omp', model: TERRA, effort: 'medium' },
+    { runner: 'claude', model: 'sonnet' },
   ],
 } satisfies Record<string, readonly AutoCandidate[]>;
 

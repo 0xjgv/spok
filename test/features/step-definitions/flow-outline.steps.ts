@@ -68,21 +68,17 @@ Given('the outline flow saved graph contains the {string} step', async function 
   await snapshotTaskFiles(this);
 });
 
-Given('the outline flow saved graph is a finished legacy flow', async function (this: OutlineWorld) {
-  const ids = [
-    'validate-problem', 'research-questions', 'research', 'design-discussion', 'structure-outline',
-    'design-review', 'implement', 'simplify', 'validate', 'commit', 'self-learn',
-  ];
+async function writeFinishedFlow(world: OutlineWorld, ids: string[]): Promise<void> {
   const completedAt = new Date().toISOString();
   const state = {
     version: 2,
     profile: 'claude',
-    taskDir: this.flowTaskDir,
+    taskDir: world.flowTaskDir,
     status: 'complete',
     steps: ids.map((id) => ({ id, status: 'completed', result: { summary: 'Done.', completedAt } })),
     repairAttempts: 0,
     execution: {
-      workRoot: this.projectDir,
+      workRoot: world.projectDir,
       branch: 'main',
       baselineHead: 'a'.repeat(40),
       baselineChanges: {},
@@ -91,8 +87,21 @@ Given('the outline flow saved graph is a finished legacy flow', async function (
     createdAt: completedAt,
     updatedAt: completedAt,
   };
-  await fs.writeFile(path.join(this.flowTaskDir, 'workflow-state.json'), JSON.stringify(state));
-  await snapshotTaskFiles(this);
+  await fs.writeFile(path.join(world.flowTaskDir, 'workflow-state.json'), JSON.stringify(state));
+  await snapshotTaskFiles(world);
+}
+
+Given('the outline flow saved graph is a finished legacy flow', async function (this: OutlineWorld) {
+  await writeFinishedFlow(this, [
+    'validate-problem', 'research-questions', 'research', 'design-discussion', 'structure-outline',
+    'design-review', 'implement', 'simplify', 'validate', 'commit', 'self-learn',
+  ]);
+});
+
+Given('the outline flow saved graph is a finished six-step flow', async function (this: OutlineWorld) {
+  await writeFinishedFlow(this, [
+    'research-questions', 'research', 'design-discussion', 'structure-outline', 'implement', 'commit',
+  ]);
 });
 
 When('I request the outline flow status', async function (this: OutlineWorld) {

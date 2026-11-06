@@ -94,6 +94,15 @@ async function existingEntry(file: string) {
   });
 }
 
+/** Skills the steps after the worktree is created run: implement, simplify, review (with repair), commit. */
+const EXECUTION_SKILL_NAMES = [
+  'spok-implement-plan',
+  'spok-simplify',
+  'spok-review-correctness',
+  'spok-repair',
+  'spok-ci-commit',
+] as const;
+
 async function provisionExecutionSkills(workRoot: string): Promise<void> {
   for (const tool of ['.agents', '.claude']) {
     const catalog = path.join(workRoot, tool, 'skills');
@@ -107,7 +116,7 @@ async function provisionExecutionSkills(workRoot: string): Promise<void> {
     if ((await existingEntry(path.dirname(catalog)))?.isSymbolicLink()) {
       throw new Error(`Cannot provision execution skills through symbolic-link directory: ${path.dirname(catalog)}`);
     }
-    const installed = await installVendoredSkills(workRoot, tool);
+    const installed = await installVendoredSkills(workRoot, tool, undefined, EXECUTION_SKILL_NAMES);
     if (installed.skipped || installed.installedSkills.length === 0) {
       throw new Error(`Cannot provision execution skills at ${catalog}: ${installed.reason ?? 'no skills installed'}`);
     }

@@ -99,14 +99,6 @@ async function approveStagedReview(world: SkillArtifactWorld, gated: RunCLIResul
   return approved;
 }
 
-async function runStagedFlowCompleteApproved(
-  world: SkillArtifactWorld,
-  step: string,
-  args: readonly string[]
-): Promise<RunCLIResult> {
-  return approveStagedReview(world, await runStagedFlowComplete(world, step, args));
-}
-
 Given('a new project', async function (this: SkillArtifactWorld) {
   this.projectDir = path.join(os.tmpdir(), `spok-acceptance-${randomUUID()}`);
   this.codexHome = path.join(this.projectDir, 'codex-home');
@@ -129,12 +121,12 @@ Given('the project directory is the isolated home', function (this: SkillArtifac
   process.env.USERPROFILE = this.projectDir;
 });
 
-Given('retired create-plan and custom skills exist for Claude and Codex', async function (
+Given('retired and custom skills exist for Claude and Codex', async function (
   this: SkillArtifactWorld
 ) {
   assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
   for (const tool of ['.claude', '.agents']) {
-    for (const skill of ['spok-create-plan', 'spok-custom', 'personal-skill']) {
+    for (const skill of ['spok-create-plan', 'spok-self-learn', 'spok-custom', 'personal-skill']) {
       const skillDir = path.join(this.projectDir, tool, 'skills', skill);
       await fs.mkdir(path.join(skillDir, 'references'), { recursive: true });
       await fs.writeFile(path.join(skillDir, 'SKILL.md'), `# ${skill}\n`);
@@ -182,11 +174,11 @@ Given(
     const ompModels = JSON.stringify({
       models: [
         {
-          selector: 'openai-codex/gpt-5.6-sol',
+          selector: 'openai-codex/gpt-6.1-sol',
           thinking: ['low', 'medium', 'high', 'xhigh', 'max'],
         },
         {
-          selector: 'openai-codex/gpt-5.6-terra',
+          selector: 'openai-codex/gpt-6.1-terra',
           thinking: ['low', 'medium', 'high', 'xhigh', 'max'],
         },
       ],
@@ -282,27 +274,44 @@ Given('a staged flow task in a primary checkout reached through an alias', async
   await fs.writeFile(path.join(this.flowTaskDir, 'ticket.md'), '# Chunk One\n');
 });
 
+const STAGED_PHASES = [
+  ['research-questions', 'research-questions.md', '# Research Questions\n'],
+  ['research', 'research.md', '# Research\n'],
+  ['cause-check', path.join('evidence', 'causal-paths.md'), 'N/A: no defect\n'],
+  ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
+  ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
+] as const;
+
+/** Completes the first `count` planning phases, approving the design gate when it asks. */
+async function completeStagedPhases(world: SkillArtifactWorld, count: number): Promise<void> {
+  assert.ok(world.projectDir, 'projectDir must be set by Given a new project');
+  assert.ok(world.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+  for (const [step, filename, content] of STAGED_PHASES.slice(0, count)) {
+    const output = path.join(world.flowTaskDir, filename);
+    await fs.mkdir(path.dirname(output), { recursive: true });
+    await fs.writeFile(output, content, 'utf-8');
+    const result = await runCLI(
+      ['flow', 'complete', world.flowTaskDir, '--step', step, '--output', output, '--json'],
+      { cwd: world.projectDir }
+    );
+    assert.equal(result.exitCode, 0, result.stdout + result.stderr);
+    if (JSON.parse(result.stdout).question) await approveStagedReview(world, result);
+  }
+}
+
 Given(
   'the staged flow task is completed through research',
   { timeout: 15_000 },
   async function (this: SkillArtifactWorld) {
-    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
-    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
+    await completeStagedPhases(this, 2);
+  }
+);
 
-    const completedSteps = [
-      ['research-questions', 'research-questions.md', '# Research Questions\n'],
-      ['research', 'research.md', '# Research\n'],
-    ] as const;
-
-    for (const [step, filename, content] of completedSteps) {
-      const output = path.join(this.flowTaskDir, filename);
-      await fs.writeFile(output, content, 'utf-8');
-      const result = await runCLI(
-        ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
-        { cwd: this.projectDir }
-      );
-      await approveStagedReview(this, result);
-    }
+Given(
+  'the staged flow task is completed through cause check',
+  { timeout: 15_000 },
+  async function (this: SkillArtifactWorld) {
+    await completeStagedPhases(this, 3);
   }
 );
 
@@ -359,25 +368,7 @@ Given(
   'the staged flow task is completed through structure outline',
   { timeout: 15_000 },
   async function (this: SkillArtifactWorld) {
-    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
-    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
-
-    const completedSteps = [
-      ['research-questions', 'research-questions.md', '# Research Questions\n'],
-      ['research', 'research.md', '# Research\n'],
-      ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
-      ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
-    ] as const;
-
-    for (const [step, filename, content] of completedSteps) {
-      const output = path.join(this.flowTaskDir, filename);
-      await fs.writeFile(output, content, 'utf-8');
-      const result = await runCLI(
-        ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
-        { cwd: this.projectDir }
-      );
-      await approveStagedReview(this, result);
-    }
+    await completeStagedPhases(this, STAGED_PHASES.length);
   }
 );
 
@@ -385,25 +376,7 @@ Given(
   'the staged flow task is ready to implement',
   { timeout: 15_000 },
   async function (this: SkillArtifactWorld) {
-    assert.ok(this.projectDir, 'projectDir must be set by Given a new project');
-    assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
-
-    const completedSteps = [
-      ['research-questions', 'research-questions.md', '# Research Questions\n'],
-      ['research', 'research.md', '# Research\n'],
-      ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
-      ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
-    ] as const;
-
-    for (const [step, filename, content] of completedSteps) {
-      const output = path.join(this.flowTaskDir, filename);
-      await fs.writeFile(output, content, 'utf-8');
-      const result = await runCLI(
-        ['flow', 'complete', this.flowTaskDir, '--step', step, '--output', output, '--json'],
-        { cwd: this.projectDir }
-      );
-      await approveStagedReview(this, result);
-    }
+    await completeStagedPhases(this, STAGED_PHASES.length);
   }
 );
 
@@ -443,18 +416,23 @@ Given(
   }
 );
 
-async function stageFlowThroughImplement(taskDir: string): Promise<void> {
+/** A legacy-style state with every step before commit completed; commit is next. */
+async function stageFlowThroughReview(taskDir: string): Promise<void> {
   const completedAt = '2026-01-01T00:00:00.000Z';
   const fileSteps = [
     ['research-questions', 'research-questions.md', '# Research Questions\n'],
     ['research', 'research.md', '# Research\n'],
+    ['cause-check', path.join('evidence', 'causal-paths.md'), 'N/A: no defect\n'],
     ['design-discussion', 'design-discussion.md', '# Design Discussion\n'],
     ['structure-outline', 'structure-outline.md', '# Structure Outline\n'],
   ] as const;
+  const review = path.join(taskDir, 'review.md');
 
   for (const [, filename, content] of fileSteps) {
+    await fs.mkdir(path.dirname(path.join(taskDir, filename)), { recursive: true });
     await fs.writeFile(path.join(taskDir, filename), content, 'utf-8');
   }
+  await fs.writeFile(review, '---\ntype: correctness-review\nverdict: PASS\n---\n', 'utf-8');
 
   await fs.writeFile(
     path.join(taskDir, 'workflow-state.json'),
@@ -477,6 +455,8 @@ async function stageFlowThroughImplement(taskDir: string): Promise<void> {
             status: 'completed',
             result: { summary: 'Implemented the structure outline.', completedAt },
           },
+          { id: 'simplify', status: 'completed', result: { summary: 'No-op.', completedAt } },
+          { id: 'review', status: 'completed', result: { output: review, completedAt } },
         ],
         createdAt: completedAt,
         updatedAt: completedAt,
@@ -494,11 +474,14 @@ const SELECTABLE_ROUTE = { policy: 'auto-v1', modelControl: 'selectable', reject
 
 /** Policy-consistent routes for an all-available machine, one per completed step. */
 const STAGED_AUTO_ROUTES: Record<string, StagedRoute> = {
-  'research-questions': { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-  research: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-  'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
-  'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
-  implement: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+  'research-questions': { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+  research: { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+  'cause-check': { runner: 'claude', model: 'opus' },
+  'design-discussion': { runner: 'claude', model: 'opus', effort: 'xhigh' },
+  'structure-outline': { runner: 'claude', model: 'opus', effort: 'high' },
+  implement: { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+  simplify: { runner: 'claude', model: 'opus', effort: 'high' },
+  review: { runner: 'codex', model: 'gpt-6-astra', effort: 'high' },
 };
 
 const DEGRADED_CURRENT_ROUTE = {
@@ -507,22 +490,21 @@ const DEGRADED_CURRENT_ROUTE = {
   rejected: [
     {
       runner: 'codex',
-      model: 'gpt-5.6-sol',
-      effort: 'medium',
+      model: 'gpt-6.1-sol',
+      effort: 'xhigh',
       code: 'executable_missing',
       reason: 'codex is not installed or not on PATH.',
     },
     {
       runner: 'omp',
-      model: 'openai-codex/gpt-5.6-sol',
-      effort: 'medium',
+      model: 'openai-codex/gpt-6.1-sol',
+      effort: 'xhigh',
       code: 'executable_missing',
       reason: 'omp is not installed or not on PATH.',
     },
     {
       runner: 'claude',
       model: 'opus',
-      effort: 'medium',
       code: 'not_authenticated',
       reason: 'claude auth status --json reports loggedIn is not true.',
     },
@@ -562,9 +544,9 @@ function jsonFlowStep(
   return step;
 }
 
-Given('the staged flow task is completed through implement', async function (this: SkillArtifactWorld) {
+Given('the staged flow task is ready to commit', async function (this: SkillArtifactWorld) {
   assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
-  await stageFlowThroughImplement(this.flowTaskDir);
+  await stageFlowThroughReview(this.flowTaskDir);
 });
 
 Given('the staged flow task has the separate work root recorded', async function (
@@ -592,10 +574,10 @@ Given('the staged auto flow task is ready on a degraded current route', async fu
 });
 
 Given(
-  'the staged auto flow task is completed through implement on persisted routes',
+  'the staged auto flow task is ready to commit on persisted routes',
   async function (this: SkillArtifactWorld) {
     assert.ok(this.flowTaskDir, 'flowTaskDir must be set by Given a staged flow task');
-    await stageFlowThroughImplement(this.flowTaskDir);
+    await stageFlowThroughReview(this.flowTaskDir);
     const statePath = path.join(this.flowTaskDir, 'workflow-state.json');
     const state = JSON.parse(await fs.readFile(statePath, 'utf-8')) as {
       steps: Array<Record<string, unknown> & { id: string }>;
@@ -1294,7 +1276,7 @@ When('I complete implementation using the work-root spelling {string}', async fu
     assert.equal(spelling, 'padded');
     workRoot = `  ${this.flowWorkRoot}  `;
   }
-  this.cliResult = await runStagedFlowCompleteApproved(this, 'implement', [
+  this.cliResult = await runStagedFlowComplete(this, 'implement', [
     '--summary', 'No source changes needed.', '--work-root', workRoot,
   ]);
 });
@@ -1334,7 +1316,7 @@ Then('the sibling execution retains the original worktree and commit', async fun
 When('I implement a new owned file in the recorded work root', async function (this: SkillArtifactWorld) {
   assert.ok(this.flowWorkRoot);
   await fs.writeFile(path.join(this.flowWorkRoot, 'owned.txt'), 'chunk implementation\n', 'utf-8');
-  this.cliResult = await runStagedFlowCompleteApproved(this, 'implement', ['--summary', 'Created owned.txt', '--changed-path', 'owned.txt']);
+  this.cliResult = await runStagedFlowComplete(this, 'implement', ['--summary', 'Created owned.txt', '--changed-path', 'owned.txt']);
   assert.equal(this.cliResult.exitCode, 0, this.cliResult.stdout + this.cliResult.stderr);
 });
 
@@ -1351,7 +1333,7 @@ Then('the execution work root can discover the vendored skills', async function 
   assert.ok(this.flowWorkRoot);
   for (const tool of ['.agents', '.claude']) {
     const skill = await fs.readFile(path.join(this.flowWorkRoot, tool, 'skills/spok-implement-plan/SKILL.md'), 'utf-8');
-    assert.ok(skill.includes('Implement each phase directly'));
+    assert.ok(skill.includes('spok-implementer-agent'));
   }
 });
 

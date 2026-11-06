@@ -121,6 +121,16 @@ describe('skill-generation', () => {
       expect(content).toContain('- Packet: spok/evidence/<change>/<chunk>/');
     });
 
+    it('should mark ticket claims as observed or hypothesis in the generated apply ticket template', () => {
+      const [apply] = getSkillTemplates(['apply']);
+      const content = generateSkillContent(apply.template, '1.3.1');
+
+      expect(content).toContain('## Claims');
+      expect(content).toContain('- observed: <what was seen');
+      expect(content).toContain('- hypothesis: <a suspected cause');
+      expect(content).toContain('Mark every claim as observed or hypothesis. A cause nobody has checked is a hypothesis.');
+    });
+
     it('should state the commit constraint as a rule in the generated apply ticket template', () => {
       const [apply] = getSkillTemplates(['apply']);
       const content = generateSkillContent(apply.template, '1.3.1');

@@ -1,8 +1,8 @@
 ---
 name: spok-flow
-description: end-to-end research questions → research → design discussion → outline → implement → commit workflow for a single chunk, with a user review after every phase and native, hybrid, or automatic model routing. Driven by spok-apply.
+description: end-to-end research questions → research → cause check → design discussion (the one human gate) → outline → implement → simplify → correctness review → commit workflow for a single chunk, with native, hybrid, or automatic model routing. Driven by spok-apply.
 argument-hint: "[hybrid|auto] <task-dir> (absolute path to a pre-staged chunk directory containing ticket.md)"
-version: 0.9.0
+version: 0.10.0
 ---
 # Flow Instructions
 
@@ -51,12 +51,13 @@ If it returns `state: "blocked"`, halt and report the `reason` exactly. If it re
 ### Question-handling loop
 
 Only a CLI response with `state: "needs-input"` authorizes a user question.
-The user reviews after every phase, and the CLI owns those gates: when a gated
-phase (`research-questions`, `research`, `design-discussion`, `structure-outline`,
-`implement`) completes, `spok flow complete` returns `needs-input` with a review
-question whose id is `<step-id>-review-<n>`. These review questions ARE the phase
-gates; present them through this loop and never add a gate of your own. The
-`commit` step has no gate. A child can also raise open questions through its
+The design discussion is the one human gate, and the CLI owns it: its open design
+questions arrive as child question packets, and when `design-discussion`
+completes, `spok flow complete` returns `needs-input` with a review question
+whose id is `design-discussion-review-<n>`. Present these through this loop and
+never add a gate of your own. Every other step advances on completion;
+implement, simplify, review, and commit run unattended. A child can also raise
+open questions through its
 `NEEDS_INPUT` marker. Do not ask a question because a child expressed uncertainty
 in prose; the durable CLI state is the source of truth.
 
@@ -94,8 +95,8 @@ For each `needs-input` response:
    When the user picks Request changes without giving text, ask them for the
    feedback (a follow-up for that same review question is allowed in this loop)
    before calling `spok flow answer`; the CLI blocks a bare `revise`.
-   An `approve` answer to a review question can be blocked because the artifact or
-   implementation changed after it was submitted. Report that `reason` exactly and
+   An `approve` answer to a review question can be blocked because the design
+   artifact disappeared after it was submitted. Report that `reason` exactly and
    ask the same review question again; the user may answer with feedback. This is
    the only blocked answer that does not halt the flow.
 
@@ -289,12 +290,26 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      when supplied, must equal that root; never use it to change repositories.
      For `implement`, pass the child's full current chunk path list
      with `--changed-path <paths...>` using an argv-capable process call. This is
-     cumulative after a resume or a review revision, not only paths edited during this dispatch.
+     cumulative after a resume, not only paths edited during this dispatch.
      Never interpolate paths into a shell command. Omit the flag only for a no-op
      with no changed paths. The CLI compares this list with actual changes against
      its baseline and blocks a mismatch; it supplies the resulting exact allowlist
      to subsequent steps. Retain every changed path and exact check exit code
      in the implementation summary.
+
+   - `simplify`:
+
+     ```bash
+     spok flow complete "<task-dir>" --step "simplify" --summary "<summary>" --json
+     ```
+
+     The CLI blocks when the working tree changed any path outside the
+     implementation allowlist. A no-op simplification is success.
+
+   - `review` is file-producing: the CLI verifies `review.md` and requires its
+     frontmatter verdict. `verdict: FAIL` or an unreadable verdict blocks; report
+     the `reason` exactly. The review step stays ready, so after the user fixes the
+     cause, `spok flow next` dispatches a fresh review.
 
    - `commit`:
 
@@ -306,10 +321,10 @@ Then repeat this loop until the CLI returns `state: "complete"`:
      and blocks when it is not a commit reachable from `HEAD` there. Report such
      a block exactly; do not retry with a different SHA.
 
-   A gated phase does not complete on this call: the CLI verifies the artifact or
-   summary, then returns `state: "needs-input"` with the review question. Run the
-   question-handling loop with it. The phase is recorded as completed only when the
-   reviewer approves.
+   `design-discussion` does not complete on this call: the CLI verifies the
+   artifact, then returns `state: "needs-input"` with the design review question.
+   Run the question-handling loop with it. The design is recorded as completed only
+   when the user approves.
 
 6. If `complete` returns `state: "blocked"`, halt and report the `reason` exactly.
 
@@ -322,7 +337,7 @@ into `step.prompt` by the CLI. Do not restate them.
 <guidance>
 ## Important guidelines
 
-- Ask the user only through the question-handling loop for a CLI-recorded question. The CLI's review questions are the phase gates; never add a gate of your own.
+- Ask the user only through the question-handling loop for a CLI-recorded question. The CLI's design review question is the only gate; never add a gate of your own.
 - Run step subagents **sequentially in the foreground** because each step depends on the previous step's validated artifact or recorded result.
 - Let `spok flow next` choose the next step. Let `spok flow complete` validate step completion.
 - Use a **TaskList** to track the steps and their status.

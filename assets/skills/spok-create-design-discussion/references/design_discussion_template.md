@@ -64,24 +64,46 @@ sha: [result of git rev-parse HEAD]
 
 ...
 
+## Proposed End State Architecture
+
+[concise outline of the proposed end state with description, diagrams, pseudocode, or `diff` blocks according to the visual guidance]
+
 ## Smallest Viable Control
 
+- Fix location: [the first wrong step from `evidence/causal-paths.md`, or `N/A: no defect`; steps below it get at most a guard]
 - Existing mechanisms: [relevant controls, state, platform or upstream guarantees, with evidence]
 - Smallest viable scope: [the bounded change and why it meets the behavior contract]
 - Alternatives compared: [reuse existing mechanisms versus adding a control; rejected tradeoffs]
 - Added cost: [justify added state, flags, or cross-service controls by the failure existing mechanisms cannot prevent, or state that none is needed]
+- Reopens if: [the observation that would move the decision]
 
-## Resolved Design Decisions
+## Design Questions
 
-### [decision title]
+[Every consequential question the user has not answered. Never resolve one yourself. Write `None.` once the user has answered all of them.]
 
-- Selected option: [resolved behavior, scope, API, UX, or tradeoff]
-- Basis: [autonomous choice or explicit user input, with evidence]
-- Rationale: [why this option fits the request and existing patterns]
-- Alternatives rejected: [options and their tradeoffs]
+### [question title]
+
+[the design question, and the observation that would change the pick]
+
+- Option A: [choice] — [consequence]. Rests on: [weakest premise] (verified|unverified)
+  [optional: short code snippet, diagram, or pseudocode]
+- Option B: [choice] — [consequence]. Rests on: [weakest premise] (verified|unverified)
+- ..
+
+Recommendation: [option and why, grounded in codebase conventions]
+
+[For a defect: give options at the writer, a shared boundary, and the reader; name the consumers each leaves wrong. Never recommend a location "whichever path" caused it.]
+
+## Resolved Design Questions
+
+[Empty in a new document. Only the user's answers move a question here.]
+
+### [question title]
+
+- Decision: [the option the user chose]
+- Rationale: [why this option fits the request, the evidence, and existing patterns; the user answer it follows]
+- Options not chosen: [each option and the brief reason it was discarded]
 - Boundaries and assumptions: [what this decision excludes and any remaining uncertainty]
-
-[Repeat for each consequential decision. Resolve decisions before finalizing; do not leave an unanswered question list or a recommendation awaiting approval.]
 
 ## System Design
 
@@ -100,5 +122,5 @@ sha: [result of git rev-parse HEAD]
 - Classification: [required or not-applicable, from the ticket]
 - Result: [for not-applicable, explain that no packet is needed; for required, record verified status]
 - Packet: [for required, repository-relative path and relative Markdown link to index.html]
-- Design decision: [for required, the autonomous target choice, rationale, and any explicit user input]
+- Design decision: [for required, the target choice, rationale, and the user answers it follows]
 - Verification: [for required, states and viewports rendered and inspected, plus results]

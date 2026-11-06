@@ -1,5 +1,5 @@
 Feature: Flow implementation artifact selection
-  Supported flows implement the reviewed structure outline and then commit.
+  Supported flows implement the reviewed structure outline, simplify, review, and then commit.
   Saved flows that include a removed step are rejected without changing their files,
   unless the saved flow already finished.
 
@@ -8,7 +8,7 @@ Feature: Flow implementation artifact selection
     And a staged flow task
     When I request the outline flow status
     Then the outline flow next step is "research-questions"
-    And the outline flow graph is "research-questions, research, design-discussion, structure-outline, implement, commit"
+    And the outline flow graph is "research-questions, research, cause-check, design-discussion, structure-outline, implement, simplify, review, commit"
 
   Scenario Outline: The saved graph selects the implementation artifact
     Given a new project
@@ -20,7 +20,7 @@ Feature: Flow implementation artifact selection
     And the outline flow explicitly selects "<artifact>"
     And the outline flow graph has "no" planning step
     When implementation is recorded as completed in the outline flow fixture
-    Then the outline flow next step is "commit"
+    Then the outline flow next step is "simplify"
     And the outline flow explicitly selects "<artifact>"
 
     Examples:
@@ -43,7 +43,6 @@ Feature: Flow implementation artifact selection
       | plan             |
       | validate-problem |
       | design-review    |
-      | simplify         |
       | validate         |
       | repair           |
       | self-learn       |
@@ -55,6 +54,14 @@ Feature: Flow implementation artifact selection
     When I request the outline flow status
     Then the outline flow state is "complete" with its recorded execution
     And the outline flow task files are unchanged
+    When I request the outline flow next step
+    Then the outline flow state is "complete" with its recorded execution
+    And the outline flow task files are unchanged
+
+  Scenario: A finished flow from the earlier six-step graph stays complete
+    Given a new project
+    And a staged flow task
+    And the outline flow saved graph is a finished six-step flow
     When I request the outline flow next step
     Then the outline flow state is "complete" with its recorded execution
     And the outline flow task files are unchanged

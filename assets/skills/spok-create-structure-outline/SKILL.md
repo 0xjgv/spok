@@ -1,13 +1,24 @@
 ---
 name: spok-create-structure-outline
 description: create executable implementation phases based on research and resolved design decisions
+argument-hint: <task-dir> (absolute task directory containing research.md and the user-resolved design-discussion.md)
+license: MIT
+metadata:
+  author: spok
+  version: "1.1"
 ---
 
 # Create Structure Outline
 
 You are creating the executable structure outline based on research findings and resolved
-design decisions. Flows implement the reviewed outline directly; do not defer required
+design decisions. Flows implement this outline directly; do not defer required
 behavior, interfaces, tests, or validation to a later plan.
+
+Build only on resolved decisions. Every design question in `design-discussion.md`
+was resolved by the user at the design gate. If you find a design question still
+open (an entry under `## Design Questions` other than `None.`, or a consequential
+choice the design leaves undecided), stop and return that question instead of an
+outline. Do not decide it yourself.
 
 ## Input
 
@@ -95,6 +106,7 @@ another repository or establish implementation execution metadata yourself.
    - A compact `### Change Outline`: prose first, then only the views that explain the phase - an optional `diff` file tree when file ownership matters, and focused views for key data structures, SQL tables, API contracts, or signature changes
    - Affected repository areas and their responsibilities, including interface inputs, outputs, error behavior, ownership, and cross-module wiring where relevant; record phase prerequisites without deferring a phase's verification to later work
    - Concrete test changes covering the required behavior and failure cases. Ground test locations, fixtures, and conventions in actual repository tests; label proposed new files as new. If no relevant tests exist, inspect the repository's test setup and specify an executable approach rather than inventing an existing pattern
+   - List every phase title under `## Implementation Overview` as `- [ ] Phase N: [Title]`. Implementation ticks each one to `- [x]` and marks the phase heading ✅ when its verification passes, so leave them all unchecked
    - `### Validation` with `#### Automated Verification` checkboxes containing exact commands, working directories, and expected outcomes. Verify command names and options against current repository scripts, configuration, or tool help; cite that evidence. Research notes alone do not prove a command exists. Proposed new tests may be named, but their runner must be verified
    - If no runnable command can be confirmed for a required check, state that plainly and identify the missing check as a blocker; do not hedge with a conditional such as "if configured"
    - `#### Manual Verification` only for checks requiring human judgment that cannot be automated
@@ -104,8 +116,9 @@ another repository or establish implementation execution metadata yourself.
    choices as blockers; do not silently decide user intent or describe a blocked outline
    as implementation-ready. Inside a flow, use its supplied durable question protocol
    when clarification is needed, ending the response with its `NEEDS_INPUT` marker and
-   consuming durable answers on redispatch. Standalone, ask the user directly and
-   keep the outline blocked until the consequential choice is resolved.
+   consuming durable answers on redispatch; when running under `spok flow`, raise it
+   through the flow's question packet. Standalone, ask the user directly with
+   AskUserQuestion and keep the outline blocked until the consequential choice is resolved.
 
 6. **Document what's out of scope**:
    - What we're NOT doing in this plan
@@ -193,6 +206,7 @@ of the codebase and testing patterns, and be clear about which tests are manual 
 
 Chronology does not determine authority. Unresolved or contradictory decisions block
 readiness until reconciled against artifact authority and explicit user intent. Record
-evidence-backed resolutions and resolve intent ambiguity using the question handling
-above, without adding a human approval gate. Never silently override the reviewed design.
+evidence-backed resolutions of facts. A contradiction that needs user intent is an open
+design question: stop and return it as described above. Never silently override the
+user-resolved design.
 </guidance>

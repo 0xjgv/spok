@@ -49,6 +49,9 @@ describe('execution skill catalogs', () => {
       const skill = `${tool}/skills/spok-implement-plan/SKILL.md`;
       expect(await fs.readFile(path.join(execution.workRoot, skill), 'utf8')).toContain('spok-implement-plan');
       expect(Object.hasOwn(execution.baselineChanges, skill)).toBe(true);
+      expect((await fs.readdir(path.join(execution.workRoot, tool, 'skills'))).sort()).toEqual([
+        'spok-ci-commit', 'spok-implement-plan', 'spok-repair', 'spok-review-correctness', 'spok-simplify',
+      ]);
       await expect(fs.access(path.join(root, tool))).rejects.toThrow();
     }
     expect(await executionChanges(execution, taskDir)).toEqual([]);

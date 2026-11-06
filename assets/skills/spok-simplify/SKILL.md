@@ -1,35 +1,34 @@
 ---
 name: spok-simplify
-description: Behavior-preserving simplification of the current chunk — remove duplication, unnecessary abstraction, and dead code inside the chunk's diff, prove behavior with re-run checks, and return a structured summary. Invoked by spok-flow between implement and validate.
+description: Behavior-preserving simplification of the current chunk — remove duplication, unnecessary abstraction, and dead code inside the exact implementation allowlist, prove behavior with re-run checks, and return a structured summary. Invoked by spok-flow between implement and review.
 argument-hint: <task-dir> (absolute task directory; the CLI selects the implementation artifact)
 license: MIT
 metadata:
   author: spok
-  version: "2.0"
+  version: "2.1"
 ---
 # Simplify the Chunk Implementation
 
-You are running inside `spok-flow`, after `implement` and before `validate`. The
+You are running inside `spok-flow`, after `implement` and before `review`. The
 implemented behavior is fixed; your job is to reduce the chunk to the least code
-that keeps it. The `validate` step independently re-judges the result afterward,
-so your report cannot substitute for validation — but every claim in it must
-still be true.
+that keeps it. Preserve observable behavior and public interfaces. The `review`
+step independently judges correctness afterward, so your report cannot substitute
+for review — but every claim in it must still be true.
 
 ## Steps
 
 1. **Read the task context FULLY**:
    - The argument is the absolute path to the task directory. Read the exact
      absolute path in `Implementation artifact: <absolute path>` from
-     `step.prompt`: the reviewed `structure-outline.md` for every flow.
+     `step.prompt`: the `structure-outline.md` for every flow.
      A missing selection is a blocker; never infer selection
      from the presence of `plan.md`. Below, “plan” means the selected artifact.
-   - Read `ticket.md` and the resolved design discussion and passing design review
-     for intended behavior and review decisions. Missing review evidence is a
-     blocker. The design owns behavior and
+   - Read `ticket.md` and the user-resolved design discussion for intended
+     behavior. The design owns behavior and
      the outline owns executable decomposition. Ignore any unrelated stale `plan.md`.
      Use the selected artifact's automated verification commands.
-   - Use the execution work root and exact owned-path allowlist supplied by the
-     CLI in `step.prompt`. Run all source reads, edits, and commands there; the
+   - Use the execution work root and exact implementation allowlist supplied by the
+     CLI in `step.prompt` as your explicit scope. Run all source reads, edits, and commands there; the
      task directory may live elsewhere. Do not discover another repository or
      switch branches. Inspect `git status --short` and `git diff` for context,
      never as authority to expand the allowlist.
@@ -59,7 +58,7 @@ still be true.
    - dead code, unused exports, or stale comments the chunk introduced
    - code that can be deleted instead of generalized
 
-4. **Apply the objective**: preserve the validated behavior while minimizing
+4. **Apply the objective**: preserve the implemented behavior while minimizing
    concepts introduced, duplicate logic, public API surface, branching,
    indirection, dependencies, and total code.
    - A simplification pass must never leave the code more complex than it found
@@ -73,12 +72,12 @@ still be true.
      from the repository's manifest or the plan — never from a toolchain guess.
    - If a check fails after a simplification, revert that simplification. Do not
      fix forward into new behavior — that is implementation work, and it belongs
-     to `repair` or a new chunk.
+     to the review step's repair round or a new chunk.
 
 6. **Stay in your lane**:
    - Do not stage, commit, or push. The CLI verifies the source boundary at completion.
-   - Do not edit task artifacts (`ticket.md`, `structure-outline.md`, `plan.md`,
-     research, design, review, or validation documents).
+   - Do not edit paths outside the allowlist or any task artifact (`ticket.md`,
+     `structure-outline.md`, research, `evidence/`, design, or review documents).
    - Do not add dependencies.
 
 ## Output
@@ -87,15 +86,20 @@ Return a summary in this shape — `spok flow complete --summary` records it
 permanently:
 
 ```
+Resolved scope:
+- <the exact allowlist paths you treated as in scope>
+Fixes applied:
+- <finding → edit, with file paths> (or "None — implementation already minimal.")
+Candidates skipped:
+- <candidate and why: outside the allowlist, would add structure, or broke a check and was reverted>
+Changed paths:
+- <path relative to the work root, each inside the allowlist> (or "None.")
 Behavior preserved:
 - <exact command> — <actual result and exact exit code>
-Changes made:
-- <finding → edit, with file paths> (or "None — implementation already minimal.")
-Structural impact:
-- <net lines added/removed; public API changes; dependencies removed>
 Remaining concerns:
 - <duplication needing a broader refactor, complexity that could not be reduced, or "None.">
 ```
 
 Do not claim a check passed without naming the exact command that ran. If you
-changed nothing, state that no checks were re-run because no code changed.
+changed nothing, state that no checks were re-run because no code changed. A
+no-op is success, not a failure to report.

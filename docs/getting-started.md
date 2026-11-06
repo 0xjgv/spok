@@ -230,7 +230,7 @@ You: /spok-apply
 
 AI:  Using change: add-dark-mode
      Shipping chunk 1: Add theme context + CSS variables
-     [research → design → outline → design review → implement → simplify → validate → commit]
+     [research → cause check → design (gate) → outline → implement → simplify → review → commit]
      ✓ Chunk shipped.
      Remaining: 2/3. Next: Wire toggle component to localStorage.
 
@@ -245,7 +245,7 @@ AI:  Shipping chunk 3: Apply theme to remaining surfaces
      Remaining: 0/3. Run /spok-archive.
 ```
 
-Each invocation does one chunk, runs research → design → outline → design review → implement → simplify → validate → commit on it, and ticks the box.
+Each invocation does one chunk, runs research → cause check → design (gate) → outline → implement → simplify → review → commit on it, and ticks the box.
 
 ### 4. Archive
 

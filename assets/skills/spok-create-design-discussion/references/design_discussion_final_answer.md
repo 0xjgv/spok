@@ -2,12 +2,12 @@
 
 - Document: `<task-dir>/design-discussion.md`
 - Ticket: [ticket title](ticket URL if known, otherwise omit link)
-- Decisions: resolved, with rationale and rejected alternatives recorded in the document
+- Open design questions: [count, or "None"]
 
 ### Design
 
-- Smallest viable control: [selected existing mechanism or justified addition]
-- System and program changes: [concise description]
+- Smallest viable control: [fix location and the selected existing mechanism or justified addition, with the observation that places it]
+- Resolved questions: [each decision, in one line]
 - Visual evidence: [verified packet path and decision, or not applicable]
 
-Return the absolute document path to the flow. Do not introduce an approval gate or repeat resolved questions. If the agent elects to ask a question before completing the document, use the supplied question packet protocol instead of this completion template.
+Return the absolute document path to the flow. Under `spok flow`, the CLI asks the user to approve or revise the design next; do not ask for approval yourself. If a consequential question is still open, use the supplied question packet protocol instead of this completion template. Outside the flow, list every open question and ask the user to answer them before structure planning.

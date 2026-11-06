@@ -6,61 +6,69 @@ Feature: Tool skill artifacts
     When I initialize Spok for the tools "claude,codex"
     Then Spok creates skills under ".claude/skills"
     And Spok creates the workflow skill "spok-explore" under ".claude/skills"
-    And Spok creates the workflow skill "spok-validate-problem" under ".claude/skills"
-    And Spok creates the workflow skill "spok-self-learn" under ".claude/skills"
+    And Spok creates the workflow skill "spok-cause-check" under ".claude/skills"
+    And Spok creates the workflow skill "spok-review-correctness" under ".claude/skills"
     And Spok creates skills under ".agents/skills"
     And Spok creates the workflow skill "spok-explore" under ".agents/skills"
-    And Spok creates the workflow skill "spok-validate-problem" under ".agents/skills"
-    And Spok creates the workflow skill "spok-self-learn" under ".agents/skills"
+    And Spok creates the workflow skill "spok-cause-check" under ".agents/skills"
+    And Spok creates the workflow skill "spok-review-correctness" under ".agents/skills"
     And Spok does not create ".claude/commands"
     And Spok does not create ".codex"
     And Spok does not create command or prompt files for the selected tools
 
-  Scenario: CLI init omits the retired create-plan skill
+  Scenario: CLI init omits retired skills
     Given a new project
     And the project directory is the isolated home
     When I run the Spok CLI in the project with "init --tools claude,codex --force"
     Then the Spok CLI exits with code 0
-    And Spok creates the workflow skill "spok-review-design" under ".claude/skills"
-    And Spok creates the workflow skill "spok-review-design" under ".agents/skills"
+    And Spok creates the workflow skill "spok-review-correctness" under ".claude/skills"
+    And Spok creates the workflow skill "spok-review-correctness" under ".agents/skills"
     And Spok does not create ".claude/skills/spok-create-plan"
     And Spok does not create ".agents/skills/spok-create-plan"
+    And Spok does not create ".claude/skills/spok-self-learn"
+    And Spok does not create ".agents/skills/spok-review-design"
 
-  Scenario: CLI project update removes retired create-plan resources and preserves custom skills
+  Scenario: CLI project update removes retired skills and preserves custom skills
     Given a new project
     And the project directory is the isolated home
     When I run the Spok CLI in the project with "init --tools claude,codex --force"
     Then the Spok CLI exits with code 0
-    Given retired create-plan and custom skills exist for Claude and Codex
+    Given retired and custom skills exist for Claude and Codex
     When I run the Spok CLI in the project with "update --force"
     Then the Spok CLI exits with code 0
     And Spok does not create ".claude/skills/spok-create-plan"
     And Spok does not create ".agents/skills/spok-create-plan"
+    And Spok does not create ".claude/skills/spok-self-learn"
+    And Spok does not create ".agents/skills/spok-review-design"
     And custom skill contents are unchanged for Claude and Codex
 
-  Scenario: CLI global install removes retired create-plan resources and preserves custom skills
+  Scenario: CLI global install removes retired skills and preserves custom skills
     Given a new project
     And the project directory is the isolated home
-    And retired create-plan and custom skills exist for Claude and Codex
+    And retired and custom skills exist for Claude and Codex
     When I run the Spok CLI in the project with "skills install --tools claude,codex"
     Then the Spok CLI exits with code 0
-    And Spok creates the workflow skill "spok-review-design" under ".claude/skills"
-    And Spok creates the workflow skill "spok-review-design" under ".agents/skills"
+    And Spok creates the workflow skill "spok-review-correctness" under ".claude/skills"
+    And Spok creates the workflow skill "spok-review-correctness" under ".agents/skills"
     And Spok does not create ".claude/skills/spok-create-plan"
     And Spok does not create ".agents/skills/spok-create-plan"
+    And Spok does not create ".claude/skills/spok-self-learn"
+    And Spok does not create ".agents/skills/spok-review-design"
     And custom skill contents are unchanged for Claude and Codex
     And Spok does not create "spok"
 
-  Scenario: CLI global update removes retired create-plan resources and preserves custom skills
+  Scenario: CLI global update removes retired skills and preserves custom skills
     Given a new project
     And the project directory is the isolated home
-    And retired create-plan and custom skills exist for Claude and Codex
+    And retired and custom skills exist for Claude and Codex
     When I run the Spok CLI in the project with "update --global"
     Then the Spok CLI exits with code 0
-    And Spok creates the workflow skill "spok-review-design" under ".claude/skills"
-    And Spok creates the workflow skill "spok-review-design" under ".agents/skills"
+    And Spok creates the workflow skill "spok-review-correctness" under ".claude/skills"
+    And Spok creates the workflow skill "spok-review-correctness" under ".agents/skills"
     And Spok does not create ".claude/skills/spok-create-plan"
     And Spok does not create ".agents/skills/spok-create-plan"
+    And Spok does not create ".claude/skills/spok-self-learn"
+    And Spok does not create ".agents/skills/spok-review-design"
     And custom skill contents are unchanged for Claude and Codex
     And Spok does not create "spok"
 
@@ -182,20 +190,6 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "host-owned `general-purpose`"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow next --json is the source of truth"
 
-  Scenario: Design review makes the discussion the final design authority
-    Given a new project
-    When I initialize Spok for the tools "claude"
-    Then the workflow skill "spok-review-design" under ".claude/skills" mentions "Design discussion owns behavior, scope, APIs, UX, and tradeoffs."
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "Update `<task-dir>/design-discussion.md` first"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "then reconcile `<task-dir>/structure-outline.md`"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "type: design-review"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "verdict: PASS"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "verdict: FAIL"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "## Human Decisions Required"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "Do not read, create, or edit `<task-dir>/plan.md`"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "spok flow next"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "implementation readiness"
-
   Scenario: Apply exposes a hybrid Claude and Codex execution mode
     Given a new project
     When I initialize Spok for the tools "claude,codex"
@@ -250,7 +244,9 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "starting at the first unchecked item"
     And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Do not stage, commit, or push"
     And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "The flow's later commit step owns committing."
-    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Implement each phase directly in this agent."
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Launch one `spok-implementer-agent` per phase"
+    And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "Rerun the automated checks yourself."
+    And the workflow skill "spok-implement-plan" under ".claude/skills" does not mention "Implement each phase directly in this agent."
 
   Scenario: Visual chunks preserve verified evidence without required human review
     Given a new project
@@ -261,7 +257,8 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "open the generated `index.html`"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Print the absolute path"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "status back to `pending`"
-    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "no mandatory human approval"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Only the user resolves a design question."
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" does not mention "no mandatory human approval"
     And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Current"
     And the workflow skill resource "references/design_evidence_template.html" under "spok-create-design-discussion" in ".claude/skills" contains "Target"
 
@@ -298,7 +295,7 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-flow" under ".claude/skills" mentions "spok flow answer"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "response.question"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "redispatch the same step"
-    And the workflow skill "spok-flow" under ".claude/skills" mentions "These review questions ARE the phase"
+    And the workflow skill "spok-flow" under ".claude/skills" mentions "The design discussion is the one human gate"
     And the workflow skill "spok-flow" under ".claude/skills" does not mention "Do not ask for approval between stages."
     And the workflow skill "spok-flow" under ".claude/skills" does not mention "Raise questions or concerns about objectives, design, or plan to the user at any time"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Resolve code-answerable decisions from repository and research evidence."
@@ -311,6 +308,19 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Its existence marks this flow step complete."
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "System Design"
     And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "Program Design"
+
+  Scenario: Installed flow skills carry the RPI cause, review, and commit contracts
+    Given a new project
+    When I initialize Spok for the tools "claude"
+    Then the workflow skill "spok-cause-check" under ".claude/skills" mentions "<task-dir>/evidence/causal-paths.md"
+    And the workflow skill "spok-cause-check" under ".claude/skills" mentions "`N/A: no defect`"
+    And the workflow skill "spok-cause-check" under ".claude/skills" mentions "**Get the evidence first (Recommended)** or **Design without it**"
+    And the workflow skill "spok-create-design-discussion" under ".claude/skills" mentions "<task-dir>/evidence/causal-paths.md"
+    And the workflow skill "spok-create-structure-outline" under ".claude/skills" mentions "Build only on resolved decisions."
+    And the workflow skill "spok-review-correctness" under ".claude/skills" mentions "type: correctness-review"
+    And the workflow skill "spok-review-correctness" under ".claude/skills" mentions "Cap repairs at two rounds."
+    And the workflow skill "spok-repair" under ".claude/skills" mentions "`type: correctness-review` report"
+    And the workflow skill "spok-ci-commit" under ".claude/skills" mentions "Rerun the verification commands before committing"
 
   Scenario: Installed outlines distinguish missing checks and standalone questions
     Given a new project
@@ -332,7 +342,7 @@ Feature: Tool skill artifacts
     Given a new project
     When I initialize Spok for the tools "claude"
     Then the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "spok/changes/<change-slug>/tasks.md"
-    And the workflow skill "spok-apply" under ".claude/skills" mentions "research questions → research → design discussion → outline → implement → commit"
+    And the workflow skill "spok-apply" under ".claude/skills" mentions "research questions → research → cause check → design discussion → outline → implement → simplify → review → commit"
     And the workflow skill "spok-create-scoped-chunks" under ".claude/skills" mentions "/spok-apply <change-slug>"
     And the workflow skill resource "references/chunks_final_answer.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "/spok-apply <change-slug>"
     And the workflow skill resource "references/chunk_ticket_template.md" under "spok-create-scoped-chunks" in ".claude/skills" contains "spok/changes/<change-slug>/tasks.md"
@@ -345,7 +355,7 @@ Feature: Tool skill artifacts
     Given a new project
     And a separate flow work repository
     And a staged flow task
-    And the staged flow task is completed through implement
+    And the staged flow task is ready to commit
     And the staged flow task has the separate work root recorded
     When I run spok flow next as JSON for the staged task
     Then the Spok CLI exits with code 0
@@ -393,7 +403,7 @@ Feature: Tool skill artifacts
     Given a new project
     And a separate flow work repository
     And a staged flow task
-    And the staged flow task is completed through implement
+    And the staged flow task is ready to commit
     And the staged flow task has the separate work root recorded
     When I attempt the staged flow commit step with an unreachable work repository commit
     Then the Spok CLI exits with code 1
@@ -402,7 +412,7 @@ Feature: Tool skill artifacts
   Scenario: Legacy flow state warns when no work root was recorded
     Given a new project
     And a staged flow task
-    And the staged flow task is completed through implement
+    And the staged flow task is ready to commit
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Work root warning: No work root was recorded"
 
@@ -410,7 +420,7 @@ Feature: Tool skill artifacts
     Given a new project
     And a separate flow work repository
     And a staged flow task
-    And the staged flow task is completed through implement
+    And the staged flow task is ready to commit
     When I complete the staged flow commit step with the separate work root
     Then the Spok CLI exits with code 0
     And the staged flow commit records the separate work root
@@ -419,7 +429,7 @@ Feature: Tool skill artifacts
     Given a new project
     And a separate flow work repository
     And a staged flow task
-    And the staged flow task is completed through implement
+    And the staged flow task is ready to commit
     And the staged flow task has the separate work root recorded
     When I attempt the staged flow commit step with a conflicting work root
     Then the Spok CLI exits with code 1
@@ -432,22 +442,22 @@ Feature: Tool skill artifacts
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: research-questions"
     And the Spok CLI output contains "Model: opus"
-    And the Spok CLI output contains "Effort: medium"
+    And the Spok CLI output does not contain "Effort:"
 
-  Scenario: Flow next prints the Claude-routed model and effort for a max step
+  Scenario: Flow next prints the Claude-routed model and effort for the design step
     Given a new project
     And the Claude harness is active
     And a staged flow task
-    And the staged flow task is completed through research
+    And the staged flow task is completed through cause check
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: design-discussion"
-    And the Spok CLI output contains "Model: fable"
+    And the Spok CLI output contains "Model: opus"
     And the Spok CLI output contains "Effort: xhigh"
 
   Scenario: Flow pauses for open questions and resumes the same stage
     Given a new project
     And a staged flow task
-    And the staged flow task is completed through research
+    And the staged flow task is completed through cause check
     And a two-question design-discussion packet
     When I pause the staged flow design-discussion step with the question packet
     Then the Spok CLI exits with code 0
@@ -472,23 +482,23 @@ Feature: Tool skill artifacts
     And a staged flow task
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Next step: research-questions"
-    And the Spok CLI output contains "Model: gpt-5.6-sol"
+    And the Spok CLI output contains "Model: gpt-6.1-sol"
     And the Spok CLI output contains "Effort: xhigh"
 
   Scenario: Default flow resumes unfinished work on the current Codex Desktop harness
     Given a new project
     And the Claude harness is active
     And a staged flow task
-    And the staged flow task is completed through research
+    And the staged flow task is completed through cause check
     And the Codex Desktop harness is active without CODEX_HOME
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Profile: codex"
     And the Spok CLI output contains "Next step: design-discussion"
     And the Spok CLI output contains "Runner: codex"
-    And the Spok CLI output contains "Model: gpt-5.6-sol"
-    And the Spok CLI output contains "Effort: max"
+    And the Spok CLI output contains "Model: gpt-6.1-sol"
+    And the Spok CLI output contains "Effort: xhigh"
 
-  Scenario: Hybrid flow routes research questions to Codex Sol at medium effort
+  Scenario: Hybrid flow routes research questions to Codex Sol at xhigh effort
     Given a new project
     And the hybrid flow profile is active
     And a staged flow task
@@ -496,18 +506,18 @@ Feature: Tool skill artifacts
     Then the Spok CLI output contains "Next step: research-questions"
     And the Spok CLI output contains "Profile: hybrid"
     And the Spok CLI output contains "Runner: codex"
-    And the Spok CLI output contains "Model: gpt-5.6-sol"
-    And the Spok CLI output contains "Effort: medium"
+    And the Spok CLI output contains "Model: gpt-6.1-sol"
+    And the Spok CLI output contains "Effort: xhigh"
 
-  Scenario: Hybrid flow routes design discussion to Claude Fable
+  Scenario: Hybrid flow routes design discussion to Claude Opus
     Given a new project
     And the hybrid flow profile is active
     And a staged flow task
-    And the staged flow task is completed through research
+    And the staged flow task is completed through cause check
     When I run spok flow next for the staged task
     Then the Spok CLI output contains "Profile: hybrid"
     And the Spok CLI output contains "Runner: claude"
-    And the Spok CLI output contains "Model: fable"
+    And the Spok CLI output contains "Model: opus"
     And the Spok CLI output contains "Effort: xhigh"
 
   Scenario: Auto flow status leaves the ready step unresolved
@@ -535,10 +545,10 @@ Feature: Tool skill artifacts
     Given a new project
     And the auto flow profile is active
     And a staged flow task
-    And the staged auto flow task is completed through implement on persisted routes
+    And the staged auto flow task is ready to commit on persisted routes
     When I run spok flow status as JSON for the staged task
-    Then the JSON flow step "implement" occurrence 0 has runner "codex" and model "gpt-5.6-sol"
-    And the JSON flow step "structure-outline" occurrence 0 has runner "claude" and model "fable"
+    Then the JSON flow step "implement" occurrence 0 has runner "codex" and model "gpt-6.1-sol"
+    And the JSON flow step "structure-outline" occurrence 0 has runner "claude" and model "opus"
     And the JSON flow step "commit" occurrence 0 has no runner
 
   Scenario: Auto flow rejects OMP outside a linked worktree and falls forward
@@ -559,7 +569,7 @@ Feature: Tool skill artifacts
     And a staged flow task in a linked worktree
     When I run spok flow next as JSON for the staged task
     Then the Spok CLI output contains "\"runner\": \"omp\""
-    And the Spok CLI output contains "\"model\": \"openai-codex/gpt-5.6-sol\""
+    And the Spok CLI output contains "\"model\": \"openai-codex/gpt-6.1-sol\""
 
   Scenario: Flow skill dispatches current and OMP without silent retry
     Given a new project
@@ -584,15 +594,17 @@ Feature: Tool skill artifacts
     When I install global Spok skills for the tools "claude,codex,factory"
     Then Spok creates global skills under ".claude/skills"
     And Spok creates the global workflow skill "spok-explore" under ".claude/skills"
-    And Spok creates the global workflow skill "spok-self-learn" under ".claude/skills"
+    And Spok creates the global workflow skill "spok-review-correctness" under ".claude/skills"
     And Spok does not create ".claude/skills/spok-create-plan"
     And Spok does not create ".agents/skills/spok-create-plan"
+    And Spok does not create ".claude/skills/spok-self-learn"
+    And Spok does not create ".agents/skills/spok-review-design"
     And Spok creates global skills under ".agents/skills"
     And Spok creates the global workflow skill "spok-explore" under ".agents/skills"
-    And Spok creates the global workflow skill "spok-self-learn" under ".agents/skills"
+    And Spok creates the global workflow skill "spok-review-correctness" under ".agents/skills"
     And Spok creates global skills under ".factory/skills"
     And Spok creates the global workflow skill "spok-explore" under ".factory/skills"
-    And Spok creates the global workflow skill "spok-self-learn" under ".factory/skills"
+    And Spok creates the global workflow skill "spok-review-correctness" under ".factory/skills"
     And Spok creates the global agent "spok-codebase-locator.md" under ".claude/agents"
     And Spok creates the global agent "spok-implementer-agent.md" under ".claude/agents"
     And Spok creates the global agent "spok-codebase-locator.toml" under ".codex/agents"
@@ -622,8 +634,8 @@ Feature: Tool skill artifacts
     And the workflow skill "spok-create-research-questions" under ".claude/skills" mentions "spok-codebase-analyzer"
     And the workflow skill "spok-create-research-questions" under ".claude/skills" mentions "spok-codebase-pattern-finder"
     And the workflow skill "spok-create-research-questions" under ".claude/skills" mentions "spok-web-search-researcher"
-    And the workflow skill "spok-validate-implementation" under ".claude/skills" mentions "spok-codebase-analyzer"
-    And the workflow skill "spok-validate-implementation" under ".claude/skills" does not mention "spok-qa"
+    And the workflow skill "spok-review-correctness" under ".claude/skills" mentions "spok-codebase-analyzer"
+    And the workflow skill "spok-review-correctness" under ".claude/skills" does not mention "spok-qa"
     And the workflow skill "spok-implement-plan" under ".claude/skills" mentions "spok-implementer-agent"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "the current host's native subagent mechanism"
     And the workflow skill "spok-flow" under ".claude/skills" mentions "host-owned `general-purpose`"
@@ -674,19 +686,20 @@ Feature: Tool skill artifacts
     And the execution work root can discover the vendored skills
     When I implement a new owned file in the recorded work root
     And I run spok flow next as JSON for the staged task
+    And the review flow completes simplify
+    And the review flow records a "PASS" review
+    And I run spok flow next as JSON for the staged task
     Then the commit prompt contains only the recorded owned paths
 
-  Scenario: Design review resolves decisions without mandatory human signoff
+  Scenario: Structure outline leaves design decisions to the design gate
     Given a new project
     When I initialize Spok for the tools "claude"
-    Then the workflow skill "spok-review-design" under ".claude/skills" mentions "Resolve decisions autonomously"
-    And the workflow skill "spok-review-design" under ".claude/skills" mentions "structured question packet"
-    And the workflow skill "spok-create-structure-outline" under ".claude/skills" does not mention "surface them to the human"
+    Then the workflow skill "spok-create-structure-outline" under ".claude/skills" does not mention "surface them to the human"
 
   Scenario Outline: Question packets accept task aliases and dot-prefixed filenames
     Given a new project
     And a staged flow task
-    And the staged flow task is completed through research
+    And the staged flow task is completed through cause check
     And a two-question design-discussion packet
     When I pause the design discussion using the packet spelling "<spelling>"
     Then the Spok CLI exits with code 0
@@ -700,7 +713,7 @@ Feature: Tool skill artifacts
   Scenario: Final answers invalidate future-dated output before regeneration
     Given a new project
     And a staged flow task
-    And the staged flow task is completed through research
+    And the staged flow task is completed through cause check
     And a two-question design-discussion packet
     And a future-dated design discussion output
     When I pause the staged flow design-discussion step with the question packet

@@ -41,14 +41,12 @@ export type FlowRunState = 'ready' | 'needs-input' | 'blocked' | 'complete';
 /** Profiles resolvable at state creation; `auto` defers routing to `spok flow next`. */
 type DetectedProfile = 'claude' | 'codex';
 export type FlowProfile = DetectedProfile | 'hybrid' | 'auto';
-type FlowTier = 'max' | 'heavy' | 'mid' | 'cheap';
 
 /** Step ids no longer in the graph: a saved state that still holds one is rejected. */
 const REMOVED_STEP_IDS = [
   'plan',
   'validate-problem',
   'design-review',
-  'simplify',
   'validate',
   'repair',
   'self-learn',
@@ -63,41 +61,45 @@ const MEMORY_RULE_PATTERN = /^-\s+`([a-z0-9-]+)`\s+(?:—|-)\s+(\S.*)$/;
 // A bullet opening with a backtick is a rule attempt; anything else is prose.
 const MEMORY_RULE_BULLET_PATTERN = /^-\s+`/;
 
-// Spok flow model map
-const FLOW_STEP_TIER_BY_ID = {
-  'research-questions': 'heavy',
-  research: 'mid',
-  'design-discussion': 'max',
-  'structure-outline': 'heavy',
-  implement: 'mid',
-  commit: 'cheap',
-} as const satisfies Record<string, FlowTier>;
-
-type RoutedStepId = keyof typeof FLOW_STEP_TIER_BY_ID;
-
+// Spok flow model map, aligned to RPI 0.10.0: Claude tiers per stage, the
+// cross-harness table for hybrid. Effort is set only where RPI sets it.
 const CLAUDE_ROUTING_BY_ID = {
-  'research-questions': { runner: 'claude', model: 'opus', effort: 'medium' },
-  research: { runner: 'claude', model: 'sonnet', effort: 'medium' },
-  'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
-  'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
-  implement: { runner: 'claude', model: 'opus', effort: 'medium' },
-  commit: { runner: 'claude', model: 'haiku', effort: 'low' },
+  'research-questions': { runner: 'claude', model: 'opus' },
+  research: { runner: 'claude', model: 'opus' },
+  'cause-check': { runner: 'claude', model: 'opus' },
+  'design-discussion': { runner: 'claude', model: 'opus', effort: 'xhigh' },
+  'structure-outline': { runner: 'claude', model: 'opus' },
+  implement: { runner: 'claude', model: 'opus' },
+  simplify: { runner: 'claude', model: 'opus' },
+  review: { runner: 'claude', model: 'opus', effort: 'high' },
+  commit: { runner: 'claude', model: 'sonnet' },
+} as const satisfies Record<string, Routing>;
+
+type RoutedStepId = keyof typeof CLAUDE_ROUTING_BY_ID;
+
+const CODEX_ROUTING_BY_ID = {
+  'research-questions': { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+  research: { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+  'cause-check': { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+  'design-discussion': { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+  'structure-outline': { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+  implement: { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+  simplify: { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+  review: { runner: 'codex', model: 'gpt-6-astra', effort: 'high' },
+  commit: { runner: 'codex', model: 'gpt-6.1-terra', effort: 'medium' },
 } as const satisfies Record<RoutedStepId, Routing>;
 
-const CODEX_ROUTING_BY_TIER: Record<FlowTier, Routing> = {
-  max: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
-  heavy: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-  mid: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'xhigh' },
-  cheap: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
-};
-
+/** RPI's cross-harness routing: Codex workers, with design, outline, and simplify on Claude. */
 const HYBRID_ROUTING_BY_ID = {
-  'research-questions': { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-  research: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-  'design-discussion': { runner: 'claude', model: 'fable', effort: 'xhigh' },
-  'structure-outline': { runner: 'claude', model: 'fable', effort: 'xhigh' },
-  implement: { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-  commit: { runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
+  'research-questions': CODEX_ROUTING_BY_ID['research-questions'],
+  research: CODEX_ROUTING_BY_ID.research,
+  'cause-check': CLAUDE_ROUTING_BY_ID['cause-check'],
+  'design-discussion': { runner: 'claude', model: 'opus', effort: 'xhigh' },
+  'structure-outline': { runner: 'claude', model: 'opus', effort: 'high' },
+  implement: CODEX_ROUTING_BY_ID.implement,
+  simplify: { runner: 'claude', model: 'opus', effort: 'high' },
+  review: CODEX_ROUTING_BY_ID.review,
+  commit: CODEX_ROUTING_BY_ID.commit,
 } as const satisfies Record<RoutedStepId, Routing>;
 
 /** Sole key check for the auto policy table: fails to compile if harness-routing.ts drops a step that flow.ts routes. */
@@ -329,8 +331,10 @@ interface FlowStepPaths {
   ticket: string;
   researchQuestions: string;
   research: string;
+  causalPaths: string;
   designDiscussion: string;
   structureOutline: string;
+  review: string;
 }
 
 interface StepDefinitionSpec {
@@ -357,6 +361,13 @@ const BASE_STEP_DEFINITION_SPECS = [
     completionKind: 'file',
   },
   {
+    id: 'cause-check',
+    skill: 'spok-cause-check',
+    argument: 'taskDir',
+    expectedOutput: 'causalPaths',
+    completionKind: 'file',
+  },
+  {
     id: 'design-discussion',
     skill: 'spok-create-design-discussion',
     argument: 'taskDir',
@@ -375,6 +386,19 @@ const BASE_STEP_DEFINITION_SPECS = [
     skill: 'spok-implement-plan',
     argument: 'taskDir',
     completionKind: 'summary',
+  },
+  {
+    id: 'simplify',
+    skill: 'spok-simplify',
+    argument: 'taskDir',
+    completionKind: 'summary',
+  },
+  {
+    id: 'review',
+    skill: 'spok-review-correctness',
+    argument: 'taskDir',
+    expectedOutput: 'review',
+    completionKind: 'file',
   },
   {
     id: 'commit',
@@ -403,7 +427,7 @@ interface LoadResult {
   statePath: string;
   state?: WorkflowState;
   reason?: string;
-  /** A finished legacy state is reported as saved: never normalized, never written. */
+  /** A finished state is reported as saved: never normalized, never written. */
   readOnly?: boolean;
 }
 
@@ -512,7 +536,7 @@ function buildMemoryWarning(memory: MemoryRead | undefined): string | undefined 
   return `${memory.path}: ${problems.join('; ')}.`;
 }
 
-const EXECUTION_STEPS = new Set(['implement', 'commit']);
+const EXECUTION_STEPS = new Set(['implement', 'simplify', 'review', 'commit']);
 
 function executionPrompt(step: string, execution: FlowExecution): string {
   const lines = [
@@ -522,6 +546,9 @@ function executionPrompt(step: string, execution: FlowExecution): string {
   ];
   if (step === 'implement') {
     lines.push('Return every current chunk changed path relative to the work root, including new files and deletions, plus exact verification commands and exit codes. The caller must pass that list through --changed-path.');
+  }
+  if (step !== 'commit') {
+    lines.push('Run every agent and test run in the foreground and wait for it. Never end your turn while one is still going.');
   }
   if (step === 'commit') lines.push('If HEAD differs from the baseline, the CLI has verified an existing completed chunk commit. Report that HEAD SHA without creating another commit; this resumes an interrupted completion.');
   if (execution.ownedPaths && step !== 'implement') {
@@ -570,13 +597,15 @@ async function checkExecutionCompletion(
       return `Work root conflicts with recorded execution root: ${execution.workRoot}`;
     }
     if (input.step === 'commit') return await checkExecutionCommit(state, input);
-    const changed = await executionChanges(execution, state.taskDir);
     if (input.step === 'implement') {
+      const changed = await executionChanges(execution, state.taskDir);
       const reported = [...new Set(input.changedPaths ?? [])].sort();
       if (JSON.stringify(reported) !== JSON.stringify([...changed].sort())) {
         return `Reported --changed-path paths must match chunk changes: ${JSON.stringify(changed)}`;
       }
       execution.ownedPaths = changed;
+    } else {
+      await validateExecutionScope(execution, state.taskDir, execution.ownedPaths ?? []);
     }
   } catch (error) {
     return (error as Error).message;
@@ -672,7 +701,9 @@ function openQuestionClause(
       ? 'Resolve code-answerable uncertainty from the repository and supplied artifacts. Every consequential ' +
         'design question stays OPEN for the user: never resolve one yourself and do not ask the user directly. ' +
         'Write each one to the question packet, preferring choice questions with options, consequences, and a ' +
-        `recommendation; only the user's answers resolve them. To ask, ${packetLocation}`
+        "recommendation; only the user's answers resolve them. End each option's consequence with " +
+        '`Rests on: <weakest premise> (verified|unverified)`, and name in the question prompt the observation ' +
+        `that would change the pick. To ask, ${packetLocation}`
       : 'Resolve code-answerable uncertainty from the repository and supplied artifacts. Do not ask the user ' +
         'directly. Ask through the question packet when an answer would help. ' +
         `To ask, ${packetLocation}`,
@@ -684,14 +715,50 @@ function openQuestionClause(
 }
 
 const STEP_PROMPT_CLAUSES: Partial<Record<RoutedStepId, string>> = {
+  'cause-check':
+    'For new behavior with no reported wrong state, write `N/A: no defect` as the note. A query on ' +
+    'production data goes to the user: ask for it through the question packet.',
+  'design-discussion':
+    'Read `evidence/causal-paths.md` in the task directory and place the fix at the first wrong step it names; ' +
+    'steps below it get at most a guard. If it supports no single path, say so in the location question. ' +
+    'Add a Smallest Viable Control decision: at that location, compare the available existing control surfaces, ' +
+    'choose the least complex scope that satisfies the requirement, and justify any new persisted state, ' +
+    'feature flag, or cross-service control. Small scope never moves the fix from the cause to where the symptom shows.',
+  'structure-outline':
+    'Every design question in the design discussion was resolved by the user at the design gate. Build only on ' +
+    'the resolved decisions. If you find a design question still open, ask it through the question packet ' +
+    'instead of writing an outline.',
   implement:
     'You are running inside spok-flow. Implement and verify the selected implementation artifact, return a ' +
-    'summary of what you did, and do NOT create any commits — the commit step owns that. ' +
+    'summary of what you did, and do NOT create any commits — the commit step owns that. Run all phases ' +
+    'consecutively and do not pause for phase approval. ' +
     'Only on successful completion, end your reply with a final line reading `Work root: <absolute path>`, naming the ' +
     'absolute path of the repository working tree you edited (the git worktree root that ' +
     'holds the changed files, which may differ from the task directory). Report the path ' +
     '`git -C <directory containing an edited file> rev-parse --show-toplevel` prints, not a guess.',
+  simplify:
+    'Pass the exact implementation allowlist as the simplification scope. Preserve observable behavior and ' +
+    'public interfaces. Do not edit task artifacts; do not stage, commit, or push. Return the resolved scope, ' +
+    'fixes applied, candidates skipped, every changed path, and verification commands with exit codes.',
+  review:
+    'Review the full task change set (staged, unstaged, and untracked files in the allowlist) for correctness ' +
+    'against the structure outline. Review inputs: `ticket.md`, `evidence/causal-paths.md`, ' +
+    '`design-discussion.md`, and `structure-outline.md` in the task directory. The reviewer is read-only; ' +
+    'repairs stay inside the allowlist, add regression coverage where practical, and never commit. Cap repairs ' +
+    'at two rounds. `review.md` must begin with exactly `---\ntype: correctness-review\nverdict: PASS\n---` ' +
+    '(or `verdict: FAIL` when confirmed defects remain) and list every verification command with its exit code.',
+  commit:
+    'Before committing, rerun every verification command listed in `review.md` from the work root. Commit only ' +
+    'when every one exits 0; on any non-zero exit, stop, report each command with its exit code, and do not commit.',
 };
+
+/** RPI pins nested research agents to sonnet; every other nested agent runs on the step's model. */
+function nestedAgentClause(model: FlowModel): string {
+  return (
+    `Pass \`model: ${model}\` on every Agent call you make, except \`spok-codebase-locator\`, ` +
+    '`spok-codebase-analyzer`, and `spok-codebase-pattern-finder`, which get `model: sonnet`.'
+  );
+}
 
 /**
  * The commit step runs as a fresh subagent with no session history, so the
@@ -712,7 +779,8 @@ function buildStepPrompt(
   rules: string[],
   interactions?: FlowInteraction[],
   workRoot?: string,
-  execution?: FlowExecution
+  execution?: FlowExecution,
+  nestedModel?: FlowModel
 ): string {
   const sections: string[] = [];
 
@@ -746,6 +814,8 @@ function buildStepPrompt(
 
   if (workRoot && definition.completionKind === 'commit') sections.push(workRootClause(workRoot));
 
+  if (nestedModel) sections.push(nestedAgentClause(nestedModel));
+
   return sections.join('\n\n');
 }
 
@@ -755,8 +825,10 @@ function buildFlowStepPaths(taskDir: string): FlowStepPaths {
     ticket: path.join(taskDir, 'ticket.md'),
     researchQuestions: path.join(taskDir, 'research-questions.md'),
     research: path.join(taskDir, 'research.md'),
+    causalPaths: path.join(taskDir, 'evidence', 'causal-paths.md'),
     designDiscussion: path.join(taskDir, 'design-discussion.md'),
     structureOutline: path.join(taskDir, 'structure-outline.md'),
+    review: path.join(taskDir, 'review.md'),
   };
 }
 
@@ -764,7 +836,7 @@ function profileRouting(spec: StepDefinitionSpec, profile: FlowProfile): Routing
   if (profile === 'auto') return undefined;
   if (profile === 'hybrid') return HYBRID_ROUTING_BY_ID[spec.id];
   if (profile === 'claude') return CLAUDE_ROUTING_BY_ID[spec.id];
-  return CODEX_ROUTING_BY_TIER[FLOW_STEP_TIER_BY_ID[spec.id]];
+  return CODEX_ROUTING_BY_ID[spec.id];
 }
 
 function buildStepDefinition(
@@ -1013,6 +1085,8 @@ function flowBlockCode(reason: string): string {
   if (reason.startsWith('Flow profile mismatch:')) return 'flow_profile_mismatch';
   if (reason.startsWith('Missing completed artifact for step ')) return 'missing_completed_artifact';
   if (reason.startsWith('Expected step ')) return 'wrong_step';
+  if (reason.startsWith('Step review recorded a FAIL verdict')) return 'review_verdict_fail';
+  if (reason.startsWith('Step review has no readable verdict')) return 'review_verdict_unreadable';
   if (reason.startsWith('Unknown workflow step:')) return 'unknown_step';
   if (reason.startsWith('Expected output path ')) return 'wrong_output_path';
   if (reason.startsWith('Expected output file is missing or empty for step ')) return 'missing_output';
@@ -1100,8 +1174,9 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
     const raw = await fs.readFile(statePath, 'utf-8');
     const stored: unknown = JSON.parse(raw);
     const removedId = firstRemovedStepId(stored);
-    const finishedLegacy = removedId !== undefined && isFinishedState(stored);
-    if (removedId && !finishedLegacy) {
+    // A finished flow is a record: never re-normalized against a graph that grew new steps.
+    const finished = isFinishedState(stored);
+    if (removedId && !finished) {
       return {
         taskDir,
         statePath,
@@ -1116,7 +1191,7 @@ async function loadOrCreateState(taskDirInput: string): Promise<LoadResult> {
     if (!resolved.profile) {
       return { taskDir, statePath, reason: resolved.reason! };
     }
-    if (finishedLegacy) {
+    if (finished) {
       const state = { ...(stored as WorkflowState), taskDir, profile: resolved.profile };
       return { taskDir, statePath, state, readOnly: true };
     }
@@ -1172,7 +1247,10 @@ function withStepPrompt(
   const definition = getDefinitionById(state, step.id);
   if (!definition) return step;
 
-  const prompt = buildStepPrompt(state.taskDir, definition, rules, step.interactions, workRoot, execution);
+  const nestedModel = step.runner === 'claude' ? step.model : undefined;
+  const prompt = buildStepPrompt(
+    state.taskDir, definition, rules, step.interactions, workRoot, execution, nestedModel
+  );
   const artifact = path.join(state.taskDir, 'structure-outline.md');
   return {
     ...step,
@@ -1510,6 +1588,18 @@ async function completeCommitResult(
   };
 }
 
+const REVIEW_VERDICT_PATTERN = /^---\r?\ntype: correctness-review\r?\nverdict: (\S+)\r?\n---(?:\r?\n|$)/;
+
+/** The commit waits on a PASS: a FAIL keeps review ready so the next dispatch reviews and repairs again. */
+async function reviewVerdictError(reviewPath: string): Promise<string | undefined> {
+  const verdict = (await fs.readFile(reviewPath, 'utf-8')).match(REVIEW_VERDICT_PATTERN)?.[1];
+  if (verdict === 'PASS') return;
+  if (verdict === 'FAIL') {
+    return `Step review recorded a FAIL verdict: ${reviewPath}. Fix the confirmed defects, then run spok flow next to review again.`;
+  }
+  return `Step review has no readable verdict (expected frontmatter type: correctness-review and verdict: PASS or FAIL): ${reviewPath}`;
+}
+
 async function completeStepResult(
   definition: StepDefinition,
   input: FlowCompleteInput,
@@ -1521,6 +1611,10 @@ async function completeStepResult(
 
     if (!(await pathIsNonEmptyFile(definition.expectedOutput!))) {
       return `Expected output file is missing or empty for step ${definition.id}: ${definition.expectedOutput}`;
+    }
+    if (definition.id === 'review') {
+      const verdictError = await reviewVerdictError(definition.expectedOutput!);
+      if (verdictError) return verdictError;
     }
 
     return {
@@ -1553,14 +1647,8 @@ async function completeStepResult(
   return completeCommitResult(definition, input, recordedRoot);
 }
 
-/** Phases the user reviews before the flow advances. Commit is not gated. */
-const REVIEW_GATED_STEP_IDS = new Set([
-  'research-questions',
-  'research',
-  'design-discussion',
-  'structure-outline',
-  'implement',
-]);
+/** RPI's single human gate: the design. Every other phase advances on completion. */
+const REVIEW_GATED_STEP_IDS = new Set(['design-discussion']);
 
 function isReviewApproval(answer: string): boolean {
   return answer.trim().toLowerCase() === 'approve';
@@ -1603,25 +1691,12 @@ async function gateForReview(
   return buildResponse(state);
 }
 
-/**
- * Approving re-verifies what completion verified: a file phase's artifact, and the
- * implementation's execution scope. A mismatch blocks without writing, so the reviewer
- * can still answer with revision feedback; the recorded ownedPaths are never recomputed.
- */
+/** Approving re-verifies the design artifact; a missing one blocks without writing. */
 async function approvalError(state: WorkflowState, step: FlowStep): Promise<string | undefined> {
   const definition = getDefinitionById(state, step.id);
   if (definition?.completionKind === 'file' && definition.expectedOutput &&
       !(await pathIsNonEmptyFile(definition.expectedOutput))) {
     return `Expected output file is missing or empty for step ${step.id}: ${definition.expectedOutput}`;
-  }
-  if (step.id !== 'implement' || !state.execution) return;
-  try {
-    const changed = await executionChanges(state.execution, state.taskDir);
-    const owned = [...(state.execution.ownedPaths ?? [])].sort();
-    if (JSON.stringify(changed) === JSON.stringify(owned)) return;
-    return `The implementation changed after it was submitted for review: reviewed ${JSON.stringify(owned)}, now ${JSON.stringify(changed)}. Answer with feedback to rerun implement.`;
-  } catch (error) {
-    return `${(error as Error).message}. Answer with feedback to rerun implement.`;
   }
 }
 

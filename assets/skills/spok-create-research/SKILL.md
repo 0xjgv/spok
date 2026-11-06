@@ -1,11 +1,18 @@
 ---
 name: spok-create-research
 description: Research the codebase from supplied research questions and write an evidence-based research document.
+argument-hint: <research-questions-file> (absolute path to <task-dir>/research-questions.md)
+license: MIT
+metadata:
+  author: spok
+  version: "1.1"
 ---
 
 # Research Codebase
 
 Your only job is to document and explain the codebase as it exists today. This is read-only research: do not change source code, diagnose root causes, critique the implementation, recommend changes, or propose future work unless the user explicitly requests it.
+
+When a question asks which paths write or derive a state, document every such path and the trace each leaves in stored data (fields, flags, values), so a later step can tell the paths apart with one query or repro. Describe the paths; do not pick the one that caused a reported defect.
 
 ## Invocation contract
 

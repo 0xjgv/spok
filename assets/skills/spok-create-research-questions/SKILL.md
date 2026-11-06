@@ -1,6 +1,11 @@
 ---
 name: spok-create-research-questions
 description: generate research questions based on a task, spec, or ticket
+argument-hint: <ticket-file> (absolute path to the task's ticket.md)
+license: MIT
+metadata:
+  author: spok
+  version: "1.1"
 ---
 
 You are a research orchestrator helping to create research questions about the current codebase.
@@ -35,7 +40,6 @@ These specialized agents are available for the delegation step below:
    - Read the ticket file supplied as the skill argument FULLY, including its context pointers and dependencies.
    - Any files mentioned with @ are auto-injected into your context
    - Review them carefully before creating questions
-   - If `<task-dir>/problem-validation.md` exists next to the ticket, read it FULLY and use its evidence as context. Do not redo reproduction or root cause analysis.
 
 2. **Delegate lightweight research before drafting any question**
    - Use the current host's native subagent mechanism to delegate to the agents listed above. Questions must be written from evidence, not from guesses about the codebase.
@@ -54,6 +58,8 @@ These specialized agents are available for the delegation step below:
    - Potential complexities or edge cases
    - Architecture, dependencies, and implementation details
    - Which existing controls, state, platform guarantees, or upstream mechanisms already govern the reported behavior, where their boundaries lie, and what evidence establishes the smallest viable scope. Research what exists; leave solution selection to design.
+   - For state the ticket reports as wrong: every code path that writes or derives that state, and the trace each path leaves in stored data (fields, flags, values). A later step uses these traces to tell the paths apart with one query or repro.
+   - For each claim the ticket's `## Claims` section marks as `hypothesis`: how the code behaves for that claim. Never treat a hypothesis as established, even when the ticket states it as fact.
    - For frontend or UI work, locate the design system, reusable components, tokens, and theming conventions, including their existing usage and verification patterns. Probe the component library in use, the design tokens with their hex values, typography settings, spacing, borders, and shadows, and what theming system exists. Consider this category even if UI is not explicitly mentioned in the ticket. Skip it only for work with no UI surface; combine related exploration to stay within the question limit.
 
    **MANDATORY — every run must include this question**: what are this repository's actual lint, typecheck, test, and format commands? The answer must be sourced from the repository's own manifest — `package.json` scripts, `Makefile` targets, or the equivalent for this stack — and never inferred from a toolchain name, a lockfile, or a config file's presence. Phrase it as codebase exploration like every other question, with path steering to the manifest.
@@ -67,7 +73,7 @@ CRITICAL - DO NOT LEAK ANY IMPLEMENTATION DETAILS OR THE NATURE OF YOUR TASK INT
 5. **Preserve key context and refine questions**
    - Add `## Key Context Pointers` before the numbered questions. Preserve ticket URLs, repository identifiers, dependencies, and paths verbatim from the request and ticket, with a short label explaining each pointer's relevance. Do not shorten, normalize, or replace them with a generic description.
    - Mark unavailable pointers as unknown rather than inventing them. These pointers do not count toward the question limit.
-   - Choose the research questions autonomously from the available evidence; ask when clarification would improve the result. When dispatched by an outer flow, use its supplied structured question packet and `NEEDS_INPUT` contract instead of asking the user directly.
+   - Choose the research questions autonomously from the available evidence; ask when clarification would improve the result. When running under `spok flow`, raise it through the flow's question packet and its `NEEDS_INPUT` contract; otherwise use AskUserQuestion.
 
 You are teaching the other agent how to do good research, so:
 
@@ -79,7 +85,7 @@ YOU MUST FORMAT YOUR QUESTIONS like the below, as high level codebase exploratio
 
 `Read({SKILLBASE}/references/research_questions_template.md)`
 
-Follow this format, using an appropriate number of questions for the task (no more than 8, no less than 2, use your judgement)
+Follow this format, using an appropriate number of questions for the task (fewer than 8 except for the largest tasks, no fewer than 2, use your judgement). Fit depth and count to the size and shape of the task.
 
 2. **Write the research questions** to `<task-dir>/research-questions.md`
    - Before writing, delete any sibling files matching `<task-dir>/[0-9]{4}-[0-9]{2}-[0-9]{2}-research-questions.md` (legacy date-prefixed orphans from pre-fork runs).

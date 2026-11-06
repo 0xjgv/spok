@@ -19,13 +19,10 @@
 ### Next Steps
 
 Inside a flow, return the outline to the caller. The caller completes the step and
-uses `spok flow next "<task-dir>" --json` to select the next stage. Design review
-checks whether the outline is ready for implementation.
+uses `spok flow next "<task-dir>" --json` to select the next stage.
 
-Standalone, request a readiness review:
+Standalone, implement the outline:
 
 ```text
-use the spok-review-design skill for <task-dir>
+use the spok-implement-plan skill with <task-dir>/structure-outline.md
 ```
-
-After a passing review, use `spok-implement-plan` with the task directory.

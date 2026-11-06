@@ -35,14 +35,20 @@ const OMP_MODELS_JSON = JSON.stringify({
   models: [
     {
       provider: 'openai-codex',
-      id: 'gpt-5.6-sol',
-      selector: 'openai-codex/gpt-5.6-sol',
+      id: 'gpt-6.1-sol',
+      selector: 'openai-codex/gpt-6.1-sol',
       thinking: OMP_EFFORTS,
     },
     {
       provider: 'openai-codex',
-      id: 'gpt-5.6-terra',
-      selector: 'openai-codex/gpt-5.6-terra',
+      id: 'gpt-6.1-terra',
+      selector: 'openai-codex/gpt-6.1-terra',
+      thinking: OMP_EFFORTS,
+    },
+    {
+      provider: 'openai-codex',
+      id: 'gpt-6-astra',
+      selector: 'openai-codex/gpt-6-astra',
       thinking: OMP_EFFORTS,
     },
     { provider: 'anthropic', id: 'claude-haiku', selector: 'anthropic/claude-haiku', thinking: [] },
@@ -57,8 +63,9 @@ function allAvailable(): CapabilityReport[] {
   return [
     { runner: 'codex', available: true },
     ompReport([
-      ['openai-codex/gpt-5.6-sol', OMP_EFFORTS],
-      ['openai-codex/gpt-5.6-terra', OMP_EFFORTS],
+      ['openai-codex/gpt-6.1-sol', OMP_EFFORTS],
+      ['openai-codex/gpt-6.1-terra', OMP_EFFORTS],
+      ['openai-codex/gpt-6-astra', OMP_EFFORTS],
     ]),
     { runner: 'claude', available: true },
   ];
@@ -69,34 +76,49 @@ describe('AUTO_V1_CANDIDATES_BY_ID', () => {
     expect(AUTO_POLICY_VERSION).toBe('auto-v1');
     expect(AUTO_V1_CANDIDATES_BY_ID).toEqual({
       'research-questions': [
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'medium' },
-        { runner: 'claude', model: 'opus', effort: 'medium' },
+        { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+        { runner: 'omp', model: 'openai-codex/gpt-6.1-sol', effort: 'xhigh' },
+        { runner: 'claude', model: 'opus' },
       ],
       research: [
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'medium' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'medium' },
-        { runner: 'claude', model: 'sonnet', effort: 'medium' },
+        { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+        { runner: 'omp', model: 'openai-codex/gpt-6.1-sol', effort: 'high' },
+        { runner: 'claude', model: 'opus' },
+      ],
+      'cause-check': [
+        { runner: 'claude', model: 'opus' },
+        { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+        { runner: 'omp', model: 'openai-codex/gpt-6.1-sol', effort: 'xhigh' },
       ],
       'design-discussion': [
-        { runner: 'claude', model: 'fable', effort: 'xhigh' },
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'max' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'max' },
+        { runner: 'claude', model: 'opus', effort: 'xhigh' },
+        { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+        { runner: 'omp', model: 'openai-codex/gpt-6.1-sol', effort: 'xhigh' },
       ],
       'structure-outline': [
-        { runner: 'claude', model: 'fable', effort: 'xhigh' },
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
+        { runner: 'claude', model: 'opus', effort: 'high' },
+        { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+        { runner: 'omp', model: 'openai-codex/gpt-6.1-sol', effort: 'high' },
       ],
       implement: [
-        { runner: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-sol', effort: 'xhigh' },
-        { runner: 'claude', model: 'opus', effort: 'medium' },
+        { runner: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' },
+        { runner: 'omp', model: 'openai-codex/gpt-6.1-sol', effort: 'xhigh' },
+        { runner: 'claude', model: 'opus' },
+      ],
+      simplify: [
+        { runner: 'claude', model: 'opus', effort: 'high' },
+        { runner: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+        { runner: 'omp', model: 'openai-codex/gpt-6.1-sol', effort: 'high' },
+      ],
+      review: [
+        { runner: 'codex', model: 'gpt-6-astra', effort: 'high' },
+        { runner: 'omp', model: 'openai-codex/gpt-6-astra', effort: 'high' },
+        { runner: 'claude', model: 'opus', effort: 'high' },
       ],
       commit: [
-        { runner: 'codex', model: 'gpt-5.6-terra', effort: 'low' },
-        { runner: 'omp', model: 'openai-codex/gpt-5.6-terra', effort: 'low' },
-        { runner: 'claude', model: 'haiku', effort: 'low' },
+        { runner: 'codex', model: 'gpt-6.1-terra', effort: 'medium' },
+        { runner: 'omp', model: 'openai-codex/gpt-6.1-terra', effort: 'medium' },
+        { runner: 'claude', model: 'sonnet' },
       ],
     });
   });
@@ -108,7 +130,7 @@ describe('AUTO_V1_CANDIDATES_BY_ID', () => {
     }
   });
 
-  it('uses OMP only through the two openai-codex selectors, mirroring the preceding Codex candidate', () => {
+  it('uses OMP only through openai-codex selectors, mirroring the preceding Codex candidate', () => {
     for (const candidates of Object.values(AUTO_V1_CANDIDATES_BY_ID)) {
       candidates.forEach((candidate, index) => {
         if (candidate.runner !== 'omp') return;
@@ -137,7 +159,7 @@ describe('selectAutoRoute', () => {
     expect(selectAutoRoute('implement', allAvailable())).toEqual({
       route: {
         runner: 'codex',
-        model: 'gpt-5.6-sol',
+        model: 'gpt-6.1-sol',
         effort: 'xhigh',
         route: { policy: 'auto-v1', modelControl: 'selectable', rejected: [] },
       },
@@ -152,7 +174,7 @@ describe('selectAutoRoute', () => {
         code: 'not_authenticated',
         reason: 'codex login status reported: Not logged in',
       },
-      ompReport([['openai-codex/gpt-5.6-terra', OMP_EFFORTS]]),
+      ompReport([['openai-codex/gpt-6.1-terra', OMP_EFFORTS]]),
       { runner: 'claude', available: true },
     ];
 
@@ -160,24 +182,23 @@ describe('selectAutoRoute', () => {
       route: {
         runner: 'claude',
         model: 'opus',
-        effort: 'medium',
         route: {
           policy: 'auto-v1',
           modelControl: 'selectable',
           rejected: [
             {
               runner: 'codex',
-              model: 'gpt-5.6-sol',
+              model: 'gpt-6.1-sol',
               effort: 'xhigh',
               code: 'not_authenticated',
               reason: 'codex login status reported: Not logged in',
             },
             {
               runner: 'omp',
-              model: 'openai-codex/gpt-5.6-sol',
+              model: 'openai-codex/gpt-6.1-sol',
               effort: 'xhigh',
               code: 'model_unavailable',
-              reason: 'omp models --json lists no selector openai-codex/gpt-5.6-sol.',
+              reason: 'omp models --json lists no selector openai-codex/gpt-6.1-sol.',
             },
           ],
         },
@@ -193,7 +214,7 @@ describe('selectAutoRoute', () => {
         code: 'executable_missing',
         reason: 'codex is not installed or not on PATH.',
       },
-      ompReport([['openai-codex/gpt-5.6-sol', ['low', 'medium']]]),
+      ompReport([['openai-codex/gpt-6.1-sol', ['low', 'medium']]]),
       { runner: 'claude', available: true },
     ];
 
@@ -201,11 +222,11 @@ describe('selectAutoRoute', () => {
     expect('route' in result && result.route.runner).toBe('claude');
     expect('route' in result && result.route.route.rejected[1]).toEqual({
       runner: 'omp',
-      model: 'openai-codex/gpt-5.6-sol',
+      model: 'openai-codex/gpt-6.1-sol',
       effort: 'xhigh',
       code: 'effort_unsupported',
       reason:
-        'omp selector openai-codex/gpt-5.6-sol supports thinking low, medium, not xhigh.',
+        'omp selector openai-codex/gpt-6.1-sol supports thinking low, medium, not xhigh.',
     });
   });
 });
@@ -219,20 +240,21 @@ describe('selectAutoRoute rejection completeness', () => {
         code: 'executable_missing',
         reason: 'codex is not installed or not on PATH.',
       },
-      ompReport([['openai-codex/gpt-5.6-sol', []]]),
+      ompReport([['openai-codex/gpt-6.1-sol', []]]),
       { runner: 'claude', available: true },
     ];
 
     const result = selectAutoRoute('implement', reports);
     expect('route' in result && result.route.route.rejected[1]).toMatchObject({
       code: 'effort_unsupported',
-      reason: 'omp selector openai-codex/gpt-5.6-sol supports thinking none, not xhigh.',
+      reason: 'omp selector openai-codex/gpt-6.1-sol supports thinking none, not xhigh.',
     });
   });
 
   it('rejects a runner with no report as probe_failed', () => {
     const result = selectAutoRoute('commit', [{ runner: 'claude', available: true }]);
-    expect(result).toMatchObject({ route: { runner: 'claude', model: 'haiku', effort: 'low' } });
+    expect(result).toMatchObject({ route: { runner: 'claude', model: 'sonnet' } });
+    expect('route' in result && result.route).not.toHaveProperty('effort');
     expect('route' in result && result.route.route.rejected.map((rejection) => rejection.code)).toEqual([
       'probe_failed',
       'probe_failed',
@@ -271,14 +293,14 @@ describe('selectAutoRoute rejection completeness', () => {
         rejected: [
           {
             runner: 'codex',
-            model: 'gpt-5.6-sol',
+            model: 'gpt-6.1-sol',
             effort: 'xhigh',
             code: 'executable_missing',
             reason: 'codex is not installed or not on PATH.',
           },
           {
             runner: 'omp',
-            model: 'openai-codex/gpt-5.6-sol',
+            model: 'openai-codex/gpt-6.1-sol',
             effort: 'xhigh',
             code: 'probe_timeout',
             reason: 'omp models --json did not finish within the probe timeout.',
@@ -286,7 +308,6 @@ describe('selectAutoRoute rejection completeness', () => {
           {
             runner: 'claude',
             model: 'opus',
-            effort: 'medium',
             code: 'not_authenticated',
             reason: 'claude auth status --json reports loggedIn is not true.',
           },
@@ -323,10 +344,10 @@ describe('selectAutoRoute isolation rejection persistence', () => {
 
     const { route } = selectAutoRoute('implement', reports);
 
-    expect(route).toMatchObject({ runner: 'claude', model: 'opus', effort: 'medium' });
+    expect(route).toMatchObject({ runner: 'claude', model: 'opus' });
     expect(route.route.rejected[1]).toEqual({
       runner: 'omp',
-      model: 'openai-codex/gpt-5.6-sol',
+      model: 'openai-codex/gpt-6.1-sol',
       effort: 'xhigh',
       code: 'work_root_not_isolated',
       reason: '/tmp/work is not a provably linked Git worktree; omp --auto-approve requires one.',
@@ -350,8 +371,9 @@ describe('probeHarnesses', () => {
         runner: 'omp',
         available: true,
         models: new Map([
-          ['openai-codex/gpt-5.6-sol', OMP_EFFORTS],
-          ['openai-codex/gpt-5.6-terra', OMP_EFFORTS],
+          ['openai-codex/gpt-6.1-sol', OMP_EFFORTS],
+          ['openai-codex/gpt-6.1-terra', OMP_EFFORTS],
+          ['openai-codex/gpt-6-astra', OMP_EFFORTS],
           ['anthropic/claude-haiku', []],
         ]),
       },
